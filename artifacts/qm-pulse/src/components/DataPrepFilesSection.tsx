@@ -5,8 +5,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Trash2, Loader2, Database } from "lucide-react";
+import { Download, Trash2, Loader2, Database, Upload } from "lucide-react";
 import { format } from "date-fns";
+import { AttachmentFileList, type DescribedFile } from "@/components/AttachmentFileList";
 
 // CR070 — prefilled when a milestone is switched to "Data Prep" so QA knows
 // exactly what to hand over, without the PM having to type it from scratch.
@@ -52,6 +53,9 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // The chosen file is staged (not uploaded on select) so QA can add an
+  // optional description first — stored in data_prep_files.note.
+  const [pending, setPending] = useState<(DescribedFile & { file: File })[]>([]);
 
   const { data: files = [], isLoading } = useQuery<DataPrepFile[]>({
     queryKey: ["data-prep-files", milestoneId],
@@ -61,10 +65,18 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
     },
   });
 
-  const handlePick = async (file: File | null) => {
+  const handlePick = (file: File | null) => {
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (!file) return;
     if (file.size === 0) { toast({ variant: "destructive", title: "File is empty" }); return; }
     if (file.size > 15 * 1024 * 1024) { toast({ variant: "destructive", title: "File too large (max 15 MB)" }); return; }
+    setPending([{ file, filename: file.name, description: "" }]);
+  };
+
+  const handleUpload = async () => {
+    const staged = pending[0];
+    if (!staged) return;
+    const { file } = staged;
     setUploading(true);
     try {
       const dataBase64 = await new Promise<string>((resolve, reject) => {
@@ -75,10 +87,11 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
       });
       const res = await api("/data-prep-files", token, {
         method: "POST",
-        body: JSON.stringify({ milestoneId, fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64 }),
+        body: JSON.stringify({ milestoneId, fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64, note: staged.description?.trim() || null }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? "Upload failed"); }
       toast({ title: "File uploaded" });
+      setPending([]);
       queryClient.invalidateQueries({ queryKey: ["data-prep-files", milestoneId] });
       queryClient.invalidateQueries({ queryKey: ["milestones"] });
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
@@ -86,7 +99,6 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
       toast({ variant: "destructive", title: e.message ?? "Upload failed" });
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -114,9 +126,9 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
   const canDelete = (f: DataPrepFile) => canWrite && (f.uploadedBy === userId || f.uploadedBy == null);
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 min-w-0">
       <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide flex items-center gap-1.5">
-        <Database className="w-3.5 h-3.5" /> Data File
+        <Database className="w-3.5 h-3.5 shrink-0" /> Data File
       </Label>
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
@@ -125,14 +137,15 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
       ) : (
         <div className="space-y-1.5">
           {files.map((f) => (
-            <div key={f.id} className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-xs">
-              <div className="min-w-0">
-                <p className="font-medium truncate">{f.fileName}</p>
-                <p className="text-muted-foreground">{fmtSize(f.sizeBytes)} · {f.uploaderName ?? "—"} · {format(new Date(f.createdAt), "dd MMM yyyy")}</p>
+            <div key={f.id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded border px-2.5 py-1.5 text-xs min-w-0">
+              <div className="min-w-0 flex-1 basis-40">
+                <p className="font-medium truncate" title={f.fileName}>{f.fileName}</p>
+                {f.note && <p className="text-muted-foreground truncate" title={f.note}>{f.note}</p>}
+                <p className="text-muted-foreground truncate">{fmtSize(f.sizeBytes)} · {f.uploaderName ?? "—"} · {format(new Date(f.createdAt), "dd MMM yyyy")}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" onClick={() => handleDownload(f)}>
-                  <Download className="w-3.5 h-3.5" /> Download
+                  <Download className="w-3.5 h-3.5 shrink-0" /> Download
                 </Button>
                 {canDelete(f) && (
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDelete(f)} aria-label="Delete file">
@@ -145,9 +158,18 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
         </div>
       )}
       {canWrite && (
-        <div className="pt-1">
-          <Input ref={fileInputRef} type="file" disabled={uploading} onChange={(e) => handlePick(e.target.files?.[0] ?? null)} className="h-8 text-xs file:text-xs" />
-          {uploading && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading…</p>}
+        <div className="pt-1 space-y-1.5 min-w-0">
+          <Input ref={fileInputRef} type="file" disabled={uploading} onChange={(e) => handlePick(e.target.files?.[0] ?? null)} className="h-8 w-full max-w-full min-w-0 text-xs file:text-xs" />
+          <AttachmentFileList files={pending} onChange={setPending} disabled={uploading} meta={(p) => fmtSize(p.file.size)} />
+          {pending.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={uploading} onClick={() => setPending([])}>Cancel</Button>
+              <Button size="sm" className="h-7 gap-1 px-2 text-xs" disabled={uploading} onClick={handleUpload}>
+                {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
+                {uploading ? "Uploading…" : "Upload"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,8 +1,46 @@
 import { Router, type IRouter } from "express";
 import express from "express";
-import { eq, and } from "drizzle-orm";
-import { db, contactsTable } from "@workspace/db";
+import { eq, and, inArray } from "drizzle-orm";
+import { db, contactsTable, usersTable } from "@workspace/db";
 import { getAuthContext } from "../middleware/access";
+
+// QM Pulse roles a defect may be assigned to.
+export const DEV_ASSIGNEE_ROLES = ["dev_member", "dev_lead", "hod_dev"];
+
+export interface DevAssignee {
+  redmineId: number;
+  name: string;
+  userId: number;
+}
+
+// Contacts that are also active QM Pulse dev users. The defect assignee
+// dropdown lists only these: a contact with no QM Pulse dev account can be
+// assigned in Redmine but never shows as the assignee back in QM Pulse.
+// A contact links to its user by email first, then by name, since a
+// name-only sync (non-admin Redmine key) leaves contact emails blank.
+// `name` is the contact's own name, as shown on Configuration → Contacts.
+export async function listDevAssignees(): Promise<DevAssignee[]> {
+  const [contacts, devUsers] = await Promise.all([
+    db.select().from(contactsTable).where(eq(contactsTable.isGroup, false)),
+    db.select({ id: usersTable.id, name: usersTable.name, email: usersTable.email })
+      .from(usersTable)
+      .where(and(eq(usersTable.isActive, true), inArray(usersTable.role, DEV_ASSIGNEE_ROLES))),
+  ]);
+  const byEmail = new Map(devUsers.map((u) => [u.email.trim().toLowerCase(), u.id]));
+  const byName = new Map(devUsers.map((u) => [u.name.trim().toLowerCase(), u.id]));
+
+  const result: DevAssignee[] = [];
+  const seenUsers = new Set<number>();
+  for (const c of contacts) {
+    if (c.redmineId == null) continue;
+    const userId = (c.email?.trim() ? byEmail.get(c.email.trim().toLowerCase()) : undefined)
+      ?? byName.get(c.fullName.trim().toLowerCase());
+    if (userId == null || seenUsers.has(userId)) continue;
+    seenUsers.add(userId);
+    result.push({ redmineId: c.redmineId, name: c.fullName, userId });
+  }
+  return result.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 let mysql2: any = null;
 try {
@@ -23,6 +61,14 @@ router.get("/contacts", async (_req, res) => {
     res.json(contacts);
   } catch {
     res.status(500).json({ error: "Failed to fetch contacts" });
+  }
+});
+
+router.get("/contacts/dev-assignees", async (_req, res) => {
+  try {
+    res.json(await listDevAssignees());
+  } catch {
+    res.status(500).json({ error: "Failed to fetch dev assignees" });
   }
 });
 

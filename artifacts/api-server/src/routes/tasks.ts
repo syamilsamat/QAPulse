@@ -562,7 +562,7 @@ router.post("/tasks/:id/acknowledge-revision", async (req, res): Promise<void> =
    ──────────────────────────────── */
 
 // POST /tasks/:id/submit-review — the task's own assignee submits it for
-// peer review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64) } }
+// peer review. Body: { prLink?: string, evidence?: { filename, mimeType, data (base64), description? } }
 router.post("/tasks/:id/submit-review", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }

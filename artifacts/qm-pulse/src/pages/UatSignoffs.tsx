@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { FileCheck2, Download, Trash2, Upload, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 
 // CR054p3 — UAT sign-off registry. Server scopes the list to the caller's
 // projects (scopeToUserProjects), so "users only see their projects" holds
@@ -326,12 +327,13 @@ export default function UatSignoffs() {
             <tbody>
               {signoffs.map((s) => (
                 <tr key={s.id} id={highlightRowId(s.id)} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2.5">
+                  <td className="px-3 py-2.5 min-w-[12rem] max-w-xs">
                     {/* Extension hidden for readability; `title` keeps the real
                         stored name available on hover, and Download still uses
                         it verbatim. */}
-                    <p className="font-medium" title={s.fileName}>{stripFileExtension(s.fileName)}</p>
-                    <p className="text-xs text-muted-foreground">{fmtSize(s.sizeBytes)}{s.note ? ` · ${s.note}` : ""}</p>
+                    <p className="font-medium break-words [overflow-wrap:anywhere]" title={s.fileName}>{stripFileExtension(s.fileName)}</p>
+                    {/* The note is the file's optional description. */}
+                    <p className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">{fmtSize(s.sizeBytes)}{s.note ? ` · ${s.note}` : ""}</p>
                   </td>
                   <td className="px-3 py-2.5">{s.projectName}</td>
                   <td className="px-3 py-2.5"><Badge variant="outline">{s.milestoneName}</Badge></td>
@@ -359,8 +361,8 @@ export default function UatSignoffs() {
           <DialogHeader>
             <DialogTitle>Upload UAT sign-off</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
+          <div className="space-y-4 min-w-0">
+            <div className="space-y-1.5 min-w-0">
               <Label>Project</Label>
               <Select value={upProject} onValueChange={(v) => { setUpProject(v); setUpMilestone(""); }}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
@@ -371,7 +373,7 @@ export default function UatSignoffs() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <Label>Milestone</Label>
               <Select value={upMilestone} onValueChange={setUpMilestone} disabled={!upProject}>
                 <SelectTrigger><SelectValue placeholder={upProject ? "Select milestone" : "Select a project first"} /></SelectTrigger>
@@ -382,22 +384,31 @@ export default function UatSignoffs() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <Label>File (max 15 MB)</Label>
               <Input
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                className="w-full max-w-full min-w-0"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <p className="text-xs text-muted-foreground">Supports PDF, Word, JPEG and PNG.</p>
             </div>
-            <div className="space-y-1.5">
-              <Label>Note (optional)</Label>
-              <Input placeholder="e.g. Signed by business owner on 20 Jul" value={note} onChange={(e) => setNote(e.target.value)} />
+            {/* Stored as uat_signoffs.note — the file's optional description,
+                shown beside it in the list so reviewers know what it is. */}
+            <div className="space-y-1.5 min-w-0">
+              <Label htmlFor="uat-signoff-description">Description (optional)</Label>
+              <Input
+                id="uat-signoff-description"
+                placeholder="Optional description"
+                maxLength={ATTACHMENT_DESCRIPTION_MAX}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
             </div>
           </div>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 sm:space-x-0">
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleUpload} disabled={uploading}>
               {uploading ? "Uploading…" : "Upload"}

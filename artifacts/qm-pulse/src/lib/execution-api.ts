@@ -143,6 +143,8 @@ export interface ExecutionEvidence {
   originalFileName?: string | null;
   mimeType: string;
   sizeBytes: number;
+  /** Optional note on what the file is, typed beside it at upload. */
+  description?: string | null;
   uploadedBy: number | null;
   createdAt: string;
 }
@@ -380,6 +382,7 @@ export const saveTestCases = async (
 export const uploadExecutionEvidence = async (
   executionTestCaseId: number,
   file: File,
+  description?: string,
 ): Promise<ExecutionEvidence> => {
   const dataBase64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -390,7 +393,7 @@ export const uploadExecutionEvidence = async (
   const res = await fetch(`/api/execution-test-cases/${executionTestCaseId}/evidence`, {
     method: "POST",
     headers: getHeaders(),
-    body: JSON.stringify({ fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64 }),
+    body: JSON.stringify({ fileName: file.name, mimeType: file.type || "application/octet-stream", dataBase64, description: description?.trim() || undefined }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -589,28 +592,26 @@ export const searchRedmineIssues = async (
 export interface RedmineMember {
   id: number;
   name: string;
+  // The QM Pulse user behind this member, when known.
+  userId?: number;
 }
 
 // Contacts are QM Pulse's own directory, synced from every active Redmine
 // user (see /contacts/sync-redmine) rather than one project's memberships.
-// Only those carrying a redmineId can be named as an assignee, since Redmine
-// wants a user id — manually-added contacts have none.
-export interface ContactAssignee {
-  id: number;
-  fullName: string;
-  email: string;
-  redmineId: number | null;
-  isGroup: boolean;
+// The defect assignee list is narrowed to contacts that are also QM Pulse dev
+// users (see /contacts/dev-assignees): Redmine wants the contact's redmineId,
+// and QM Pulse needs the user id to show the defect as assigned afterwards.
+interface DevAssignee {
+  redmineId: number;
+  name: string;
+  userId: number;
 }
 
 export const fetchContactAssignees = async (): Promise<RedmineMember[]> => {
-  const res = await fetch("/api/contacts", { headers: getHeaders() });
+  const res = await fetch("/api/contacts/dev-assignees", { headers: getHeaders() });
   if (!res.ok) return [];
-  const contacts: ContactAssignee[] = await res.json();
-  return contacts
-    .filter((c) => !c.isGroup && c.redmineId != null)
-    .map((c) => ({ id: c.redmineId as number, name: c.fullName }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const assignees: DevAssignee[] = await res.json();
+  return assignees.map((a) => ({ id: a.redmineId, name: a.name, userId: a.userId }));
 };
 
 export const fetchRedmineProjectMembers = async (projectId: number): Promise<RedmineMember[]> => {
@@ -635,7 +636,7 @@ export interface CreateDefectPayload {
   // Value is derived server-side from the reporter's own department (qa/dev/
   // fa/pm) — only the target custom field ID is sent from here.
   sourceFieldId?: number | null;
-  uploads?: { filename: string; contentType: string; base64: string }[];
+  uploads?: { filename: string; contentType: string; base64: string; description?: string }[];
 }
 
 export const createRedmineDefect = async (
@@ -690,6 +691,7 @@ export const registerLocalDefect = async (payload: {
   defectCategory?: string;
   executionTcId?: number | null;
   assigneeName?: string;
+  assigneeUserId?: number;
   tracker?: string;
 }): Promise<void> => {
   await fetch("/api/defects/register", {

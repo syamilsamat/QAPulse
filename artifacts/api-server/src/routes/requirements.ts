@@ -6,6 +6,7 @@ import { notifyUser, notifyRolesInProject } from "./_notify";
 import { canReview, reviewRoleNames, departmentRoleNames } from "../lib/review-eligibility";
 import { syncMilestoneStatus } from "../lib/milestone-status";
 import { getNameDirectory } from "../lib/lookups";
+import { attachmentDescription } from "../lib/attachment-description";
 import { getAuthContext, scopeToUserProjects, canAccessProject, canAccessModule, getRoleTierRank, getRoleDepartment, getModuleScope } from "../middleware/access";
 import { computeRequirementTimelines, buildPhaseTimeline } from "./dashboard";
 import { getLatestReview, getEvidenceForReview, resolveEvidencePath } from "./_code-review";
@@ -2046,7 +2047,7 @@ router.get("/requirements/:id/dev-tasks", async (req, res): Promise<void> => {
         submittedAt: latestReview.submittedAt,
         reviewerId: latestReview.reviewerId,
         reviewerName,
-        evidence: evidence.map(e => ({ id: e.id, filename: e.filename, mimeType: e.mimeType, size: e.size })),
+        evidence: evidence.map(e => ({ id: e.id, filename: e.filename, description: e.description ?? null, mimeType: e.mimeType, size: e.size })),
       };
     }
 
@@ -2198,6 +2199,7 @@ router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
   res.json(attachments.map(a => ({
     id: a.id,
     filename: a.filename,
+    description: a.description,
     mimeType: a.mimeType,
     size: a.size,
     // Non-null marks the row as an external link rather than a stored file:
@@ -2211,7 +2213,7 @@ router.get("/requirements/:id/attachments", async (req, res): Promise<void> => {
 });
 
 // POST /requirements/:id/attachments  — upload a file (base64 JSON body)
-// Body: { filename: string, mimeType: string, data: string (base64) }
+// Body: { filename: string, mimeType: string, data: string (base64), description?: string }
 router.post("/requirements/:id/attachments", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -2229,6 +2231,7 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
   }
 
   const { filename, mimeType, data, linkUrl } = req.body ?? {};
+  const description = attachmentDescription(req.body?.description) ?? null;
 
   // Link attachment — no bytes, no disk. Kept in the same table as files so
   // one list, one delete path and one permission check cover both kinds.
@@ -2255,6 +2258,7 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
     const [attachment] = await db.insert(requirementAttachmentsTable).values({
       requirementId: id,
       filename: label,
+      description,
       mimeType: "text/uri-list",
       size: 0,
       storagePath: "",
@@ -2288,6 +2292,7 @@ router.post("/requirements/:id/attachments", async (req, res): Promise<void> => 
     const [attachment] = await db.insert(requirementAttachmentsTable).values({
       requirementId: id,
       filename: safeFilename,
+      description,
       mimeType: safeMime,
       size: buffer.length,
       storagePath: storageFilename,

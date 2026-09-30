@@ -8,6 +8,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { getAuthUser } from "./auth";
+import { attachmentDescription } from "../lib/attachment-description";
 import { getAuthContext, getRoleDepartment } from "../middleware/access";
 
 const router: IRouter = Router();
@@ -468,10 +469,11 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
     const sourceValue = department ? department.toUpperCase() : null;
 
     // Upload attachments first if any
-    const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
+    const uploadTokens: { token: string; filename: string; content_type: string; description?: string }[] = [];
     if (Array.isArray(uploads) && uploads.length > 0) {
       for (const file of uploads) {
         const { filename, contentType, base64 } = file;
+        const description = attachmentDescription(file.description);
         const binary = Buffer.from(base64, "base64");
         const uploadRes = await fetch(
           `${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(filename)}`,
@@ -486,7 +488,7 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
         );
         if (!uploadRes.ok) throw new Error(`File upload failed: ${uploadRes.status}`);
         const uploadData: any = await uploadRes.json();
-        uploadTokens.push({ token: uploadData.upload.token, filename, content_type: contentType });
+        uploadTokens.push({ token: uploadData.upload.token, filename, content_type: contentType, ...(description ? { description } : {}) });
       }
     }
 

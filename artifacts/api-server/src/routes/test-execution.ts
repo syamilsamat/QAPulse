@@ -30,6 +30,7 @@ import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
 import { buildZip, type ZipEntry } from "./zip-writer";
 import { fetchActiveDefectsForIssue } from "./verdict-report";
+import { attachmentDescription } from "../lib/attachment-description";
 
 const router: IRouter = Router();
 
@@ -1582,6 +1583,7 @@ router.get(
               originalFileName: executionTcEvidenceTable.originalFileName,
               mimeType: executionTcEvidenceTable.mimeType,
               sizeBytes: executionTcEvidenceTable.sizeBytes,
+              description: executionTcEvidenceTable.description,
               uploadedBy: executionTcEvidenceTable.uploadedBy,
               createdAt: executionTcEvidenceTable.createdAt,
             })
@@ -2533,7 +2535,7 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
     res.status(409).json({ error: "Evidence can only be attached to a passed test case" }); return;
   }
 
-  const { fileName, mimeType, dataBase64 } = req.body ?? {};
+  const { fileName, mimeType, dataBase64, description } = req.body ?? {};
   if (!fileName || !dataBase64) { res.status(400).json({ error: "fileName and dataBase64 are required" }); return; }
   const cleanBase64 = String(dataBase64).replace(/^data:[^;]+;base64,/, "");
   if (cleanBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
@@ -2565,6 +2567,7 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
     mimeType: String(mimeType || "application/octet-stream").slice(0, 150),
     sizeBytes,
     dataBase64: cleanBase64,
+    description: attachmentDescription(description) ?? null,
     uploadedBy: ctx.userId,
   }).returning({
     id: executionTcEvidenceTable.id,
@@ -2573,6 +2576,7 @@ router.post("/execution-test-cases/:id/evidence", async (req, res): Promise<void
     originalFileName: executionTcEvidenceTable.originalFileName,
     mimeType: executionTcEvidenceTable.mimeType,
     sizeBytes: executionTcEvidenceTable.sizeBytes,
+    description: executionTcEvidenceTable.description,
     uploadedBy: executionTcEvidenceTable.uploadedBy,
     createdAt: executionTcEvidenceTable.createdAt,
   });

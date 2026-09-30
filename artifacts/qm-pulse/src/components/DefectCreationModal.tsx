@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AttachmentFileList } from "@/components/AttachmentFileList";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -93,7 +94,7 @@ export default function DefectCreationModal({
   const [expectedResultValue, setExpectedResultValue] = useState(expectedResult ?? "");
   const [stepsToReproduce, setStepsToReproduce] = useState(numberTestSteps(testSteps));
   const [actualResult, setActualResult] = useState("");
-  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
+  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string; description?: string }[]>([]);
   const [defectDescription, setDefectDescription] = useState("");
 
   // Redmine form fields
@@ -369,6 +370,7 @@ export default function DefectCreationModal({
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
         assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
+        assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
         tracker: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
       }).catch(() => {});
       onDefectCreated({
@@ -468,15 +470,8 @@ export default function DefectCreationModal({
           {/* Screenshots */}
           <div className="space-y-1.5">
             <Label>Screenshots</Label>
+            <AttachmentFileList files={screenshots} onChange={setScreenshots} />
             <div className="flex flex-wrap gap-2">
-              {screenshots.map((s, i) => (
-                <div key={i} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
-                  <span className="max-w-[120px] truncate">{s.filename}</span>
-                  <button onClick={() => setScreenshots((prev) => prev.filter((_, idx) => idx !== i))}>
-                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                  </button>
-                </div>
-              ))}
               <Button
                 size="sm"
                 variant="outline"
@@ -501,7 +496,7 @@ export default function DefectCreationModal({
           {/* QM Pulse Fields */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
                 <Select value={severity} onValueChange={setSeverity}>
@@ -566,7 +561,7 @@ export default function DefectCreationModal({
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>
                   Redmine Project <span className="text-destructive">*</span>
@@ -622,17 +617,17 @@ export default function DefectCreationModal({
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search contact..."
-                emptyText="No contacts found."
+                searchPlaceholder="Search developer..."
+                emptyText="No developers found."
               />
               {members.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  No contacts cached — sync contacts from Settings first.
+                  No dev contacts found — a contact is listed once it matches an active QM Pulse Dev user by email or name. Sync contacts from Configuration → Contacts.
                 </p>
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Complexity</Label>
                 <SearchableSelect
