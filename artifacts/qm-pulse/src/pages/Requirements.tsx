@@ -34,6 +34,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { AttachmentFileList } from "@/components/AttachmentFileList";
 import {
   Table,
   TableBody,
@@ -170,7 +171,8 @@ export default function Requirements() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReq, setEditingReq] = useState<Requirement | null>(null);
   const [form, setForm] = useState<any & { parentRedmineTicketId?: string; milestoneId?: number | null }>({});
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // Each queued file carries the optional description typed beside it.
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; filename: string; description?: string }[]>([]);
   // Links queued the same way files are: nothing is written until Save, so
   // Cancel leaves the requirement's attachments exactly as they were.
   const [pendingLinks, setPendingLinks] = useState<{ url: string; label: string }[]>([]);
@@ -653,7 +655,7 @@ tracker: parentReq.tracker ?? undefined,
     return Object.keys(errs).length === 0;
   };
 
-  const uploadAttachment = (requirementId: number, file: File): Promise<void> =>
+  const uploadAttachment = (requirementId: number, file: File, description?: string): Promise<void> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async () => {
@@ -665,7 +667,12 @@ tracker: parentReq.tracker ?? undefined,
               "Content-Type": "application/json",
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
-            body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream", data: base64 }),
+            body: JSON.stringify({
+              filename: file.name,
+              mimeType: file.type || "application/octet-stream",
+              data: base64,
+              description: description?.trim() || undefined,
+            }),
           });
           if (res.ok) resolve();
           else reject(new Error("Upload failed"));
@@ -774,7 +781,7 @@ parentId: finalParentId,
       if (savedId && (pendingFiles.length > 0 || pendingLinks.length > 0 || removedAttachmentIds.length > 0)) {
         setUploadingFiles(true);
         const results = await Promise.allSettled([
-          ...pendingFiles.map((f) => uploadAttachment(savedId!, f)),
+          ...pendingFiles.map((p) => uploadAttachment(savedId!, p.file, p.description)),
           ...pendingLinks.map((l) => attachLink(savedId!, l)),
           ...removedAttachmentIds.map((id) => removeAttachment(id)),
         ]);
@@ -1586,7 +1593,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[75vw] max-h-[90vh] overflow-y-auto w-[95vw] p-8">
+        <DialogContent className="sm:max-w-[75vw] max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
           <DialogHeader>
             <DialogTitle>
               {editingReq
@@ -1788,25 +1795,17 @@ tracker: v })}
                       }
                       return true;
                     });
-                    setPendingFiles(prev => [...prev, ...valid]);
+                    setPendingFiles(prev => [...prev, ...valid.map((file) => ({ file, filename: file.name }))]);
                     e.target.value = "";
                   }}
                 />
               </label>
-              {pendingFiles.length > 0 && (
-                <ul className="space-y-1">
-                  {pendingFiles.map((f, i) => (
-                    <li key={i} className="flex items-center justify-between gap-2 text-sm bg-muted/50 rounded px-2 py-1">
-                      <Paperclip className="w-3 h-3 text-muted-foreground shrink-0" />
-                      <span className="flex-1 truncate">{f.name}</span>
-                      <span className="text-xs text-muted-foreground shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                      <button type="button" onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}>
-                        <XIcon className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <AttachmentFileList
+                files={pendingFiles}
+                onChange={setPendingFiles}
+                disabled={uploadingFiles}
+                meta={(p) => `${(p.file.size / 1024).toFixed(0)} KB`}
+              />
 
               {/* Links live in the same list as files — a spec is just as
                   often a Confluence page or a Drive doc as an uploaded PDF. */}
@@ -1816,26 +1815,26 @@ tracker: v })}
                   value={newLinkUrl}
                   onChange={(e) => setNewLinkUrl(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPendingLink(); } }}
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                 />
                 <Input
                   placeholder="Label (optional)"
                   value={newLinkLabel}
                   onChange={(e) => setNewLinkLabel(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPendingLink(); } }}
-                  className="sm:w-40"
+                  className="min-w-0 sm:w-40 sm:shrink-0"
                 />
-                <Button type="button" size="sm" variant="outline" onClick={addPendingLink} disabled={!newLinkUrl.trim()}>
+                <Button type="button" size="sm" variant="outline" onClick={addPendingLink} disabled={!newLinkUrl.trim()} className="shrink-0">
                   <LinkIcon className="w-4 h-4" />
                 </Button>
               </div>
               {pendingLinks.length > 0 && (
-                <ul className="space-y-1">
+                <ul className="min-w-0 space-y-1">
                   {pendingLinks.map((l, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm bg-muted/50 rounded px-2 py-1">
+                    <li key={i} className="flex min-w-0 items-center gap-2 text-sm bg-muted/50 rounded px-2 py-1">
                       <LinkIcon className="w-3 h-3 text-muted-foreground shrink-0" />
-                      <span className="flex-1 truncate" title={l.url}>{l.label || l.url}</span>
-                      <button type="button" onClick={() => setPendingLinks(prev => prev.filter((_, j) => j !== i))}>
+                      <span className="min-w-0 flex-1 truncate" title={l.url}>{l.label || l.url}</span>
+                      <button type="button" className="shrink-0" aria-label="Remove link" onClick={() => setPendingLinks(prev => prev.filter((_, j) => j !== i))}>
                         <XIcon className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
                       </button>
                     </li>
@@ -1848,27 +1847,32 @@ tracker: v })}
               {editingReq && existingAttachments.length > 0 && (
                 <div className="space-y-1 pt-1">
                   <p className="text-xs font-medium text-muted-foreground">Already attached ({existingAttachments.length})</p>
-                  <ul className="space-y-1">
+                  <ul className="min-w-0 space-y-1">
                     {existingAttachments.map((a: any) => {
                       const removed = removedAttachmentIds.includes(a.id);
                       return (
-                        <li key={a.id} className={`flex items-center gap-2 text-sm rounded px-2 py-1 ${removed ? "bg-destructive/5" : "bg-muted/30"}`}>
+                        <li key={a.id} className={`flex min-w-0 items-center gap-2 text-sm rounded px-2 py-1 ${removed ? "bg-destructive/5" : "bg-muted/30"}`}>
                           {a.linkUrl
                             ? <LinkIcon className="w-3 h-3 text-muted-foreground shrink-0" />
                             : <Paperclip className="w-3 h-3 text-muted-foreground shrink-0" />}
-                          {a.linkUrl ? (
-                            <a
-                              href={a.linkUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`flex-1 truncate hover:underline ${removed ? "line-through text-muted-foreground" : "text-primary"}`}
-                              title={a.linkUrl}
-                            >
-                              {a.filename}
-                            </a>
-                          ) : (
-                            <span className={`flex-1 truncate ${removed ? "line-through text-muted-foreground" : ""}`}>{a.filename}</span>
-                          )}
+                          <div className="min-w-0 flex-1">
+                            {a.linkUrl ? (
+                              <a
+                                href={a.linkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`block truncate hover:underline ${removed ? "line-through text-muted-foreground" : "text-primary"}`}
+                                title={a.linkUrl}
+                              >
+                                {a.filename}
+                              </a>
+                            ) : (
+                              <span className={`block truncate ${removed ? "line-through text-muted-foreground" : ""}`} title={a.filename}>{a.filename}</span>
+                            )}
+                            {a.description && (
+                              <span className="block truncate text-xs text-muted-foreground" title={a.description}>{a.description}</span>
+                            )}
+                          </div>
                           {!a.linkUrl && a.size > 0 && (
                             <span className="text-xs text-muted-foreground shrink-0">{(a.size / 1024).toFixed(0)} KB</span>
                           )}

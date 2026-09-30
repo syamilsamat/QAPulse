@@ -7,8 +7,10 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, Paperclip, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AttachmentFileList } from "@/components/AttachmentFileList";
 
-type Attachment = { id: number; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; createdAt: string; canDelete: boolean };
+type Attachment = { id: number; fileName: string; mimeType: string; sizeBytes: number; description: string | null; uploadedByName: string | null; createdAt: string; canDelete: boolean };
+type PendingFile = { file: File; filename: string; description?: string };
 type Listing = { canUpload: boolean; attachments: Attachment[] };
 const previewTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain"]);
 
@@ -18,6 +20,9 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
   const client = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // Picked files wait here so a description can be typed beside each one
+  // before anything is sent.
+  const [pending, setPending] = useState<PendingFile[]>([]);
   const [preview, setPreview] = useState<{ file: Attachment; url: string; text?: string } | null>(null);
   // Held rather than deleted on click: the confirmation names the file and
   // spells out that compiled views lose it too but execution evidence doesn't.
@@ -31,21 +36,27 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
     return res;
   }
   const listing = useQuery<Listing>({ queryKey: key, enabled: !!token, queryFn: async () => (await request(base)).json(), staleTime: 0, refetchOnWindowFocus: true });
-  useEffect(() => { setPreview(null); }, [testCaseId]);
+  useEffect(() => { setPreview(null); setPending([]); }, [testCaseId]);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
   function report(error: unknown) { toast({ variant: "destructive", title: "Attachment action failed", description: error instanceof Error ? error.message : "Please try again" }); }
-  async function upload(files: File[]) {
+  function stage(files: File[]) {
+    const bad = files.filter(f => !f.size || f.size > 20 * 1024 * 1024);
+    if (bad.length) report(new Error(`${bad.map(f => f.name).join(", ")}: choose a non-empty file up to 20 MB.`));
+    setPending(prev => { const seen = new Set(prev.map(p => `${p.file.name}:${p.file.size}`)); return [...prev, ...files.filter(f => !bad.includes(f) && !seen.has(`${f.name}:${f.size}`)).map(file => ({ file, filename: file.name }))]; });
+    if (input.current) input.current.value = "";
+  }
+  async function upload() {
     setBusy(true);
     let uploaded = 0;
     try {
-      for (const file of files) {
-        if (!file.size || file.size > 20 * 1024 * 1024) throw new Error(`${file.name}: choose a non-empty file up to 20 MB.`);
+      for (const { file, description } of pending) {
         const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = () => reject(new Error("Unable to read file")); reader.readAsDataURL(file); });
-        await request(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64 }) });
+        await request(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataBase64, description: description?.trim() || undefined }) });
         uploaded++;
       }
     } catch (error) { report(error); }
-    finally { if (uploaded) { toast({ title: `${uploaded} library attachment${uploaded === 1 ? "" : "s"} uploaded` }); await client.invalidateQueries({ queryKey: key }); } setBusy(false); if (input.current) input.current.value = ""; }
+    // Drop only what landed, so a retry doesn't re-send those.
+    finally { setPending(prev => prev.slice(uploaded)); if (uploaded) { toast({ title: `${uploaded} library attachment${uploaded === 1 ? "" : "s"} uploaded` }); await client.invalidateQueries({ queryKey: key }); } setBusy(false); }
   }
   async function open(file: Attachment, inline: boolean) {
     try {
@@ -69,13 +80,20 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
   }
   return <section className="space-y-3 rounded-lg border p-4" onClick={e => e.stopPropagation()}>
     <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">Library attachments{listing.data ? ` (${listing.data.attachments.length})` : ""}</h3><p className="text-xs text-muted-foreground">Reference files shared across executions · Up to 20 MB per file</p></div>
-      {!readOnly && listing.data?.canUpload && <><input ref={input} type="file" multiple hidden aria-label="Upload library attachments" onChange={e => void upload(Array.from(e.target.files || []))} /><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>{busy ? "Saving…" : "Upload files"}</Button></>}
+      {!readOnly && listing.data?.canUpload && <><input ref={input} type="file" multiple hidden aria-label="Choose library attachments" onChange={e => stage(Array.from(e.target.files || []))} /><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>{pending.length ? "Add more files" : "Choose files"}</Button></>}
       <Button type="button" size="sm" variant="ghost" disabled={listing.isFetching} onClick={() => void listing.refetch()}>Refresh</Button>
     </div>
+    {!readOnly && pending.length > 0 && <div className="min-w-0 space-y-2">
+      <AttachmentFileList files={pending} onChange={setPending} disabled={busy} meta={p => `${Math.max(1, Math.ceil(p.file.size / 1024))} KB`} />
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button type="button" size="sm" variant="ghost" className="w-full sm:w-auto" disabled={busy} onClick={() => setPending([])}>Cancel</Button>
+        <Button type="button" size="sm" className="w-full sm:w-auto" disabled={busy} onClick={() => void upload()}>{busy ? "Uploading…" : `Upload ${pending.length} file${pending.length === 1 ? "" : "s"}`}</Button>
+      </div>
+    </div>}
     {listing.isLoading && <p className="text-xs text-muted-foreground">Loading attachments…</p>}
     {listing.isError && <p role="alert" className="text-xs text-destructive">{listing.error.message}</p>}
     {listing.data?.attachments.length === 0 && <p className="text-xs text-muted-foreground">No library attachments.</p>}
-    {listing.data?.attachments.map(file => <div key={file.id} className="flex flex-wrap items-center gap-2 border-t pt-2"><div className="flex-1 min-w-0"><p className="text-sm break-words">{file.fileName}</p><p className="text-xs text-muted-foreground">{Math.max(1, Math.ceil(file.sizeBytes / 1024))} KB · {file.uploadedByName || "Former user"} · {new Date(file.createdAt).toLocaleString()}</p></div><div className="flex flex-wrap gap-1">
+    {listing.data?.attachments.map(file => <div key={file.id} className="flex min-w-0 flex-wrap items-center gap-2 border-t pt-2"><div className="flex-1 min-w-0"><p className="text-sm break-words">{file.fileName}</p>{file.description && <p className="truncate text-xs text-muted-foreground" title={file.description}>{file.description}</p>}<p className="text-xs text-muted-foreground break-words">{Math.max(1, Math.ceil(file.sizeBytes / 1024))} KB · {file.uploadedByName || "Former user"} · {new Date(file.createdAt).toLocaleString()}</p></div><div className="flex flex-wrap gap-1">
       {previewTypes.has(file.mimeType) && <Button type="button" size="sm" variant="ghost" onClick={() => void open(file, true)}>Preview</Button>}
       <Button type="button" size="sm" variant="ghost" onClick={() => void open(file, false)}>Download</Button>
       {!readOnly && file.canDelete && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setPendingDelete(file)}>Delete</Button>}

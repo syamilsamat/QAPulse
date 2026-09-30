@@ -38,6 +38,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { AttachmentFileList } from "@/components/AttachmentFileList";
 import {
   Select,
   SelectContent,
@@ -201,6 +202,9 @@ export default function RequirementDetail() {
   // CR074 — History defaults to collapsed (latest entry only)
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  // Files picked but not yet sent, so a description can be typed beside each
+  // one before Upload.
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; filename: string; description?: string }[]>([]);
   const [devLoading, setDevLoading] = useState(false);
   // CR046 — QA returning a ready_for_qa requirement back to dev
   const [returnMode, setReturnMode] = useState(false);
@@ -344,7 +348,7 @@ export default function RequirementDetail() {
     enabled: !!reqId,
   });
 
-  const uploadAttachment = (file: File): Promise<void> =>
+  const uploadAttachment = (file: File, description?: string): Promise<void> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async () => {
@@ -352,9 +356,14 @@ export default function RequirementDetail() {
           const base64 = (reader.result as string).split(",")[1];
           const res = await api(`/requirements/${reqId}/attachments`, token, {
             method: "POST",
-            body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream", data: base64 }),
+            body: JSON.stringify({
+              filename: file.name,
+              mimeType: file.type || "application/octet-stream",
+              data: base64,
+              description: description?.trim() || undefined,
+            }),
           });
-          if (res.ok) { await refetchAttachments(); resolve(); }
+          if (res.ok) resolve();
           else reject(new Error("Upload failed"));
         } catch (err) { reject(err); }
       };
@@ -362,7 +371,8 @@ export default function RequirementDetail() {
       reader.readAsDataURL(file);
     });
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Picking files only stages them; nothing is sent until Upload.
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter((file) => {
       if (file.size > 10 * 1024 * 1024) {
         toast({ variant: "destructive", title: `${file.name} exceeds 10 MB` });
@@ -370,14 +380,22 @@ export default function RequirementDetail() {
       }
       return true;
     });
-    if (!files.length) return;
     e.target.value = "";
+    if (!files.length) return;
+    setPendingFiles(prev => [...prev, ...files.map((file) => ({ file, filename: file.name }))]);
+  };
+
+  const uploadPendingFiles = async () => {
+    if (!pendingFiles.length) return;
     setUploadingFiles(true);
     try {
-      const results = await Promise.allSettled(files.map(f => uploadAttachment(f)));
+      const results = await Promise.allSettled(pendingFiles.map(p => uploadAttachment(p.file, p.description)));
       const failed = results.filter(r => r.status === "rejected").length;
+      // Failed files stay staged, descriptions intact, so Upload can retry them.
+      setPendingFiles(pendingFiles.filter((_, i) => results[i].status === "rejected"));
+      await refetchAttachments();
       if (failed > 0) toast({ variant: "destructive", title: `${failed} file(s) failed to upload` });
-      else toast({ title: `${files.length} file(s) attached` });
+      else toast({ title: `${results.length} file(s) attached` });
     } finally {
       setUploadingFiles(false);
     }
@@ -894,7 +912,7 @@ export default function RequirementDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 min-w-0 space-y-6">
           {/* DEF-0015 — reminder banner: description was last touched by an
               AI Analysis "Accept", not a person, so it needs a human check
               before this requirement goes to review. */}
@@ -1073,48 +1091,72 @@ export default function RequirementDetail() {
           {/* Attachments */}
           <Card>
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Paperclip className="w-4 h-4" /> Attachments
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <CardTitle className="text-sm font-semibold flex min-w-0 items-center gap-2">
+                  <Paperclip className="w-4 h-4 shrink-0" /> Attachments
                   {attachments.length > 0 && <span className="text-xs font-normal text-muted-foreground">({attachments.length})</span>}
                 </CardTitle>
-                <label className={`cursor-pointer ${uploadingFiles ? "pointer-events-none opacity-60" : ""}`}>
-                  {uploadingFiles
-                    ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                    : <span className="text-xs text-primary hover:underline flex items-center gap-1"><Paperclip className="w-3 h-3" />Attach file</span>
-                  }
+                <label className={`shrink-0 cursor-pointer ${uploadingFiles ? "pointer-events-none opacity-60" : ""}`}>
+                  <span className="text-xs text-primary hover:underline flex items-center gap-1"><Paperclip className="w-3 h-3" />Attach file</span>
                   <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden" onChange={handleFileSelect} disabled={uploadingFiles} />
                 </label>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0 space-y-3">
+              {pendingFiles.length > 0 && (
+                <div className="space-y-2 rounded-md border border-dashed p-2">
+                  <AttachmentFileList
+                    files={pendingFiles}
+                    onChange={setPendingFiles}
+                    disabled={uploadingFiles}
+                    meta={(p) => `${(p.file.size / 1024).toFixed(0)} KB`}
+                  />
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={uploadingFiles} onClick={() => setPendingFiles([])}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" disabled={uploadingFiles} onClick={uploadPendingFiles}>
+                      {uploadingFiles
+                        ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Uploading…</>
+                        : `Upload ${pendingFiles.length} file${pendingFiles.length === 1 ? "" : "s"}`}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {attachments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No attachments yet.</p>
+                pendingFiles.length === 0 && <p className="text-sm text-muted-foreground">No attachments yet.</p>
               ) : (
-                <ul className="space-y-1.5">
+                <ul className="min-w-0 space-y-1.5">
                   {attachments.map((a: any) => (
-                    <li key={a.id} className="flex items-center gap-2 text-sm group">
+                    <li key={a.id} className="flex min-w-0 items-center gap-2 text-sm group">
                       {/* A link row has no bytes behind it: open it, don't
                           offer a download that would 400. */}
                       {a.linkUrl
                         ? <Link2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         : <Paperclip className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                      {a.linkUrl ? (
-                        <a href={a.linkUrl} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-primary hover:underline" title={a.linkUrl}>
-                          {a.filename}
-                        </a>
-                      ) : (
-                        <span className="flex-1 truncate">{a.filename}</span>
-                      )}
+                      <div className="min-w-0 flex-1">
+                        {a.linkUrl ? (
+                          <a href={a.linkUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-primary hover:underline" title={a.linkUrl}>
+                            {a.filename}
+                          </a>
+                        ) : (
+                          <span className="block truncate" title={a.filename}>{a.filename}</span>
+                        )}
+                        {a.description && (
+                          <span className="block truncate text-xs text-muted-foreground" title={a.description}>{a.description}</span>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground shrink-0">{!a.linkUrl && a.size ? `${(a.size / 1024).toFixed(0)} KB` : ""}</span>
                       {a.redmineAttachmentId && (
                         <span className="text-[10px] px-1 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 shrink-0">Redmine</span>
                       )}
+                      {/* Download/Delete reveal on hover with a mouse, but stay visible on
+                          touch screens (phones, iPads), which have no hover. */}
                       {!a.linkUrl && (
                         <button
                           title="Download"
                           onClick={() => downloadAttachment(a.id, a.filename)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="shrink-0 opacity-100 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                         >
                           <Download className="w-3.5 h-3.5 text-muted-foreground hover:text-primary" />
                         </button>
@@ -1122,7 +1164,7 @@ export default function RequirementDetail() {
                       <button
                         title="Delete"
                         onClick={() => deleteAttachment(a.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="shrink-0 opacity-100 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                       >
                         <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
                       </button>

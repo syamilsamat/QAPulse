@@ -9,6 +9,8 @@ export const testCaseAttachmentsTable = pgTable("test_case_attachments", {
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   dataBase64: text("data_base64").notNull(),
+  // Optional note on what the file is, like Redmine's attachment description.
+  description: text("description"),
   uploadedBy: integer("uploaded_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("test_case_attachments_case_idx").on(t.testCaseId)]);

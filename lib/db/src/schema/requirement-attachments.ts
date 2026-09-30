@@ -16,6 +16,8 @@ export const requirementAttachmentsTable = pgTable("requirement_attachments", {
   linkUrl: text("link_url"),
   redmineAttachmentId: text("redmine_attachment_id"),
   redmineFileUrl: text("redmine_file_url"),
+  // Optional note on what the file is, like Redmine's attachment description.
+  description: text("description"),
   uploadedBy: integer("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

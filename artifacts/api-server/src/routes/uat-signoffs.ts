@@ -12,6 +12,7 @@ import { db, uatSignoffsTable, milestonesTable, projectsTable, usersTable } from
 import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
 import { logActivity } from "./_audit";
 import { syncMilestoneStatus } from "../lib/milestone-status";
+import { attachmentDescription } from "../lib/attachment-description";
 
 const router: IRouter = Router();
 
@@ -95,7 +96,8 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
     fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
     mimeType: String(mimeType ?? "application/octet-stream").slice(0, 150),
     sizeBytes,
-    note: note ? String(note) : null,
+    // The note is the file's optional description.
+    note: attachmentDescription(note) ?? null,
     dataBase64: cleanBase64,
     uploadedBy: ctx.userId,
   }).returning({ id: uatSignoffsTable.id });

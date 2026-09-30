@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject } from "./_notify";
+import { attachmentDescription } from "../lib/attachment-description";
 
 // Shared code-review primitive — Dev Tasks (requirement -> tasks) and defects
 // assigned to a dev both drive through this same append-only table instead of
@@ -32,6 +33,7 @@ export interface EvidenceInput {
   filename: string;
   mimeType?: string;
   data: string; // base64
+  description?: string | null; // optional "what is this file" note, Redmine-style
 }
 
 export class EvidenceRejectedError extends Error {}
@@ -54,6 +56,9 @@ async function storeEvidence(codeReviewId: number, uploadedBy: number, evidence:
   await db.insert(reviewEvidenceTable).values({
     codeReviewId,
     filename: evidence.filename,
+    // Normalized here rather than in each route — both submit-review routes
+    // hand the raw request body straight through.
+    description: attachmentDescription(evidence.description) ?? null,
     mimeType,
     size: buffer.length,
     storagePath: storageFilename,

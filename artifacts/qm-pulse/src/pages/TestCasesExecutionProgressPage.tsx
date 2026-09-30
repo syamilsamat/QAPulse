@@ -1,6 +1,7 @@
 import { openAttachmentResponse } from "@/lib/attachment-download";
 import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
 import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
+import { AttachmentFileList } from "@/components/AttachmentFileList";
 import React, {
   useState,
   useRef,
@@ -1685,7 +1686,8 @@ export default function TestCasesExecutionProgressPage() {
   const [passEvidenceDialogOpen, setPassEvidenceDialogOpen] = useState(false);
   const [pendingPassRowId, setPendingPassRowId] = useState<string | number | null>(null);
   const [passEvidenceMode, setPassEvidenceMode] = useState<"pass" | "attach">("pass");
-  const [passEvidenceFiles, setPassEvidenceFiles] = useState<File[]>([]);
+  // Each queued file carries the optional description typed beside it.
+  const [passEvidenceFiles, setPassEvidenceFiles] = useState<{ file: File; filename: string; description?: string }[]>([]);
   const [isUploadingPassEvidence, setIsUploadingPassEvidence] = useState(false);
   const [evidenceToDelete, setEvidenceToDelete] = useState<
     { rowId: number; evidenceId: number; fileName: string; caseLabel: string } | null
@@ -1840,12 +1842,35 @@ export default function TestCasesExecutionProgressPage() {
         // selectedModuleIds (set by every write path since the ID migration)
         // is matched first when present — exact, no name drift possible. The
         // name-based filter only runs for files saved before that migration.
-        const fetchModulesForFile = async () => {
-          if (file?.projectId) {
-            const scoped = await fetchProjectModules(file.projectId);
-            if (scoped.length > 0) return scoped;
-          }
-          return fetchModules();
+        //
+        // The project-scoped lookup is best-effort: project_modules is only
+        // created by drizzle push, so where it is missing or errors the
+        // request rejects rather than returning [] — and a rejection used to
+        // skip the catalog fallback entirely, leaving the Module dropdown
+        // with nothing but "Select..." in edit mode. Any failure there now
+        // falls through to the catalog. The file's own selected modules are
+        // looked for in the scoped list first, then in the catalog, so a
+        // project whose mapping doesn't cover them still offers them.
+        const matchesFileSelection = (modules: ExecutionModule[]) =>
+          selectedModuleIds.length > 0
+            ? modules.filter((m) => selectedModuleIds.includes(m.id))
+            : selectedModuleNames.length > 0
+            ? modules.filter((m) => selectedModuleNames.map((n) => n.toLowerCase()).includes(m.name.trim().toLowerCase()))
+            : modules;
+        const fetchModulesForFile = async (): Promise<ExecutionModule[]> => {
+          const scoped = file?.projectId
+            ? await fetchProjectModules(file.projectId).catch(() => [] as ExecutionModule[])
+            : [];
+          const scopedMatch = matchesFileSelection(scoped);
+          if (scopedMatch.length > 0) return scopedMatch;
+          const catalog = await fetchModules().catch(() => [] as ExecutionModule[]);
+          const catalogMatch = matchesFileSelection(catalog);
+          if (catalogMatch.length > 0) return catalogMatch;
+          // A stored module name that matches nothing (stale rename, typo,
+          // legacy data) still leaves the tester a full list to pick from.
+          if (scoped.length > 0) return scoped;
+          if (catalog.length > 0) return catalog;
+          throw new Error("No modules available");
         };
         Promise.allSettled([
           fetchModulesForFile(),
@@ -1855,17 +1880,14 @@ export default function TestCasesExecutionProgressPage() {
         ]).then(([modulesResult, usersResult, trackersResult, requirementsResult]) => {
           if (cancelled) return;
           if (modulesResult.status === "fulfilled") {
-            const projectModules = modulesResult.value;
-            const filteredModules = selectedModuleIds.length > 0
-              ? projectModules.filter((m) => selectedModuleIds.includes(m.id))
-              : selectedModuleNames.length > 0
-              ? projectModules.filter((m) => selectedModuleNames.map(n => n.toLowerCase()).includes(m.name.trim().toLowerCase()))
-              : projectModules;
-            // A stored module name that doesn't match anything in this
-            // project's catalog (stale rename, typo, legacy data) used to
-            // leave the tester with zero options. Falling back to the full
-            // project catalog keeps the page usable instead of blocking them.
-            setAvailableModules(filteredModules.length > 0 ? filteredModules : projectModules);
+            setAvailableModules(modulesResult.value);
+          } else {
+            // Say so instead of silently showing an empty Module dropdown.
+            toast({
+              variant: "destructive",
+              title: "Couldn't load modules",
+              description: "The Module dropdown will be empty until the page is reloaded.",
+            });
           }
           if (usersResult.status === "fulfilled") setQaUsers(usersResult.value);
           if (trackersResult.status === "fulfilled") setAvailableTrackers(trackersResult.value || []);
@@ -2652,9 +2674,9 @@ export default function TestCasesExecutionProgressPage() {
       });
     }
     setPassEvidenceFiles((prev) => {
-      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const seen = new Set(prev.map((f) => `${f.file.name}:${f.file.size}`));
       const fresh = picked.filter((f) => f.size <= MAX_EVIDENCE_BYTES && !seen.has(`${f.name}:${f.size}`));
-      return [...prev, ...fresh];
+      return [...prev, ...fresh.map((file) => ({ file, filename: file.name }))];
     });
   };
 
@@ -2684,12 +2706,12 @@ export default function TestCasesExecutionProgressPage() {
       // the names already on the row, so concurrent uploads would all read the
       // same "taken" set and collide once the export ZIP is extracted.
       const uploaded: ExecutionEvidence[] = [];
-      const failed: File[] = [];
-      for (const file of passEvidenceFiles) {
+      const failed: typeof passEvidenceFiles = [];
+      for (const item of passEvidenceFiles) {
         try {
-          uploaded.push(await uploadExecutionEvidence(dbRowId, file));
+          uploaded.push(await uploadExecutionEvidence(dbRowId, item.file, item.description));
         } catch {
-          failed.push(file);
+          failed.push(item);
         }
       }
       setData((prev) => {
@@ -2715,7 +2737,7 @@ export default function TestCasesExecutionProgressPage() {
         toast({
           variant: "destructive",
           title: `${failed.length} attachment${failed.length === 1 ? "" : "s"} failed to upload`,
-          description: `${failed.map((f) => f.name).join(", ")}. The test case is saved as Passed — try these again.`,
+          description: `${failed.map((f) => f.filename).join(", ")}. The test case is saved as Passed — try these again.`,
         });
       } else {
         setPassEvidenceDialogOpen(false);
@@ -2808,13 +2830,14 @@ export default function TestCasesExecutionProgressPage() {
         {files.map((file) => (
           <div key={file.id} className="flex min-w-0 items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2 py-1.5 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
             <FileText className="w-3.5 h-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate" title={`${file.originalFileName ?? file.fileName}\nSaved as: ${file.fileName}`}>
+            <span className="min-w-0 flex-1 truncate" title={`${file.originalFileName ?? file.fileName}${file.description ? `\n${file.description}` : ""}\nSaved as: ${file.fileName}`}>
               {file.originalFileName ?? file.fileName}
+              {file.description && <span className="opacity-75"> · {file.description}</span>}
             </span>
-            <button title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
-            <button title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
+            <button className="shrink-0" title="View attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, true)}><Eye className="w-3.5 h-3.5" /></button>
+            <button className="shrink-0" title="Download attachment" onClick={() => viewPassEvidence(row.id as number, file.id, file.originalFileName || file.fileName, false)}><Download className="w-3.5 h-3.5" /></button>
             {canEditEvidence && (file.uploadedBy === currentUser?.id || ["admin", "cto"].includes(currentUser?.role ?? "")) && (
-              <button className="hover:text-destructive" title="Delete attachment" onClick={() => requestRemovePassEvidence(row, file)}><Trash2 className="w-3.5 h-3.5" /></button>
+              <button className="shrink-0 hover:text-destructive" title="Delete attachment" onClick={() => requestRemovePassEvidence(row, file)}><Trash2 className="w-3.5 h-3.5" /></button>
             )}
           </div>
         ))}
@@ -3629,12 +3652,14 @@ export default function TestCasesExecutionProgressPage() {
                 ? "Supporting evidence is optional. You can pass this test now and attach a document later."
                 : "Add supporting evidence without changing or rerunning this Passed result."}
             </p>
-            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-center hover:border-primary/60 hover:bg-muted/30">
+            {/* w-full + box-border so the dashed zone never outgrows the dialog;
+                the padding tightens on phones. */}
+            <label className="box-border flex w-full min-w-0 cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-4 text-center hover:border-primary/60 hover:bg-muted/30 sm:p-6">
               <Upload className="w-6 h-6 text-muted-foreground" />
               <span className="text-sm font-medium max-w-full break-words px-2">
                 {passEvidenceFiles.length > 0 ? "Add more files" : "Choose screenshots or documents"}
               </span>
-              <span className="text-xs text-muted-foreground">Images, PDF, Word or Excel · select several at once · maximum 10 MB each</span>
+              <span className="max-w-full break-words text-xs text-muted-foreground">Images, PDF, Word or Excel · select several at once · maximum 10 MB each</span>
               <input
                 type="file"
                 multiple
@@ -3649,32 +3674,24 @@ export default function TestCasesExecutionProgressPage() {
               />
             </label>
             {passEvidenceFiles.length > 0 && (
-              <ul className="space-y-1 max-h-48 overflow-y-auto">
-                {passEvidenceFiles.map((file, i) => (
-                  <li key={`${file.name}:${file.size}:${i}`} className="flex items-center gap-2 rounded bg-muted/50 px-2 py-1 text-sm">
-                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate" title={file.name}>{file.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
-                    <button
-                      type="button"
-                      title="Remove"
-                      disabled={isUploadingPassEvidence}
-                      onClick={() => setPassEvidenceFiles((prev) => prev.filter((_, j) => j !== i))}
-                    >
-                      <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="max-h-60 min-w-0 overflow-y-auto">
+                <AttachmentFileList
+                  files={passEvidenceFiles}
+                  onChange={setPassEvidenceFiles}
+                  disabled={isUploadingPassEvidence}
+                  meta={(f) => `${Math.max(1, Math.round(f.file.size / 1024))} KB`}
+                />
+              </div>
             )}
           </div>
+          {/* Buttons stack full-width on phones and sit in a row from sm up. */}
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" onClick={() => setPassEvidenceDialogOpen(false)} disabled={isUploadingPassEvidence}>Cancel</Button>
-            <div className="flex gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPassEvidenceDialogOpen(false)} disabled={isUploadingPassEvidence}>Cancel</Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               {passEvidenceMode === "pass" && (
-                <Button variant="secondary" onClick={handlePassWithoutEvidence} disabled={isUploadingPassEvidence}>Pass without attachment</Button>
+                <Button variant="secondary" className="w-full sm:w-auto" onClick={handlePassWithoutEvidence} disabled={isUploadingPassEvidence}>Pass without attachment</Button>
               )}
-              <Button onClick={handleSavePassEvidence} disabled={passEvidenceFiles.length === 0 || isUploadingPassEvidence} className="gap-2">
+              <Button onClick={handleSavePassEvidence} disabled={passEvidenceFiles.length === 0 || isUploadingPassEvidence} className="w-full gap-2 sm:w-auto">
                 {isUploadingPassEvidence ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {passEvidenceMode === "pass"
                   ? "Save as Passed"

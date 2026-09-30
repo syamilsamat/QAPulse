@@ -22,6 +22,8 @@ import { getAuthContext, scopeToUserProjects, canAccessProject, getRoleTierRank,
 import { logActivity, diffChanges } from "./_audit";
 import { notifyUser } from "./_notify";
 import { resolveApiKeyFromToken } from "./requirements";
+import { listDevAssignees } from "./contacts";
+import { attachmentDescription } from "../lib/attachment-description";
 import { submitForReview, getLatestReview, getEvidenceForReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
 import {
   pushDefectToRedmine,
@@ -156,6 +158,31 @@ async function resolveUserIdByName(name: string | null): Promise<number | null> 
   if (!name?.trim()) return null;
   const [user] = await db.select({ id: usersTable.id }).from(usersTable).where(ilike(usersTable.name, name.trim()));
   return user?.id ?? null;
+}
+
+// The create dialogs pick from listDevAssignees, which already knows the QM
+// Pulse user behind each contact, so trust that id when it is a real dev
+// assignee. Name matching stays only as a fallback for older clients: it
+// failed whenever the contact's name differed from the user's name, which
+// left a freshly created defect showing as unassigned.
+async function resolveDialogAssignee(
+  rawUserId: unknown,
+  name: unknown,
+): Promise<{ id: number | null; name: string | null }> {
+  const typedName = typeof name === "string" && name.trim() ? name.trim() : null;
+  const userId = rawUserId == null ? null : Number(rawUserId);
+  if (userId != null && Number.isInteger(userId)) {
+    const match = (await listDevAssignees()).find((a) => a.userId === userId);
+    if (match) return { id: match.userId, name: match.name };
+  }
+  return { id: await resolveUserIdByName(typedName), name: typedName };
+}
+
+// Assignee name as Configuration → Contacts shows it, falling back to the
+// QM Pulse user name when the user has no linked contact.
+async function assigneeDisplayName(userId: number, userName: string): Promise<string> {
+  const match = (await listDevAssignees()).find((a) => a.userId === userId);
+  return match?.name ?? userName;
 }
 
 // QM Pulse-native defect category taxonomy — fixed set, independent of
@@ -451,7 +478,7 @@ router.post("/defects", async (req, res): Promise<void> => {
       title, description, stepsToReproduce, expectedResult, actualResult,
       severity, module, projectId, foundIn, executionTcId, requirementId,
       sourceIssueId, redmineProjectId, trackerName, defectCategory,
-      assigneeId, assigneeName, complexity, targetedStartDate, targetedCompletionDate,
+      assigneeId, assigneeName, assigneeUserId, complexity, targetedStartDate, targetedCompletionDate,
       source, milestoneId, tracker, uploads,
     } = req.body ?? {};
 
@@ -505,7 +532,7 @@ router.post("/defects", async (req, res): Promise<void> => {
     // dropped rather than failing the whole defect creation over it. Doesn't
     // apply to requirement defects at all (product taxonomy, not authoring).
     const categoryAllowed = !isRequirementDefect && defectCategory != null && (await canSetDefectCategory(ctx.role));
-    const validatedUploads: { filename: string; contentType: string; base64: string }[] = [];
+    const validatedUploads: { filename: string; contentType: string; base64: string; description?: string }[] = [];
     if (uploads != null) {
       if (!Array.isArray(uploads) || uploads.length > 10) {
         res.status(400).json({ error: "uploads must contain at most 10 images" });
@@ -520,7 +547,7 @@ router.post("/defects", async (req, res): Promise<void> => {
           res.status(400).json({ error: `Invalid screenshot attachment: ${filename || "unnamed file"}` });
           return;
         }
-        validatedUploads.push({ filename, contentType, base64 });
+        validatedUploads.push({ filename, contentType, base64, description: attachmentDescription(file?.description) });
       }
     }
 
@@ -555,11 +582,12 @@ router.post("/defects", async (req, res): Promise<void> => {
     }
 
     const actorId = actorFromReq(req);
-    // CR045 — the dialog's assignee is a Redmine member; assigneeName is the
-    // display name we can match against QM Pulse users.
-    const localAssigneeId = isRequirementDefect
-      ? null
-      : await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
+    // CR045 — the dialog's assignee is a Redmine member (assigneeId) backed by
+    // a QM Pulse dev user (assigneeUserId).
+    const dialogAssignee = isRequirementDefect
+      ? { id: null, name: null }
+      : await resolveDialogAssignee(assigneeUserId, assigneeName);
+    const localAssigneeId = dialogAssignee.id;
     const [defect] = await db
       .insert(defectsTable)
       .values({
@@ -585,7 +613,7 @@ router.post("/defects", async (req, res): Promise<void> => {
         assigneeId: isRequirementDefect ? requirementRow!.createdBy : localAssigneeId,
         assigneeName: isRequirementDefect
           ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, requirementRow!.createdBy!)))[0]?.name ?? null
-          : (typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null),
+          : dialogAssignee.name,
         assigneeAssignedAt: isRequirementDefect || localAssigneeId != null ? new Date() : null,
       })
       .returning();
@@ -709,7 +737,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, tracker, projectId: requestedProjectId } = req.body ?? {};
+    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, assigneeUserId, tracker, projectId: requestedProjectId } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
@@ -782,8 +810,9 @@ router.post("/defects/register", async (req, res): Promise<void> => {
     let defect = existing;
     if (!existing) {
       // CR045 — carry the fail-modal's Redmine assignee into the local row
-      // (best-effort name match) so the dev is notified at creation.
-      const localAssigneeId = await resolveUserIdByName(typeof assigneeName === "string" ? assigneeName : null);
+      // so the dev is notified at creation.
+      const dialogAssignee = await resolveDialogAssignee(assigneeUserId, assigneeName);
+      const localAssigneeId = dialogAssignee.id;
       // CR051 — the select-above/insert-below is a TOCTOU: a double-submit
       // (double-click, slow-network retry) can race past the select. The
       // partial UNIQUE index on redmine_id makes the loser hit a 23505; we
@@ -812,7 +841,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
             defectCategory: categoryAllowed ? defectCategory : null,
             statusSyncedAt: null,
             assigneeId: localAssigneeId,
-            assigneeName: typeof assigneeName === "string" && assigneeName.trim() ? assigneeName.trim() : null,
+            assigneeName: dialogAssignee.name,
             assigneeAssignedAt: localAssigneeId != null ? new Date() : null,
           })
           .returning();
@@ -1004,6 +1033,8 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
     }
 
     let verificationEvidence: typeof defectVerificationEvidenceTable.$inferSelect | null = null;
+    // Goes to Redmine with the attachment; not stored locally.
+    let verificationEvidenceDescription: string | undefined;
     if (VERIFIED_STATUS.test(statusRow.name)) {
       if (!QA_VERIFY_ROLES.has(ctx.role)) {
         res.status(403).json({ error: "Only QA roles can verify a defect" });
@@ -1019,6 +1050,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
       const fileName = typeof evidence?.fileName === "string" ? evidence.fileName.replace(/[\r\n]/g, " ").slice(0, 255) : "";
       const mimeType = typeof evidence?.mimeType === "string" ? evidence.mimeType.slice(0, 150) : "application/octet-stream";
       const dataBase64 = typeof evidence?.dataBase64 === "string" ? evidence.dataBase64.replace(/^data:[^;]+;base64,/, "") : "";
+      verificationEvidenceDescription = attachmentDescription(evidence?.description);
       if (!dataBase64 || dataBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(dataBase64)) {
         res.status(400).json({ error: "Verification evidence data is invalid" });
         return;
@@ -1095,6 +1127,7 @@ router.patch("/defects/:id/status", async (req, res): Promise<void> => {
               filename: verificationEvidence.fileName,
               contentType: verificationEvidence.mimeType,
               base64: verificationEvidence.dataBase64,
+              description: verificationEvidenceDescription,
             },
           })
         : await pushStatusToRedmine(defect.redmineId, statusRedmineId, apiKey);
@@ -1227,7 +1260,7 @@ router.get("/defects/:id/review", async (req, res): Promise<void> => {
     submittedAt: latestReview.submittedAt,
     reviewerId: latestReview.reviewerId,
     reviewerName,
-    evidence: evidence.map((e) => ({ id: e.id, filename: e.filename, mimeType: e.mimeType, size: e.size })),
+    evidence: evidence.map((e) => ({ id: e.id, filename: e.filename, description: e.description ?? null, mimeType: e.mimeType, size: e.size })),
   });
 });
 
@@ -1381,7 +1414,7 @@ router.patch("/defects/:id/assign", async (req, res): Promise<void> => {
         res.status(400).json({ error: "Assignee not found" });
         return;
       }
-      assigneeName = user.name;
+      assigneeName = await assigneeDisplayName(assigneeId, user.name);
     }
 
     const now = new Date();
@@ -1791,7 +1824,7 @@ router.patch("/defects/:id", async (req, res): Promise<void> => {
           res.status(400).json({ error: "Assignee not found" });
           return;
         }
-        assigneeName = assignee.name;
+        assigneeName = await assigneeDisplayName(assigneeId, assignee.name);
       }
       patch.assigneeId = assigneeId;
       patch.assigneeName = assigneeName;

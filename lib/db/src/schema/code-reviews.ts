@@ -41,6 +41,8 @@ export const reviewEvidenceTable = pgTable("review_evidence", {
   mimeType: text("mime_type").notNull().default("application/octet-stream"),
   size: integer("size").notNull().default(0),
   storagePath: text("storage_path").notNull(),
+  // Optional note on what the file is, like Redmine's attachment description.
+  description: text("description"),
   uploadedBy: integer("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -286,6 +286,14 @@ export async function bootstrap() {
       )
     `),
     pool.query(`ALTER TABLE execution_files ADD COLUMN IF NOT EXISTS file_type TEXT NOT NULL DEFAULT 'qa'`),
+    // Optional per-file description, the same field Redmine's "Files" box
+    // offers beside each attachment. Nullable, so older rows are unaffected.
+    // (test_case_attachments / execution_tc_evidence get theirs right after
+    // their CREATE below, since these queries run in parallel.)
+    // Both tables come from drizzle push, so tolerate one not existing yet
+    // rather than aborting the rest of bootstrap.
+    pool.query(`ALTER TABLE requirement_attachments ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => {}),
+    pool.query(`ALTER TABLE review_evidence ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => {}),
     // Persistent library references, independent of execution evidence.
     pool.query(`
       CREATE TABLE IF NOT EXISTS test_case_attachments (
@@ -298,7 +306,8 @@ export async function bootstrap() {
         uploaded_by INTEGER NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-      CREATE INDEX IF NOT EXISTS test_case_attachments_case_idx ON test_case_attachments(test_case_id)
+      CREATE INDEX IF NOT EXISTS test_case_attachments_case_idx ON test_case_attachments(test_case_id);
+      ALTER TABLE test_case_attachments ADD COLUMN IF NOT EXISTS description TEXT
     `),
     // Optional evidence attached to Passed execution test cases.
     pool.query(`
@@ -311,7 +320,8 @@ export async function bootstrap() {
         data_base64 TEXT NOT NULL,
         uploaded_by INTEGER,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
+      );
+      ALTER TABLE execution_tc_evidence ADD COLUMN IF NOT EXISTS description TEXT
     `),
     pool.query(`
       CREATE TABLE IF NOT EXISTS defect_verification_evidence (

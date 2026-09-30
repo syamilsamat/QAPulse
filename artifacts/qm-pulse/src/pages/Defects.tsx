@@ -34,6 +34,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { AttachmentFileList, ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 import { DefectHistory } from "@/components/DefectHistory";
 import { useDefectHistorySummaries } from "@/lib/defect-history";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -209,6 +210,27 @@ function TcResultBadge({ result }: { result: string | null }) {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const DEV_ROLES = new Set(["dev_member", "dev_lead", "hod_dev"]);
+
+// Assignee <Select> value. A defect whose assignee is only a Redmine name
+// (no linked QM Pulse user) gets "" rather than "unassigned", so the trigger
+// falls back to its placeholder, which shows that name instead of
+// "Unassigned".
+function assigneeSelectValue(assigneeId: number | null | undefined, assigneeName: string | null | undefined): string {
+  if (assigneeId) return String(assigneeId);
+  return assigneeName ? "" : "unassigned";
+}
+
+// Keep the current assignee selectable even when they have dropped out of
+// the option list (role change, deactivated), so the Select shows their name
+// rather than going blank.
+function withCurrentAssignee<T extends { id: number; name: string }>(
+  options: T[],
+  assigneeId: number | null | undefined,
+  assigneeName: string | null | undefined,
+): { id: number; name: string }[] {
+  if (!assigneeId || options.some((u) => u.id === assigneeId)) return options;
+  return [...options, { id: assigneeId, name: assigneeName ?? `User #${assigneeId}` }];
+}
 const QA_VERIFY_ROLES = new Set(["qa_member", "qa_lead", "qa_manager", "hod_qa", "admin", "cto"]);
 // Mirrors the server's own gate in PATCH /defects/:id/status — a defect is
 // only verifiable straight out of QA retest. Kept as the same tolerant match
@@ -271,6 +293,7 @@ export default function Defects() {
   const [linkingDefect, setLinkingDefect] = useState<DefectRow | null>(null);
   const [verificationTarget, setVerificationTarget] = useState<{ defect: DefectRow; statusRedmineId: number } | null>(null);
   const [verificationFile, setVerificationFile] = useState<File | null>(null);
+  const [verificationDescription, setVerificationDescription] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
   // DEF-0030 follow-up — "everyone can edit the defect but need to include
@@ -314,10 +337,19 @@ export default function Defects() {
     queryKey: ["users-dev"],
     enabled: canAssign,
     queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/users`, { headers: authHeaders });
+      const [res, contacts] = await Promise.all([
+        fetch(`${getApiUrl()}/users`, { headers: authHeaders }),
+        fetchContactAssignees().catch(() => [] as RedmineMember[]),
+      ]);
       if (!res.ok) return [];
       const all: { id: number; name: string; role: string }[] = await res.json();
-      return all.filter((u) => DEV_ROLES.has(u.role));
+      // Label each dev by their Configuration → Contacts name when linked,
+      // the same name the create dialog lists and the defect row shows.
+      const contactName = new Map(contacts.filter((c) => c.userId != null).map((c) => [c.userId!, c.name]));
+      return all
+        .filter((u) => DEV_ROLES.has(u.role))
+        .map((u) => ({ ...u, name: contactName.get(u.id) ?? u.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
     },
   });
 
@@ -633,7 +665,7 @@ export default function Defects() {
     }
   };
 
-  const submitStatusChange = async (d: DefectRow, statusRedmineId: number, evidence?: { fileName: string; mimeType: string; dataBase64: string }) => {
+  const submitStatusChange = async (d: DefectRow, statusRedmineId: number, evidence?: { fileName: string; mimeType: string; dataBase64: string; description?: string }) => {
     try {
       const res = await fetch(`${getApiUrl()}/defects/${d.id}/status`, {
         method: "PATCH",
@@ -664,6 +696,7 @@ export default function Defects() {
       }
       setVerificationTarget({ defect: d, statusRedmineId });
       setVerificationFile(null);
+      setVerificationDescription("");
       return;
     }
     await submitStatusChange(d, statusRedmineId);
@@ -687,6 +720,7 @@ export default function Defects() {
         fileName: verificationFile.name,
         mimeType: verificationFile.type || "application/octet-stream",
         dataBase64,
+        description: verificationDescription.trim() || undefined,
       });
       if (ok) {
         setVerificationTarget(null);
@@ -1187,8 +1221,9 @@ export default function Defects() {
                         Verification evidence
                       </p>
                       {d.verificationEvidence.map((evidence) => (
-                        <div key={evidence.id} className="flex items-center gap-2 text-xs rounded border px-2 py-1.5">
-                          <span className="flex-1 min-w-0 truncate" title={evidence.fileName}>{evidence.fileName}</span>
+                        <div key={evidence.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs rounded border px-2 py-1.5 min-w-0">
+                          {/* Name takes the whole first line on phones; details and actions wrap below. */}
+                          <span className="basis-full sm:basis-0 flex-1 min-w-0 truncate" title={evidence.fileName}>{evidence.fileName}</span>
                           <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                             {formatFileSize(evidence.sizeBytes)} · {format(new Date(evidence.createdAt), "dd MMM yyyy, HH:mm")}
                           </span>
@@ -1215,15 +1250,15 @@ export default function Defects() {
                         {canEditAssignee ? (
                           <Select
                             disabled={!!d.redmineUnavailableAt}
-                            value={d.assigneeId ? String(d.assigneeId) : "unassigned"}
+                            value={assigneeSelectValue(d.assigneeId, d.assigneeName)}
                             onValueChange={(v) => handleAssign(d, v === "unassigned" ? null : Number(v))}
                           >
                             <SelectTrigger className="w-44 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
-                              <SelectValue placeholder="Unassigned" />
+                              <SelectValue placeholder={d.assigneeName ?? "Unassigned"} />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="unassigned">Unassigned</SelectItem>
-                              {assignOptions.map((u) => (
+                              {withCurrentAssignee(assignOptions, d.assigneeId, d.assigneeName).map((u) => (
                                 <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                               ))}
                             </SelectContent>
@@ -1455,7 +1490,7 @@ export default function Defects() {
           <div className="space-y-4">
             <div className="rounded-md border bg-muted/30 px-3 py-2">
               <p className="text-xs font-semibold">{verificationTarget?.defect.defectCode ?? `DEF-${verificationTarget?.defect.id}`}</p>
-              <p className="text-sm mt-0.5">{verificationTarget?.defect.title}</p>
+              <p className="text-sm mt-0.5 break-words">{verificationTarget?.defect.title}</p>
             </div>
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               Upload evidence showing the defect was retested successfully. The attachment is mandatory and stays in the defect history.
@@ -1491,6 +1526,14 @@ export default function Defects() {
                 }}
               />
               <p className="text-[10px] text-muted-foreground">Images, PDF, Word, Excel, TXT or CSV · maximum 10 MB</p>
+              <Input
+                aria-label="Attachment description"
+                placeholder="Optional description"
+                maxLength={ATTACHMENT_DESCRIPTION_MAX}
+                disabled={isVerifying}
+                value={verificationDescription}
+                onChange={(e) => setVerificationDescription(e.target.value)}
+              />
             </div>
           </div>
           <DialogFooter>
@@ -1653,7 +1696,7 @@ function SyncRedmineDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Project</Label>
               <Select value={projectId} onValueChange={setProjectId}>
@@ -1792,6 +1835,9 @@ function EditDefectDialog({
   // Match the project-access assignment rule on the defect card.
   const canEditAssignee = canAssign;
   const assignOptions = defect?.source === "requirement" ? handoffUsers : devUsers;
+  // The saved assignee's name, while the form still holds that same assignee.
+  const savedAssigneeName =
+    (form.assigneeId ?? null) === (defect?.assigneeId ?? null) ? defect?.assigneeName ?? null : null;
 
   useEffect(() => {
     if (!defect) return;
@@ -1875,7 +1921,7 @@ function EditDefectDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Expected Result</Label>
               <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
@@ -1890,7 +1936,7 @@ function EditDefectDialog({
 
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
                 <Select value={form.severity ?? "medium"} onValueChange={(v) => setForm({ ...form, severity: v })}>
@@ -1924,13 +1970,13 @@ function EditDefectDialog({
               <Label>Assignee</Label>
               {canEditAssignee ? (
                 <Select
-                  value={form.assigneeId ? String(form.assigneeId) : "unassigned"}
+                  value={assigneeSelectValue(form.assigneeId, savedAssigneeName)}
                   onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
                 >
-                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={savedAssigneeName ?? "Unassigned"} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {assignOptions.map((u) => (
+                    {withCurrentAssignee(assignOptions, defect?.assigneeId ?? null, defect?.assigneeName ?? null).map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -2128,7 +2174,7 @@ function NewDefectDialog({
   const [complexity, setComplexity] = useState("M");
   const [targetedStartDate, setTargetedStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [targetedCompletionDate, setTargetedCompletionDate] = useState("");
-  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string }[]>([]);
+  const [screenshots, setScreenshots] = useState<{ filename: string; contentType: string; base64: string; description?: string }[]>([]);
 
   // Duplicate check
   const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
@@ -2232,6 +2278,7 @@ function NewDefectDialog({
           ...form,
           assigneeId: selectedAssigneeId,
           assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
+          assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
           trackerName: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
           complexity,
           targetedStartDate: targetedStartDate || undefined,
@@ -2288,7 +2335,7 @@ function NewDefectDialog({
           </div>
 
           {/* Expected / Actual */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Expected Result</Label>
               <Textarea rows={2} value={form.expectedResult ?? ""} onChange={(e) => setForm({ ...form, expectedResult: e.target.value })} />
@@ -2302,15 +2349,8 @@ function NewDefectDialog({
           {/* Screenshots */}
           <div className="space-y-1.5">
             <Label>Screenshots</Label>
+            <AttachmentFileList files={screenshots} onChange={setScreenshots} />
             <div className="flex flex-wrap gap-2">
-              {screenshots.map((s, i) => (
-                <div key={i} className="flex items-center gap-1 bg-muted px-2 py-1 rounded text-xs">
-                  <span className="max-w-[120px] truncate">{s.filename}</span>
-                  <button onClick={() => setScreenshots((prev) => prev.filter((_, idx) => idx !== i))}>
-                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                  </button>
-                </div>
-              ))}
               <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="w-3 h-3" /> Add Screenshot
               </Button>
@@ -2323,7 +2363,7 @@ function NewDefectDialog({
           {/* QM Pulse section */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
                 <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
@@ -2365,7 +2405,7 @@ function NewDefectDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Requirement</Label>
                 <SearchableSelect
@@ -2402,7 +2442,7 @@ function NewDefectDialog({
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Redmine Project</Label>
                 <Select value={form.redmineProjectId ? String(form.redmineProjectId) : ""} onValueChange={(v) => setForm({ ...form, redmineProjectId: v ? Number(v) : undefined })}>
@@ -2443,12 +2483,12 @@ function NewDefectDialog({
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
                 options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search contact..."
-                emptyText="No contacts found."
+                searchPlaceholder="Search developer..."
+                emptyText="No developers found."
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Complexity</Label>
                 <SearchableSelect

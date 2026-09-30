@@ -108,7 +108,7 @@ export async function pushDefectToRedmine(
     complexity?: string | null;
     targetedStartDate?: string | null;
     targetedCompletionDate?: string | null;
-    uploads?: { filename: string; contentType: string; base64: string }[];
+    uploads?: { filename: string; contentType: string; base64: string; description?: string }[];
   } = {},
 ): Promise<PushResult> {
   if (defect.redmineId) return { ok: true, redmineId: defect.redmineId };
@@ -148,7 +148,7 @@ export async function pushDefectToRedmine(
   ].filter(Boolean);
 
   try {
-    const uploadTokens: { token: string; filename: string; content_type: string }[] = [];
+    const uploadTokens: { token: string; filename: string; content_type: string; description?: string }[] = [];
     for (const file of opts.uploads ?? []) {
       const uploadRes = await fetch(`${getBaseUrl()}/uploads.json?filename=${encodeURIComponent(file.filename)}`, {
         method: "POST",
@@ -164,7 +164,12 @@ export async function pushDefectToRedmine(
       }
       const uploadData: any = await uploadRes.json();
       if (uploadData?.upload?.token) {
-        uploadTokens.push({ token: uploadData.upload.token, filename: file.filename, content_type: file.contentType });
+        uploadTokens.push({
+          token: uploadData.upload.token,
+          filename: file.filename,
+          content_type: file.contentType,
+          ...(file.description ? { description: file.description } : {}),
+        });
       }
     }
     const res = await redmineFetch(`/issues.json`, apiKey, {
@@ -257,7 +262,7 @@ export async function pushVerificationToRedmine(
     verifierName: string;
     fromStatus: string;
     toStatus: string;
-    attachment?: { filename: string; contentType: string; base64: string };
+    attachment?: { filename: string; contentType: string; base64: string; description?: string };
   },
 ): Promise<{ ok: boolean; error?: string }> {
   const verifiedOn = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -276,7 +281,8 @@ export async function pushVerificationToRedmine(
     "_Recorded via QM Pulse._",
   ].filter((line) => line !== null).join("\n");
 
-  const attachmentDescription = `Verified by QA — retest evidence (${verifiedOn})`;
+  // What the tester typed wins; the stock label covers an empty box.
+  const attachmentDescription = opts.attachment?.description || `Verified by QA — retest evidence (${verifiedOn})`;
 
   try {
     const uploads: { token: string; filename: string; content_type: string; description: string }[] = [];

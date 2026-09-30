@@ -32,7 +32,8 @@ vm.runInNewContext(code, {
   requireAuth: () => ({ userId: 1, role: 'qa_member' }), actorFromReq: () => 1,
   DEFECT_CATEGORIES: [], canSetDefectCategory: async () => false,
   canAccessDefectProject: async (_ctx, id) => id == null || [11,22,33].includes(id),
-  resolveUserIdByName: async () => null, logActivity: async () => {},
+  resolveDialogAssignee: async (userId, name) => (userId === 42 ? { id: 42, name: 'Contact Name' } : { id: null, name: name ?? null }),
+  logActivity: async () => {},
   notifyQaLeads: async () => {}, notifyUser: async () => {}, console,
 });
 beforeEach(() => Object.assign(state, {
@@ -62,6 +63,10 @@ test('rejects unauthorized/missing projects, invalid inputs and execution refere
   state.execution[0].fileProjectId=99;
   assert.equal((await register({ projectId:11 })).code,403);
   assert.equal(state.defects.length,0);
+});
+test('stores the dialog assignee as a linked QM Pulse user with the contact name', async () => {
+  const res = await register({ assigneeUserId: 42, assigneeName: 'Typed Name' });
+  assert.equal(res.code,201);assert.equal(res.body.assigneeId,42);assert.equal(res.body.assigneeName,'Contact Name');assert.ok(res.body.assigneeAssignedAt);
 });
 test('older clients retain inferred project and duplicate registration preserves the existing defect', async () => {
   const first = await register({ stepsToReproduce:'Original steps' });assert.equal(first.body.projectId,11);

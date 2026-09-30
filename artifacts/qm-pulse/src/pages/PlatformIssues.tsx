@@ -342,7 +342,7 @@ function IssueDialog({
             <DialogHeader>
               <DialogTitle className="text-base">Edit issue #{issue.id}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 min-w-0">
               <div className="space-y-1.5">
                 <Label>Title <span className="text-destructive">*</span></Label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
@@ -371,18 +371,18 @@ function IssueDialog({
                   </Select>
                 </div>
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 min-w-0">
                 <Label>Screenshot</Label>
-                {shownShot && <img src={shownShot} alt="Attached screenshot" className="max-h-48 rounded border object-contain" />}
-                <div className="flex items-center gap-2">
-                  <Input type="file" accept="image/*" onChange={pickFile} className="text-sm" />
+                {shownShot && <img src={shownShot} alt="Attached screenshot" className="max-w-full h-auto max-h-48 rounded border object-contain" />}
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <Input type="file" accept="image/*" onChange={pickFile} className="w-full max-w-full min-w-0 flex-1 basis-48 text-sm" />
                   {shownShot && (
-                    <Button type="button" variant="outline" size="sm" onClick={() => setShot({ kind: "remove" })}>Remove</Button>
+                    <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setShot({ kind: "remove" })}>Remove</Button>
                   )}
                 </div>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:space-x-0">
               <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
               <Button onClick={save} disabled={saving}>
                 {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : "Save"}
@@ -392,26 +392,26 @@ function IssueDialog({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle className="text-base pr-6">{issue.title}</DialogTitle>
+              <DialogTitle className="text-base pr-6 break-words [overflow-wrap:anywhere]">{issue.title}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className="text-[10px]">{TYPE_LABELS[issue.type]}</Badge>
                 <span className={`text-xs font-medium ${SEVERITY_TEXT[issue.severity]}`}>{SEVERITY_LABELS[issue.severity]}</span>
                 <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[issue.status]}</Badge>
                 {issue.promotedCr && <Badge variant="outline" className="text-[10px]">{issue.promotedCr}</Badge>}
               </div>
-              <p className="text-xs text-muted-foreground font-mono">
+              <p className="text-xs text-muted-foreground font-mono break-all">
                 #{issue.id} · {issue.reporterName ?? "Unknown reporter"} · {formatDistanceToNow(new Date(issue.createdAt), { addSuffix: true })}
                 {issue.pagePath ? ` · ${issue.pagePath}` : ""}
               </p>
               {issue.description ? (
-                <p className="text-sm whitespace-pre-wrap break-words">{issue.description}</p>
+                <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{issue.description}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">No description.</p>
               )}
               {issue.screenshotUrl && (
-                <img src={issue.screenshotUrl} alt="Attached screenshot" className="max-w-full rounded border" />
+                <img src={issue.screenshotUrl} alt="Attached screenshot" className="max-w-full h-auto rounded border" />
               )}
             </div>
             {canEdit && (

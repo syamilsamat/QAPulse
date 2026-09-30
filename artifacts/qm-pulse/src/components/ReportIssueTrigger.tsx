@@ -148,7 +148,7 @@ export function ReportIssueTrigger() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-1">
+          <div className="space-y-4 py-1 min-w-0">
             <div className="space-y-1.5">
               <Label htmlFor="platform-issue-title">Title</Label>
               <Input
@@ -173,7 +173,7 @@ export function ReportIssueTrigger() {
 
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {TYPE_OPTIONS.map((opt) => (
                   <Button
                     key={opt.value}
@@ -190,7 +190,7 @@ export function ReportIssueTrigger() {
 
             <div className="space-y-1.5">
               <Label>Severity</Label>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {SEVERITY_OPTIONS.map((opt) => (
                   <Button
                     key={opt.value}
@@ -205,29 +205,31 @@ export function ReportIssueTrigger() {
               </div>
             </div>
 
-            <p className="text-xs text-muted-foreground font-mono">
+            <p className="text-xs text-muted-foreground font-mono break-all">
               auto-attached · {location} · {user.role}
             </p>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-w-0">
               <Label>Screenshot (optional)</Label>
               {screenshot ? (
-                <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                  <span className="truncate flex items-center gap-1.5 text-muted-foreground">
+                <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                  {/* Name in its own truncating span — ellipsis doesn't apply to
+                      bare text inside a flex container. */}
+                  <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                     <Paperclip className="w-3.5 h-3.5 shrink-0" />
-                    {screenshot.name}
+                    <span className="min-w-0 truncate" title={screenshot.name}>{screenshot.name}</span>
                   </span>
                   <Button type="button" variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => { setScreenshot(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>
                     <X className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               ) : (
-                <Input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="text-sm" />
+                <Input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="w-full max-w-full min-w-0 text-sm" />
               )}
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:space-x-0">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={submitting}>
               {submitting && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
