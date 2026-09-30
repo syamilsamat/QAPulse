@@ -28,6 +28,7 @@ import { syncMilestoneStatus } from "../lib/milestone-status";
 import { computeRequirementTimelines, computeRequirementTimelinesBatch, buildPhaseTimelineRollup } from "./dashboard";
 import { syncRedmineTicket, resolveApiKeyFromToken } from "./requirements";
 import { buildTestCaseExcel, trackerCode, runCapaAI, type ExcelEvidenceLink } from "./excel-builder";
+import { withRequirementUserStories } from "../lib/requirement-user-story";
 import { buildZip, type ZipEntry } from "./zip-writer";
 import { fetchActiveDefectsForIssue } from "./verdict-report";
 import { attachmentDescription } from "../lib/attachment-description";
@@ -2776,7 +2777,7 @@ router.get("/execution-files/:ticketId/download-excel", async (req, res): Promis
       console.warn("[download-excel] document register lookup failed:", err);
     }
 
-    const buffer = await buildTestCaseExcel(testCasesForExcel as any, {
+    const buffer = await buildTestCaseExcel((await withRequirementUserStories(testCasesForExcel)) as any, {
       redmineId: ticketId,
       issueType: typeLabel,
       issueSubject: issueSubject || file?.title || "",

@@ -4,6 +4,7 @@ import express from "express";
 import { eq, and, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
 import { buildTestCaseExcel, trackerCode, runCapaAI } from "./excel-builder";
+import { withRequirementUserStories } from "../lib/requirement-user-story";
 import { actorFromReq } from "./auth";
 import { logActivity } from "./_audit";
 import { getAuthContext } from "../middleware/access";
@@ -1719,7 +1720,7 @@ router.post("/verdict-report/send-verdict", express.json(), async (req, res) => 
         ? ((execFile as any).approvedAt instanceof Date ? (execFile as any).approvedAt.toISOString() : (execFile as any).approvedAt ?? null)
         : null;
 
-      const xlsxBuffer = await buildTestCaseExcel(testCases as any, {
+      const xlsxBuffer = await buildTestCaseExcel((await withRequirementUserStories(testCases)) as any, {
         redmineId: String(redmineId),
         issueType: typeLabel,
         issueSubject: issueSubject ?? "",
