@@ -213,10 +213,14 @@ export default function QAPipeline() {
     targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "",
     description: "", requiresUat: false,
   });
+  // The same edit form is shown either in the dialog (picker cards, locked
+  // banner) or inline on Step 1's details panel.
+  const [editInline, setEditInline] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deleteMilestoneId, setDeleteMilestoneId] = useState<number | null>(null);
 
-  const openEditMilestone = (m: any) => {
+  const openEditMilestone = (m: any, inline = false) => {
+    setEditInline(inline);
     setEditingMilestone(m);
     setEditForm({
       name: m.name,
@@ -367,8 +371,13 @@ export default function QAPipeline() {
   // the field — never guessing "done" for work it cannot verify: an
   // unverified earlier step shows as in-progress, not as a green tick.
   const stepStateFor = (stepId: number): StepState => {
-    const fromServer = milestone?.pipelineStepStates?.[stepId];
-    if (fromServer) return fromServer;
+    const fromServer: string | undefined = milestone?.pipelineStepStates?.[stepId];
+    // An API server still running the pre-merge code reports Step 5's
+    // "100% executed, not 100% passed" as executed_with_failures — the same
+    // meaning as conditional. Anything else unrecognised falls through to the
+    // fallback below rather than rendering a blank step.
+    if (fromServer === "executed_with_failures") return "conditional";
+    if (fromServer && fromServer in STEP_STATE_LABEL) return fromServer as StepState;
     // Still loading — show a neutral rail rather than a wrong one.
     if (!milestone) return "not_started";
     if (stepId === 7 && !milestone.requiresUat) return "skipped";
@@ -377,6 +386,8 @@ export default function QAPipeline() {
 
   const goToStep = (step: number) => {
     setCurrentStep(step);
+    // Leaving Step 1 abandons an unsaved inline edit of its details panel.
+    if (editInline) setEditingMilestone(null);
     if (!milestoneId) return;
     // Don't write pipelineStep back onto a closed pipeline — browsing a
     // completed run shouldn't mutate it.
@@ -393,6 +404,100 @@ export default function QAPipeline() {
       .catch(() => {});
   };
 
+  const fmtDate = (d?: string | null) => (d ? format(new Date(d), "dd MMM yyyy") : null);
+
+  // Step 1 for an existing milestone: its details at a glance, editable in
+  // place (same form as the Edit dialog) so nobody has to go back to the
+  // picker to fix a date or the description.
+  const renderMilestoneDetails = (nextHint: string) => {
+    if (!milestone) return null;
+
+    if (editInline && editingMilestone?.id === milestone.id) {
+      return (
+        <div className="w-full max-w-2xl mx-auto text-left space-y-4">
+          <h3 className="text-base sm:text-lg font-semibold">Edit milestone details</h3>
+          <div className="space-y-4 rounded-lg border p-4">{milestoneFormFields}</div>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingMilestone(null)} disabled={savingEdit}>
+              Cancel
+            </Button>
+            <Button className="w-full sm:w-auto" onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    const typeLabel = TYPE_OPTIONS.find((t) => t.value === milestone.type)?.label ?? milestone.type;
+    const dateRows: [string, string | null][] = isDataPrep
+      ? [["Target date", milestone.targetDate]]
+      : [
+          ["Start", milestone.startDate],
+          ["Requirements by", milestone.reqTargetDate],
+          ["Dev done by", milestone.devTargetDate],
+          ["QA done by", milestone.qaTargetDate],
+          ...(milestone.requiresUat ? [["UAT target date", milestone.uatTargetDate] as [string, string | null]] : []),
+          // Target Date tracks Go-Live on the server (DEF-0013).
+          ["Go-Live", milestone.goLiveDate ?? milestone.targetDate],
+        ];
+
+    return (
+      <div className="w-full max-w-2xl mx-auto text-left space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg sm:text-xl font-semibold break-words">{milestone.name}</h3>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <StatusBadge status={milestone.status} isDataPrep={isDataPrep} />
+              <PriorityBadge priority={milestone.priority} />
+              <Badge variant="outline">{typeLabel}</Badge>
+              {milestone.environment && <Badge variant="outline" className="font-mono">{milestone.environment}</Badge>}
+            </div>
+          </div>
+          {canWritePipelines && (
+            <Button variant="outline" size="sm" className="gap-1.5 w-full sm:w-auto shrink-0" onClick={() => openEditMilestone(milestone, true)}>
+              <Pencil className="w-3.5 h-3.5" /> Edit Details
+            </Button>
+          )}
+        </div>
+
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 rounded-lg border p-4 text-sm">
+          {!isDataPrep && (
+            <div>
+              <dt className="text-muted-foreground">UAT sign-off</dt>
+              <dd className="font-medium mt-0.5">{milestone.requiresUat ? "Required (Step 7)" : "Not required"}</dd>
+            </div>
+          )}
+          {dateRows.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="font-medium mt-0.5">
+                {fmtDate(value) ?? <span className="font-normal italic text-muted-foreground">Not set</span>}
+              </dd>
+            </div>
+          ))}
+          <div>
+            <dt className="text-muted-foreground">Created</dt>
+            <dd className="font-medium mt-0.5">{fmtDate(milestone.createdAt)}</dd>
+          </div>
+        </dl>
+
+        <div className="rounded-lg border p-4">
+          <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+            {isDataPrep ? "What QA needs to prepare" : "Description"}
+          </p>
+          {milestone.description ? (
+            <p className="text-sm whitespace-pre-wrap break-words">{milestone.description}</p>
+          ) : (
+            <p className="text-sm italic text-muted-foreground">No description yet.</p>
+          )}
+        </div>
+
+        <p className="text-sm text-muted-foreground">{nextHint}</p>
+      </div>
+    );
+  };
+
   const renderActiveStep = () => {
     if (isLoading) {
       return <div className="p-12 text-center text-muted-foreground">Loading milestone data...</div>;
@@ -401,15 +506,7 @@ export default function QAPipeline() {
     if (isDataPrep) {
       switch (displayStep) {
         case 1:
-          return (
-            <div className="py-8 sm:py-12 text-center">
-              <h2 className="text-lg sm:text-xl font-semibold mb-2">Milestone Created!</h2>
-              <p className="text-muted-foreground">
-                Milestone <strong>{milestone?.name}</strong> is configured for Data Prep.
-                Proceed to Step 2 to assign QA and upload the prepared dataset.
-              </p>
-            </div>
-          );
+          return renderMilestoneDetails("Next: Step 2 — assign QA and upload the prepared dataset.");
         case 2:
           return milestoneId ? (
             <StepDataPrepWork milestoneId={milestoneId} locked={isLocked} />
@@ -424,13 +521,7 @@ export default function QAPipeline() {
     switch (displayStep) {
       case 1:
         return milestoneId ? (
-          <div className="py-8 sm:py-12 text-center">
-            <h2 className="text-lg sm:text-xl font-semibold mb-2">Milestone Created!</h2>
-            <p className="text-muted-foreground">
-              Milestone <strong>{milestone?.name}</strong> is configured for the QA Pipeline.
-              Proceed to Step 2 to sync requirements.
-            </p>
-          </div>
+          renderMilestoneDetails("Next: Step 2 — sync requirements from Redmine.")
         ) : (
           <Step1Milestone />
         );
@@ -494,16 +585,17 @@ export default function QAPipeline() {
     }
   };
 
-  // Shared by both views below: the picker's per-card "Edit" and, for a
-  // completed (locked) pipeline, the "Edit Milestone Details" escape hatch —
-  // milestone dates and details stay editable after the pipeline closes.
-  const editMilestoneDialog = (
-    <Dialog open={!!editingMilestone} onOpenChange={(open) => !open && setEditingMilestone(null)}>
-      <DialogContent className="max-w-md w-[calc(100%-1.5rem)] sm:w-full max-h-[90dvh] flex flex-col p-0 gap-0">
-        <DialogHeader className="shrink-0 border-b px-4 sm:px-6 py-4 pr-12 text-left">
-          <DialogTitle>Edit Pipeline Milestone</DialogTitle>
-        </DialogHeader>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 px-4 sm:px-6 py-4">
+  // "Completed" closes a pipeline, which only Step 8's gated "Mark Milestone
+  // as DEPLOYED" does (the server rejects it otherwise), so the edit form only
+  // offers it when the milestone is already completed. Data Prep milestones
+  // keep it: their completion is gated on an uploaded file instead.
+  const editStatusOptions = (editForm.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS)
+    .filter((s) => s.value !== "completed" || editForm.type === "data_prep" || editingMilestone?.status === "completed");
+
+  // One set of milestone fields, rendered in the Edit dialog and inline on
+  // Step 1's details panel.
+  const milestoneFormFields = (
+    <>
           <div className="space-y-1.5">
             <Label>Name <span className="text-destructive">*</span></Label>
             <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
@@ -523,7 +615,7 @@ export default function QAPipeline() {
               <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {(editForm.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  {editStatusOptions.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -606,6 +698,20 @@ export default function QAPipeline() {
               <Label htmlFor="editUatToggle" className="text-sm">Requires UAT Sign-off?</Label>
             </div>
           )}
+    </>
+  );
+
+  // Shared by both views below: the picker's per-card "Edit" and, for a
+  // completed (locked) pipeline, the "Edit Milestone Details" escape hatch —
+  // milestone dates and details stay editable after the pipeline closes.
+  const editMilestoneDialog = (
+    <Dialog open={!!editingMilestone && !editInline} onOpenChange={(open) => !open && setEditingMilestone(null)}>
+      <DialogContent className="max-w-md w-[calc(100%-1.5rem)] sm:w-full max-h-[90dvh] flex flex-col p-0 gap-0">
+        <DialogHeader className="shrink-0 border-b px-4 sm:px-6 py-4 pr-12 text-left">
+          <DialogTitle>Edit Pipeline Milestone</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 px-4 sm:px-6 py-4">
+          {milestoneFormFields}
         </div>
         <DialogFooter className="shrink-0 flex-col-reverse sm:flex-row gap-2 border-t bg-background px-4 sm:px-6 py-4">
           <Button variant="outline" className="w-full sm:w-auto" onClick={() => setEditingMilestone(null)}>Cancel</Button>
@@ -865,7 +971,8 @@ export default function QAPipeline() {
                       variant="outline"
                       size="sm"
                       className="w-full sm:w-auto shrink-0"
-                      onClick={() => openEditMilestone(milestone)}
+                      // On Step 1 the details panel below is the edit form.
+                      onClick={() => openEditMilestone(milestone, displayStep === 1)}
                     >
                       <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Milestone Details
                     </Button>

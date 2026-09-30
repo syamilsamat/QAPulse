@@ -53,6 +53,8 @@ function harness(file) {
     './auth': { verifyToken: () => actor, actorFromReq: () => actor.userId },
     './_audit': { logActivity: async entry => audit.push(entry), diffChanges: (before, after) => ({ oldValue: before, newValue: after }) },
     './_notify': { notifyUser: async () => {}, notifyRolesInProject: async () => {} },
+    // No linked contacts: assignee names fall back to the QM Pulse user name.
+    './contacts': { listDevAssignees: async () => [] },
   };
   const filename = path.resolve(__dirname, '../src/routes/', file);
   const mod = new Module(filename, module);

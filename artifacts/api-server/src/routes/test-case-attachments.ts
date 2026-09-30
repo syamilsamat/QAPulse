@@ -3,13 +3,14 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, testCasesTable, testCaseAttachmentsTable as attachments, usersTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, canAccessModule } from "../middleware/access";
 import { logActivity } from "./_audit";
+import { attachmentDescription } from "../lib/attachment-description";
 
 const router: IRouter = Router();
 const MAX_BYTES = 20 * 1024 * 1024;
 const INLINE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "text/plain"]);
 const metadata = {
   id: attachments.id, testCaseId: attachments.testCaseId, fileName: attachments.fileName,
-  mimeType: attachments.mimeType, sizeBytes: attachments.sizeBytes,
+  mimeType: attachments.mimeType, sizeBytes: attachments.sizeBytes, description: attachments.description,
   uploadedBy: attachments.uploadedBy, createdAt: attachments.createdAt,
 };
 const canDelete = (userId: number, role: string, uploadedBy: number) =>
@@ -44,7 +45,7 @@ router.get("/test-cases/:testCaseId/attachments", async (_req, res) => {
 
 router.post("/test-cases/:testCaseId/attachments", async (req, res) => {
   const ctx = res.locals.attachmentContext;
-  const { fileName, mimeType, dataBase64 } = req.body ?? {};
+  const { fileName, mimeType, dataBase64, description } = req.body ?? {};
   if (typeof fileName !== "string" || !fileName.trim() || typeof dataBase64 !== "string" || !dataBase64.length) {
     res.status(400).json({ error: "A filename and non-empty attachment are required" }); return;
   }
@@ -61,6 +62,7 @@ router.post("/test-cases/:testCaseId/attachments", async (req, res) => {
   const [created] = await db.insert(attachments).values({
     testCaseId: ctx.testCaseId, fileName: safeName, mimeType: safeType,
     dataBase64, sizeBytes: buffer.length, uploadedBy: ctx.userId,
+    description: attachmentDescription(description) ?? null,
   }).returning(metadata);
   await logActivity({ type: "test_case_attachment_uploaded", description: `Library attachment "${safeName}" uploaded`, userId: ctx.userId, entityId: ctx.testCaseId, entityType: "test_case" });
   res.status(201).json({ ...created, canDelete: true });

@@ -850,7 +850,7 @@ export default function Tasks() {
         </TabsList>
 
         <TabsContent value="visualization" className="mt-0">
-          <TaskVisualization rows={filtered} />
+          <TaskVisualization rows={filtered} projectNameById={projectNameById} />
         </TabsContent>
 
         <TabsContent value="board" className="mt-0 space-y-6">

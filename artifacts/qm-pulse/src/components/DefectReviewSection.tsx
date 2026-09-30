@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, Clock, Paperclip, Loader2, Link2 } from "lucide-react";
+import { ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -37,7 +38,7 @@ interface DefectReview {
   note: string | null;
   reviewerId: number | null;
   reviewerName: string | null;
-  evidence: { id: number; filename: string; mimeType: string; size: number }[];
+  evidence: { id: number; filename: string; description?: string | null; mimeType: string; size: number }[];
 }
 
 function fmtSize(bytes: number): string {
@@ -79,6 +80,7 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
   const [submitOpen, setSubmitOpen] = useState(false);
   const [prLinkDraft, setPrLinkDraft] = useState("");
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceDescription, setEvidenceDescription] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
@@ -91,14 +93,19 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
   const submit = async () => {
     setSubmitLoading(true);
     try {
-      let evidence: { filename: string; mimeType: string; data: string } | undefined;
+      let evidence: { filename: string; mimeType: string; data: string; description?: string } | undefined;
       if (evidenceFile) {
         if (evidenceFile.size > MAX_EVIDENCE_BYTES) {
           toast({ variant: "destructive", title: "Evidence file must be under 5MB" });
           setSubmitLoading(false);
           return;
         }
-        evidence = { filename: evidenceFile.name, mimeType: evidenceFile.type, data: await fileToBase64(evidenceFile) };
+        evidence = {
+          filename: evidenceFile.name,
+          mimeType: evidenceFile.type,
+          data: await fileToBase64(evidenceFile),
+          description: evidenceDescription.trim() || undefined,
+        };
       }
       const res = await api(`/defects/${defectId}/submit-review`, token, {
         method: "POST",
@@ -110,6 +117,7 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
       setSubmitOpen(false);
       setPrLinkDraft("");
       setEvidenceFile(null);
+      setEvidenceDescription("");
       refresh();
     } catch {
       toast({ variant: "destructive", title: "Submit failed" });
@@ -145,7 +153,7 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
 
   return (
     <div className="rounded-md border p-3 space-y-2 bg-muted/10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-muted-foreground">Code Review</span>
         {review?.status === "approved" && (
           <span className="text-xs text-green-700 inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Approved — Resolved/Fixed unlocked</span>
@@ -157,16 +165,23 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
       </div>
 
       {(review?.prLink || (review?.evidence?.length ?? 0) > 0) && (
-        <div className="flex flex-wrap gap-2 text-xs">
+        <div className="flex min-w-0 flex-wrap gap-2 text-xs">
           {review?.prLink && (
-            <a href={review.prLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5">
-              <Link2 className="w-3 h-3" /> {review.prLink.replace(/^https?:\/\//, "")}
+            <a href={review.prLink} target="_blank" rel="noopener noreferrer" title={review.prLink} className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5">
+              <Link2 className="w-3 h-3 shrink-0" /> <span className="min-w-0 truncate">{review.prLink.replace(/^https?:\/\//, "")}</span>
             </a>
           )}
           {review?.evidence.map((e) => (
-            <span key={e.id} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5">
-              <Paperclip className="w-3 h-3" /> {e.filename} · {fmtSize(e.size)}
-            </span>
+            <div key={e.id} className="flex max-w-full min-w-0 flex-col gap-0.5">
+              <span className="inline-flex max-w-full min-w-0 items-center gap-1 self-start rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5">
+                <Paperclip className="w-3 h-3 shrink-0" />
+                <span className="min-w-0 truncate" title={e.filename}>{e.filename}</span>
+                <span className="shrink-0">· {fmtSize(e.size)}</span>
+              </span>
+              {e.description && (
+                <span className="max-w-full truncate px-2 text-muted-foreground" title={e.description}>{e.description}</span>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -192,13 +207,24 @@ export function DefectReviewSection({ defectId, assigneeId }: DefectReviewSectio
       {submitOpen && (
         <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/30">
           <p className="text-xs text-muted-foreground">Both fields optional — either one is enough.</p>
-          <Input placeholder="PR / commit link (optional)" value={prLinkDraft} onChange={(e) => setPrLinkDraft(e.target.value)} className="h-8 text-xs" />
-          <input type="file" accept="image/*,application/pdf" onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)} className="text-xs" />
-          <div className="flex gap-2">
+          <Input placeholder="PR / commit link (optional)" value={prLinkDraft} onChange={(e) => setPrLinkDraft(e.target.value)} className="h-8 min-w-0 text-xs" />
+          {/* w-full/min-w-0 so the native control can't widen the panel with a long filename. */}
+          <input type="file" accept="image/*,application/pdf" onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)} className="w-full max-w-full min-w-0 text-xs" />
+          {evidenceFile && (
+            <Input
+              placeholder="Optional description"
+              aria-label={`Description for ${evidenceFile.name}`}
+              maxLength={ATTACHMENT_DESCRIPTION_MAX}
+              value={evidenceDescription}
+              onChange={(e) => setEvidenceDescription(e.target.value)}
+              className="h-8 min-w-0 text-xs"
+            />
+          )}
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" disabled={submitLoading} onClick={submit}>
               {submitLoading && <Loader2 className="w-3 h-3 mr-1 animate-spin" />} Submit for review
             </Button>
-            <Button size="sm" variant="ghost" disabled={submitLoading} onClick={() => setSubmitOpen(false)}>Cancel</Button>
+            <Button size="sm" variant="ghost" disabled={submitLoading} onClick={() => { setSubmitOpen(false); setEvidenceFile(null); setEvidenceDescription(""); }}>Cancel</Button>
           </div>
         </div>
       )}

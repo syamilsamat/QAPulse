@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle2, Clock, Paperclip, Loader2, Link2, Pencil, Trash2 } from "lucide-react";
+import { ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -50,7 +51,7 @@ interface DevTaskReview {
   submittedAt: string;
   reviewerId: number | null;
   reviewerName: string | null;
-  evidence: { id: number; filename: string; mimeType: string; size: number }[];
+  evidence: { id: number; filename: string; description?: string | null; mimeType: string; size: number }[];
 }
 
 interface DevTask {
@@ -119,6 +120,7 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
   const [reviewOpenFor, setReviewOpenFor] = useState<number | null>(null);
   const [prLinkDraft, setPrLinkDraft] = useState("");
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceDescription, setEvidenceDescription] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
 
   const [rejectOpenFor, setRejectOpenFor] = useState<number | null>(null);
@@ -245,19 +247,25 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
     setReviewOpenFor(taskId);
     setPrLinkDraft("");
     setEvidenceFile(null);
+    setEvidenceDescription("");
   };
 
   const submitForReview = async (taskId: number) => {
     setSubmitLoading(true);
     try {
-      let evidence: { filename: string; mimeType: string; data: string } | undefined;
+      let evidence: { filename: string; mimeType: string; data: string; description?: string } | undefined;
       if (evidenceFile) {
         if (evidenceFile.size > MAX_EVIDENCE_BYTES) {
           toast({ variant: "destructive", title: "Evidence file must be under 5MB" });
           setSubmitLoading(false);
           return;
         }
-        evidence = { filename: evidenceFile.name, mimeType: evidenceFile.type, data: await fileToBase64(evidenceFile) };
+        evidence = {
+          filename: evidenceFile.name,
+          mimeType: evidenceFile.type,
+          data: await fileToBase64(evidenceFile),
+          description: evidenceDescription.trim() || undefined,
+        };
       }
       const res = await api(`/tasks/${taskId}/submit-review`, token, {
         method: "POST",
@@ -438,21 +446,28 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
                   )}
 
                   {(t.review?.prLink || (t.review?.evidence?.length ?? 0) > 0) && (
-                    <div className="flex flex-wrap gap-2 text-xs">
+                    <div className="flex min-w-0 flex-wrap gap-2 text-xs">
                       {t.review?.prLink && (
-                        <a href={t.review.prLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5">
-                          <Link2 className="w-3 h-3" /> {t.review.prLink.replace(/^https?:\/\//, "")}
+                        <a href={t.review.prLink} target="_blank" rel="noopener noreferrer" title={t.review.prLink} className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5">
+                          <Link2 className="w-3 h-3 shrink-0" /> <span className="min-w-0 truncate">{t.review.prLink.replace(/^https?:\/\//, "")}</span>
                         </a>
                       )}
                       {t.review?.evidence.map((e) => (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => viewEvidence(e.id, e.filename)}
-                          className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5"
-                        >
-                          <Paperclip className="w-3 h-3" /> {e.filename} · {fmtSize(e.size)}
-                        </button>
+                        <div key={e.id} className="flex max-w-full min-w-0 flex-col gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => viewEvidence(e.id, e.filename)}
+                            title={e.filename}
+                            className="inline-flex max-w-full min-w-0 items-center gap-1 self-start rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5"
+                          >
+                            <Paperclip className="w-3 h-3 shrink-0" />
+                            <span className="min-w-0 truncate">{e.filename}</span>
+                            <span className="shrink-0">· {fmtSize(e.size)}</span>
+                          </button>
+                          {e.description && (
+                            <span className="max-w-full truncate px-2 text-muted-foreground" title={e.description}>{e.description}</span>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -492,15 +507,26 @@ export function DevTasksPanel({ reqId, requirementProjectId, requirementModule, 
                         placeholder="PR / commit link (optional)"
                         value={prLinkDraft}
                         onChange={(e) => setPrLinkDraft(e.target.value)}
-                        className="h-8 text-xs"
+                        className="h-8 min-w-0 text-xs"
                       />
+                      {/* w-full/min-w-0 so the native control can't widen the panel with a long filename. */}
                       <input
                         type="file"
                         accept="image/*,application/pdf"
                         onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)}
-                        className="text-xs"
+                        className="w-full max-w-full min-w-0 text-xs"
                       />
-                      <div className="flex gap-2">
+                      {evidenceFile && (
+                        <Input
+                          placeholder="Optional description"
+                          aria-label={`Description for ${evidenceFile.name}`}
+                          maxLength={ATTACHMENT_DESCRIPTION_MAX}
+                          value={evidenceDescription}
+                          onChange={(e) => setEvidenceDescription(e.target.value)}
+                          className="h-8 min-w-0 text-xs"
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-2">
                         <Button size="sm" disabled={submitLoading} onClick={() => submitForReview(t.id)}>
                           {submitLoading && <Loader2 className="w-3 h-3 mr-1 animate-spin" />} Submit for review
                         </Button>

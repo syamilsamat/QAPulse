@@ -236,7 +236,12 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
                 <p className="text-sm text-muted-foreground mt-1">
                   {outcome === "incomplete"
                     ? <>{notExecutedCount} of {milestone?.execRowCount ?? 0} test case(s) have not been executed yet. Every test case must be run (Passed, Failed or Blocked) before functional testing can be signed off — see Step 5.</>
-                    : <>No test cases have been compiled for execution yet. Compile and execute them in Steps 3–5 first.</>}
+                    : outcome === "none"
+                      ? <>No test cases have been compiled for execution yet. Compile and execute them in Steps 3–5 first.</>
+                      // No outcome at all means the API server predates this
+                      // check (it needs a restart/redeploy), not that nothing
+                      // was executed — don't claim the latter.
+                      : <>Couldn't read the execution result from the server. Refresh the page; if this persists, the API server needs restarting to pick up the latest version.</>}
                 </p>
               </div>
             </div>

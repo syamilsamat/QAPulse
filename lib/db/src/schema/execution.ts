@@ -139,6 +139,8 @@ export const executionTcEvidenceTable = pgTable("execution_tc_evidence", {
   // What the tester's own machine called it. Display-only — kept so the upload
   // is still recognisable in the UI, and null for rows that predate renaming.
   originalFileName: text("original_file_name"),
+  // Optional note on what the file is, like Redmine's attachment description.
+  description: text("description"),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   dataBase64: text("data_base64").notNull(),

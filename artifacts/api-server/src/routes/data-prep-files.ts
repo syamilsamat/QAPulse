@@ -10,6 +10,7 @@ import { eq, desc } from "drizzle-orm";
 import { db, dataPrepFilesTable, milestonesTable, usersTable } from "@workspace/db";
 import { getAuthContext, canAccessProject } from "../middleware/access";
 import { logActivity } from "./_audit";
+import { attachmentDescription } from "../lib/attachment-description";
 
 const router: IRouter = Router();
 
@@ -79,10 +80,12 @@ router.post("/data-prep-files", async (req, res): Promise<void> => {
     fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
     mimeType: String(mimeType ?? "application/octet-stream").slice(0, 150),
     sizeBytes,
-    note: note ? String(note) : null,
+    // `note` is the file's optional description (Redmine-style): one line,
+    // capped at 255 chars, blank stored as null.
+    note: attachmentDescription(note) ?? null,
     dataBase64: cleanBase64,
     uploadedBy: ctx.userId,
-  }).returning({ id: dataPrepFilesTable.id });
+  }).returning({ id: dataPrepFilesTable.id, note: dataPrepFilesTable.note });
 
   await logActivity({
     type: "data_prep_file_uploaded",
@@ -91,7 +94,7 @@ router.post("/data-prep-files", async (req, res): Promise<void> => {
     entityId: m.id,
     entityType: "milestone",
   });
-  res.status(201).json({ id: row.id });
+  res.status(201).json({ id: row.id, note: row.note });
 });
 
 // GET /data-prep-files/:id/download — decode + stream with original name/mime
