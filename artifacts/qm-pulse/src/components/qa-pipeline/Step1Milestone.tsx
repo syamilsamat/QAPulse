@@ -39,22 +39,24 @@ const PRIORITY_OPTIONS = [
   { value: "Critical", label: "Critical" },
 ];
 
+// No "Completed" — a pipeline is only closed from Step 8's gated
+// "Mark Milestone as DEPLOYED" action (the server rejects it here too).
 const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
   { value: "uat", label: "UAT" },
-  { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
 // Data Prep milestones have no dev/QA-execution/UAT phase of their own, so
 // "Verified"/"UAT" never apply, and "Active" reads as "In Progress" for a
-// file-handoff task — mirrors the Milestones page's DATA_PREP_STATUS_OPTIONS.
+// file-handoff task — mirrors the Milestones page's DATA_PREP_STATUS_OPTIONS,
+// minus "Completed": a new milestone has no uploaded data file yet, and
+// completion needs one (the server rejects creating a pipeline as completed).
 const DATA_PREP_STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "In Progress" },
-  { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 

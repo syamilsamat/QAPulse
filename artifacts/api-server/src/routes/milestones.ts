@@ -7,6 +7,7 @@ import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
 import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
 import { syncMilestoneStatus } from "../lib/milestone-status";
+import { loadPipelineFacts, executionOutcome, isConditionalSignoff, computeDeployChecks } from "../lib/pipeline-facts";
 
 const router: IRouter = Router();
 
@@ -82,6 +83,11 @@ async function ensureAssigningLead(milestoneId: number, role: string, leadId: nu
 // sign off). Kept narrower than canWrite so non-pipeline milestones (and
 // other roles' write access) are unaffected.
 const QA_PIPELINE_ROLES = ["admin", "cto", "qa_member", "qa_lead", "qa_manager", "hod_qa"];
+
+// Formal QA authority: records the functional sign-off (Step 6) and may
+// reopen a pipeline that was already marked as deployed. Mirrors the
+// client-side gate in Step6SignOff, which on its own was only cosmetic.
+const PIPELINE_SIGNOFF_ROLES = ["admin", "qa_lead", "qa_manager", "hod_qa", "cto"];
 function canWritePipeline(role: string, pipelineEnabled: boolean) {
   return canWrite(role) || (pipelineEnabled && QA_PIPELINE_ROLES.includes(role));
 }
@@ -121,11 +127,12 @@ const VALID_PRIORITIES = ["Low", "Medium", "High", "Critical"];
  * Worth aligning computePipelineState() to match, but that changes the
  * dashboard's numbers, so it is left as a separate decision.
  */
-// "executed_with_failures" — every row has a terminal result but not all
-// passed. Distinct from "done" so the rail never reads as a success signal
-// for a step that's just as likely to be full of failures (100% executed
-// is not 100% passed) — see STEP_STATE_LABEL / StepStateIcon on the client.
-export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped" | "executed_with_failures";
+// "conditional" — 100% executed but not 100% passed (Step 5 "Conditional
+// Pass"), or a sign-off recorded under those conditions (Steps 6 and 8
+// "Conditional Sign Off"). Distinct from "done" so the rail never reads as a
+// success signal for a step that went through with failures — 100% executed
+// is not 100% passed. See STEP_STATE_LABEL / StepStateIcon on the client.
+export type PipelineStepState = "done" | "in_progress" | "not_started" | "skipped" | "conditional";
 
 function computePipelineStepStates(input: {
   requirementCount: number;
@@ -133,16 +140,24 @@ function computePipelineStepStates(input: {
   approvedFileCount: number;
   totalExecRows: number;
   executedRows: number;
-  passedRows: number;
+  failedRows: number;
   signedOff: boolean;
+  conditionalSignoff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
   deployed: boolean;
 }): Record<number, PipelineStepState> {
   const {
     requirementCount, execFileCount, approvedFileCount,
-    totalExecRows, executedRows, passedRows, signedOff, requiresUat, uatDocCount, deployed,
+    totalExecRows, executedRows, failedRows, signedOff, conditionalSignoff, requiresUat, uatDocCount, deployed,
   } = input;
+
+  // Step 5 is "Conditional Pass" when 100% of test cases were executed but
+  // some failed/blocked. Steps 6 and 8 are "Conditional Sign Off" when the
+  // recorded sign-off was conditional — read from the frozen snapshot, so a
+  // later retest doesn't rewrite what was signed.
+  const allExecuted = totalExecRows > 0 && executedRows >= totalExecRows;
+  const hasDefects = failedRows > 0;
 
   // "partial" is the difference between not-started and in-progress: some of
   // the work exists but the gate has not cleared yet.
@@ -157,14 +172,18 @@ function computePipelineStepStates(input: {
       : approvedFileCount > 0
         ? "in_progress"
         : "not_started",
-    5: totalExecRows > 0 && executedRows >= totalExecRows
-      ? (passedRows >= totalExecRows ? "done" : "executed_with_failures")
+    5: allExecuted
+      ? (hasDefects ? "conditional" : "done")
       : executedRows > 0
         ? "in_progress"
         : "not_started",
-    6: signedOff ? "done" : "not_started",
+    6: signedOff
+      ? (conditionalSignoff ? "conditional" : "done")
+      : "not_started",
     7: !requiresUat ? "skipped" : uatDocCount > 0 ? "done" : "not_started",
-    8: deployed ? "done" : "not_started",
+    8: deployed
+      ? (conditionalSignoff ? "conditional" : "done")
+      : "not_started",
   };
 
   // The earliest unfinished step is where the pipeline actually sits right
@@ -176,6 +195,9 @@ function computePipelineStepStates(input: {
       break;
     }
     if (states[id] === "in_progress") break;
+    // "conditional" counts as cleared for the pipeline-position scan — the
+    // work is done, it just went through with known defects.
+    if (states[id] === "conditional") continue;
   }
 
   return states;
@@ -222,6 +244,9 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     pipelineStep: m.pipelineStep ?? null,
     signedOffAt: m.signedOffAt?.toISOString() ?? null,
     signedOffBy: m.signedOffBy ?? null,
+    signoffType: m.signoffType ?? null,
+    signoffFailedCount: m.signoffFailedCount ?? null,
+    signoffTotalCount: m.signoffTotalCount ?? null,
   };
 }
 
@@ -332,6 +357,10 @@ router.post("/milestones", async (req, res): Promise<void> => {
   }
   if (!VALID_STATUSES.includes(status)) {
     res.status(400).json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }); return;
+  }
+  // A pipeline only becomes 'completed' through Step 8's gated deploy action.
+  if (pipelineEnabled && status === "completed") {
+    res.status(400).json({ error: "A QA Pipeline milestone can't be created as completed — it is closed from Step 8" }); return;
   }
   if (priority != null && !VALID_PRIORITIES.includes(priority)) {
     res.status(400).json({ error: `priority must be one of ${VALID_PRIORITIES.join(", ")}` }); return;
@@ -448,54 +477,30 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   const ok = await canAccessProject(ctx.userId, ctx.role, m.projectId);
   if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
 
-  // Counts for the milestone
-  const reqs = await db.select({ id: requirementsTable.id, reviewStatus: requirementsTable.reviewStatus })
-    .from(requirementsTable).where(eq(requirementsTable.milestoneId, id));
-  const execFiles = await db.select({ id: executionFilesTable.id, fileType: executionFilesTable.fileType, reviewStatus: executionFilesTable.reviewStatus })
-    .from(executionFilesTable).where(eq(executionFilesTable.milestoneId, id));
+  // Counts for the milestone. Execution tallies count QA files only and skip
+  // group rows — see lib/pipeline-facts.ts for the shared rules.
+  const facts = await loadPipelineFacts(id);
+  const { reqs, execFiles } = facts;
   const dataFiles = await db.select({ id: dataPrepFilesTable.id })
     .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
 
-  const qaFiles = execFiles.filter((f) => f.fileType === "qa");
-
-  // Execution row tallies drive the stepper's Step 5 state, so they count QA
-  // files only - UAT execution is gated separately at Step 7, and including
-  // it here would hold Step 5 open until UAT finished. Group rows are section
-  // banners rather than tests: counting them would leave any file that uses
-  // one permanently short of "fully executed".
-  const qaFileIds = qaFiles.map((f) => f.id);
-  const [execTally] = qaFileIds.length
-    ? await db
-        .select({
-          total: sql<number>`count(*)::int`,
-          executed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass', 'failed', 'fail', 'blocked'))::int`,
-          passed: sql<number>`count(*) filter (where lower(trim(coalesce(${executionTestCasesTable.result}, ''))) in ('passed', 'pass'))::int`,
-        })
-        .from(executionTestCasesTable)
-        .where(and(
-          inArray(executionTestCasesTable.executionFileId, qaFileIds),
-          ne(executionTestCasesTable.rowType, "group"),
-        ))
-    : [{ total: 0, executed: 0, passed: 0 }];
-
-  const uatDocs = await db.select({ id: uatSignoffsTable.id })
-    .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, id));
-
+  const conditionalSignoff = isConditionalSignoff(m, facts);
   const pipelineStepStates = m.type === "data_prep"
     ? computeDataPrepStepStates({
         fileCount: dataFiles.length,
         completed: m.status === "completed",
       })
     : computePipelineStepStates({
-        requirementCount: reqs.length,
-        execFileCount: qaFiles.length,
-        approvedFileCount: qaFiles.filter((f) => f.reviewStatus === "approved").length,
-        totalExecRows: execTally?.total ?? 0,
-        executedRows: execTally?.executed ?? 0,
-        passedRows: execTally?.passed ?? 0,
+        requirementCount: facts.requirementCount,
+        execFileCount: facts.qaFileCount,
+        approvedFileCount: facts.approvedQaFileCount,
+        totalExecRows: facts.totalExecRows,
+        executedRows: facts.executedRows,
+        failedRows: facts.failedRows,
         signedOff: !!m.signedOffAt,
+        conditionalSignoff,
         requiresUat: !!m.requiresUat,
-        uatDocCount: uatDocs.length,
+        uatDocCount: facts.uatDocCount,
         deployed: m.status === "completed",
       });
 
@@ -520,10 +525,14 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
     uatFileCount: execFiles.filter(f => f.fileType === "uat").length,
-    uatSignoffCount: uatDocs.length,
+    uatSignoffCount: facts.uatDocCount,
     dataPrepFileCount: dataFiles.length,
-    execRowCount: execTally?.total ?? 0,
-    execExecutedCount: execTally?.executed ?? 0,
+    execRowCount: facts.totalExecRows,
+    execExecutedCount: facts.executedRows,
+    execFailedCount: facts.failedRows,
+    executionOutcome: executionOutcome(facts),
+    signoffConditional: conditionalSignoff,
+    deployChecks: computeDeployChecks(m, facts, signedOffByName),
     pipelineStepStates,
   });
 });
@@ -538,6 +547,27 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const isPipeline = !!m.pipelineEnabled;
+  const isDeployed = m.status === "completed";
+  const reopening = req.body.status !== undefined && req.body.status !== "completed" && isDeployed;
+  const deploying = req.body.status === "completed" && !isDeployed;
+  const touchesSignoff = req.body.signedOffAt !== undefined || req.body.signedOffBy !== undefined;
+
+  if (isPipeline) {
+    if (reopening && !PIPELINE_SIGNOFF_ROLES.includes(ctx.role)) {
+      res.status(403).json({ error: "Only QA Leads, QA Managers, HOD QA, CTO or admin can reopen a deployed pipeline" }); return;
+    }
+    // A deployed pipeline is a closed record: its position and sign-off can't
+    // be rewritten. Milestone details and dates stay editable.
+    // requiresUat decides whether Step 7 gated the deployment, so flipping it
+    // afterwards would rewrite what the pipeline was closed against.
+    const changesUat = req.body.requiresUat !== undefined && Boolean(req.body.requiresUat) !== !!m.requiresUat;
+    if (isDeployed && !reopening && (req.body.pipelineStep !== undefined || touchesSignoff || changesUat)) {
+      res.status(409).json({ error: "This pipeline is completed and locked" }); return;
+    }
+  }
 
   const update: Partial<typeof milestonesTable.$inferInsert> = {};
   if (req.body.name !== undefined) update.name = req.body.name.trim();
@@ -569,6 +599,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     }
     update.environment = req.body.environment ?? null;
   }
+  if (req.body.requiresUat !== undefined) update.requiresUat = Boolean(req.body.requiresUat);
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.description !== undefined) update.description = req.body.description ? String(req.body.description).trim() || null : null;
   if (req.body.lessonsLearnedType !== undefined) {
@@ -599,6 +630,18 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
       if (dataFiles.length === 0) {
         res.status(400).json({ error: "Upload the prepared data file before marking this milestone complete" }); return;
       }
+    } else if (deploying && isPipeline) {
+      // Marking a pipeline as deployed is gated on every earlier step, exactly
+      // as Step 8's readiness checklist shows it — enforced here so the gate
+      // can't be skipped from the Milestones page or a direct API call.
+      const outstanding = computeDeployChecks(m, await loadPipelineFacts(id), null).filter((c) => !c.ok);
+      if (outstanding.length > 0) {
+        res.status(400).json({
+          error: `Cannot mark as deployed — outstanding: ${outstanding.map((c) => `Step ${c.step} ${c.label.toLowerCase()}`).join("; ")}`,
+          outstanding,
+        });
+        return;
+      }
     }
     update.status = req.body.status;
     // Auto-stamp the authoritative end-of-QA-phase boundary (PM Dashboard
@@ -618,10 +661,53 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     }
     update.pipelineStep = step;
   }
-  if (req.body.signedOffAt !== undefined) update.signedOffAt = req.body.signedOffAt ? new Date(req.body.signedOffAt) : null;
-  if (req.body.signedOffBy !== undefined) update.signedOffBy = req.body.signedOffBy == null ? null : Number(req.body.signedOffBy);
+  if (touchesSignoff) {
+    if (!PIPELINE_SIGNOFF_ROLES.includes(ctx.role)) {
+      res.status(403).json({ error: "Only QA Leads, QA Managers, HOD QA, CTO or admin can record functional sign-off" }); return;
+    }
+    if (req.body.signedOffAt) {
+      if (m.signedOffAt) {
+        res.status(409).json({ error: "Functional testing is already signed off for this milestone" }); return;
+      }
+      // Sign-off needs 100% of test cases executed. Whether it is Full or
+      // Conditional is decided here, from the server's own counts, and frozen
+      // so a later retest can't rewrite the record. The signer and time are
+      // always the caller and now — never taken from the request body.
+      const facts = await loadPipelineFacts(id);
+      const outcome = executionOutcome(facts);
+      if (outcome === "none") {
+        res.status(400).json({ error: "Nothing to sign off yet — no test cases have been compiled for execution" }); return;
+      }
+      if (outcome === "incomplete") {
+        res.status(400).json({ error: `Cannot sign off — ${facts.totalExecRows - facts.executedRows} of ${facts.totalExecRows} test case(s) not executed yet` }); return;
+      }
+      update.signedOffAt = new Date();
+      update.signedOffBy = ctx.userId;
+      update.signoffType = outcome;
+      update.signoffFailedCount = facts.failedRows;
+      update.signoffTotalCount = facts.totalExecRows;
+    } else {
+      // Undoing a sign-off reopens the Full vs Conditional decision, so it is
+      // reserved for admins correcting a mistake.
+      if (ctx.role !== "admin") {
+        res.status(403).json({ error: "Only an admin can withdraw a functional sign-off" }); return;
+      }
+      update.signedOffAt = null;
+      update.signedOffBy = null;
+      update.signoffType = null;
+      update.signoffFailedCount = null;
+      update.signoffTotalCount = null;
+    }
+  }
 
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
+
+  // Clicking between pipeline steps only saves where the user is standing —
+  // not worth an activity-log entry or a status recompute on every click.
+  const bodyKeys = Object.keys(req.body ?? {});
+  const positionOnly = bodyKeys.length > 0 && bodyKeys.every((k) => k === "pipelineStep");
+  if (positionOnly) { res.json(fmt(updated)); return; }
+
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
 
   // Don't fight a status the caller just set explicitly in this same request —
@@ -764,6 +850,7 @@ router.delete("/milestones/:id", async (req, res): Promise<void> => {
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
   await db.delete(milestonesTable).where(eq(milestonesTable.id, id));
   await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });

@@ -1,6 +1,6 @@
 import { resolveDocumentReference } from "./_document-register";
 import { Router, type IRouter } from "express";
-import { eq, and, sql, inArray, notInArray, ilike, isNull } from "drizzle-orm";
+import { eq, and, ne, sql, inArray, notInArray, ilike, isNull } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -487,14 +487,23 @@ router.get("/execution-progress", async (req, res): Promise<void> => {
       .select({
         executionFileId: executionTestCasesTable.executionFileId,
         total: sql<number>`count(*)::int`,
-        passed: sql<number>`count(*) filter (where ${bucketExpr} = 'passed')::int`,
-        failed: sql<number>`count(*) filter (where ${bucketExpr} = 'failed')::int`,
+        // 'pass'/'fail' are legacy spellings of the same results — the QA
+        // Pipeline's gates (lib/pipeline-facts.ts) already count them as
+        // executed, so bucketing them as notExecuted here made the two
+        // disagree.
+        passed: sql<number>`count(*) filter (where ${bucketExpr} in ('passed', 'pass'))::int`,
+        failed: sql<number>`count(*) filter (where ${bucketExpr} in ('failed', 'fail'))::int`,
         blocked: sql<number>`count(*) filter (where ${bucketExpr} = 'blocked')::int`,
         inProgress: sql<number>`count(*) filter (where ${bucketExpr} = 'in progress')::int`,
-        notExecuted: sql<number>`count(*) filter (where ${bucketExpr} not in ('passed', 'failed', 'blocked', 'in progress'))::int`,
+        notExecuted: sql<number>`count(*) filter (where ${bucketExpr} not in ('passed', 'pass', 'failed', 'fail', 'blocked', 'in progress'))::int`,
       })
       .from(executionTestCasesTable)
-      .where(inArray(executionTestCasesTable.executionFileId, fileIds))
+      // Group rows are section banners and never carry a result — counting
+      // them left any file that uses one permanently "not executed".
+      .where(and(
+        inArray(executionTestCasesTable.executionFileId, fileIds),
+        ne(executionTestCasesTable.rowType, "group"),
+      ))
       .groupBy(executionTestCasesTable.executionFileId);
 
     const agg: Record<string, { total: number; passed: number; failed: number; blocked: number; inProgress: number; notExecuted: number }> = {};

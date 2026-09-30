@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, PartyPopper, Download, FileText, CheckCircle2, XCircle, ClipboardList } from "lucide-react";
+import { Loader2, PartyPopper, Download, FileText, CheckCircle2, XCircle, ClipboardList, AlertTriangle } from "lucide-react";
 
 function api(path: string, token: string | null, opts?: RequestInit) {
   return fetch(`${getApiUrl()}${path}`, {
@@ -17,8 +17,6 @@ function api(path: string, token: string | null, opts?: RequestInit) {
     },
   });
 }
-
-const EMPTY_PROGRESS = { total: 0, passed: 0, failed: 0, blocked: 0, inProgress: 0, notExecuted: 0 };
 
 export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number, onComplete: () => void }) {
   const { token } = useAuth();
@@ -41,123 +39,24 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
     enabled: !!milestoneId,
   });
 
-  const { data: allFiles = [], isLoading: loadingFiles } = useQuery({
-    queryKey: ["execution-files"],
-    queryFn: async () => {
-      const res = await api("/execution-files", token);
-      return res.ok ? res.json() : [];
-    },
-  });
-
-  const { data: progressMap = {}, isLoading: loadingProgress } = useQuery<Record<string, typeof EMPTY_PROGRESS>>({
-    queryKey: ["execution-progress"],
-    queryFn: async () => {
-      const res = await api("/execution-progress", token);
-      return res.ok ? res.json() : {};
-    },
-  });
-
-  // Step 7 uploads sign-off *documents* into uat_signoffs. The milestone's
-  // `uatFileCount` is a different thing entirely — UAT execution files
-  // (fileType 'uat' in execution_files) — so it can't be used as this gate.
-  const { data: uatSignoffs = [], isLoading: loadingUat } = useQuery({
-    queryKey: ["uat-signoffs", "milestone", milestoneId],
-    queryFn: async () => {
-      const res = await api(`/uat-signoffs?milestoneId=${milestoneId}`, token);
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!milestoneId,
-  });
-
-  const files = useMemo(
-    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
-    [allFiles, milestoneId],
-  );
-
-  const execTotals = useMemo(() => {
-    return files.reduce((acc, f: any) => {
-      const p = progressMap[f.redmineTicketId] ?? EMPTY_PROGRESS;
-      return {
-        total: acc.total + p.total,
-        executed: acc.executed + p.passed + p.failed + p.blocked + p.inProgress,
-        notExecuted: acc.notExecuted + p.notExecuted,
-      };
-    }, { total: 0, executed: 0, notExecuted: 0 });
-  }, [files, progressMap]);
-
-  const checksLoading = loadingMilestone || loadingFiles || loadingProgress || loadingUat;
+  const checksLoading = loadingMilestone;
 
   // Each earlier step has to have actually produced something before the
-  // milestone can be closed — otherwise a pipeline could be marked DEPLOYED
-  // with no requirements, no test cases and no sign-off on record.
-  const checks = useMemo(() => {
-    if (!milestone) return [];
-    const approvedFiles = files.filter((f: any) => f.reviewStatus === "approved");
-    const list = [
-      {
-        step: 2,
-        label: "Requirements synced",
-        ok: (milestone.requirementCount ?? 0) > 0,
-        detail: (milestone.requirementCount ?? 0) > 0
-          ? `${milestone.requirementCount} requirement(s) linked`
-          : "No requirements linked to this milestone",
-      },
-      {
-        step: 3,
-        label: "Test cases compiled for execution",
-        ok: files.length > 0,
-        detail: files.length > 0
-          ? `${files.length} execution file(s) compiled`
-          : "No test cases compiled into an execution file",
-      },
-      {
-        step: 4,
-        label: "Test cases approved",
-        ok: files.length > 0 && approvedFiles.length === files.length,
-        detail: files.length === 0
-          ? "Nothing to approve yet"
-          : approvedFiles.length === files.length
-            ? "All execution files approved"
-            : `${files.length - approvedFiles.length} of ${files.length} file(s) still awaiting approval`,
-      },
-      {
-        step: 5,
-        label: "Test execution finished",
-        ok: execTotals.total > 0 && execTotals.notExecuted === 0,
-        detail: execTotals.total === 0
-          ? "No test cases to execute yet"
-          : execTotals.notExecuted === 0
-            ? `All ${execTotals.total} test case(s) executed`
-            : `${execTotals.notExecuted} of ${execTotals.total} test case(s) not executed`,
-      },
-      {
-        step: 6,
-        label: "Functional testing signed off",
-        ok: !!milestone.signedOffAt,
-        detail: milestone.signedOffAt
-          ? `Signed off by ${milestone.signedOffByName ?? "a QA authority"}`
-          : "Awaiting formal QA sign-off",
-      },
-    ];
-    // UAT is only a gate when the milestone was configured to require it.
-    if (milestone.requiresUat) {
-      const uatCount = (uatSignoffs as any[]).length;
-      list.push({
-        step: 7,
-        label: "UAT sign-off document uploaded",
-        ok: uatCount > 0,
-        detail: uatCount > 0
-          ? `${uatCount} UAT document(s) on record`
-          : "No UAT sign-off document uploaded",
-      });
-    }
-    return list;
-  }, [milestone, files, execTotals, uatSignoffs]);
+  // milestone can be closed. The checklist is computed by the server
+  // (computeDeployChecks in lib/pipeline-facts.ts) — the same one PATCH
+  // /milestones/:id enforces — so what is shown here is exactly what the
+  // deploy action will accept.
+  const checks: { step: number; label: string; ok: boolean; detail: string }[] = milestone?.deployChecks ?? [];
 
   const outstanding = checks.filter((c) => !c.ok);
   const allComplete = checks.length > 0 && outstanding.length === 0;
   const isCompleted = milestone?.status === "completed";
   const hasRequirements = (milestone?.requirementCount ?? 0) > 0;
+  // Conditional follows the recorded functional sign-off (frozen when it was
+  // signed), not the live defect count — a conditional sign-off stays a
+  // Conditional Sign Off through deployment even if defects are retested.
+  const hasDefects = !!milestone?.signoffConditional;
+  const retestedSince = hasDefects && milestone?.executionOutcome === "full";
 
   const handleExportRTM = async () => {
     setGeneratingRtm(true);
@@ -220,6 +119,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
         throw new Error(body.error ?? "Failed to complete pipeline");
       }
       queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
       toast({ title: "Pipeline completed — milestone deployed" });
       onComplete();
     } catch (err: any) {
@@ -232,19 +132,38 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-8 text-center">
       <div className="flex flex-col items-center justify-center py-6 sm:p-8 space-y-3 sm:space-y-4">
-        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-1 sm:mb-2 ${allComplete || isCompleted ? "bg-green-100" : "bg-muted"}`}>
+        <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-1 sm:mb-2 ${allComplete || isCompleted ? (hasDefects ? "bg-amber-100 dark:bg-amber-950/40" : "bg-green-100") : "bg-muted"}`}>
           {allComplete || isCompleted
-            ? <PartyPopper className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />
+            ? (hasDefects ? <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-amber-600" /> : <PartyPopper className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />)
             : <ClipboardList className="w-8 h-8 sm:w-10 sm:h-10 text-muted-foreground" />}
         </div>
         <h3 className="text-2xl sm:text-3xl font-bold">
-          {isCompleted ? "Milestone Deployed" : allComplete ? "Ready for Deployment" : "Not Ready for Deployment"}
+          {isCompleted
+            ? (hasDefects ? "Milestone Deployed (Conditional Sign Off)" : "Milestone Deployed")
+            : allComplete
+              ? (hasDefects ? "Ready for Deployment (Conditional Sign Off)" : "Ready for Deployment")
+              : "Not Ready for Deployment"}
         </h3>
+        {hasDefects && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Conditional Sign Off — {milestone?.signoffFailedCount ?? milestone?.execFailedCount ?? 0} of{" "}
+            {milestone?.signoffTotalCount ?? milestone?.execRowCount ?? 0} test case(s) failed / blocked at sign-off
+          </span>
+        )}
         <p className="text-sm sm:text-base text-muted-foreground max-w-md">
           {isCompleted ? (
-            <>Milestone <strong>{milestone?.name}</strong> has been marked as deployed and the pipeline is closed.</>
+            hasDefects ? (
+              <>Milestone <strong>{milestone?.name}</strong> has been deployed under a Conditional Sign Off, with known defects, and the pipeline is closed.</>
+            ) : (
+              <>Milestone <strong>{milestone?.name}</strong> has been marked as deployed and the pipeline is closed.</>
+            )
           ) : allComplete ? (
-            <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete. Generate your final artifacts before closing the pipeline.</>
+            hasDefects ? (
+              <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete under a Conditional Sign Off. Generate your final artifacts before closing the pipeline.</>
+            ) : (
+              <>All QA phases for milestone <strong>{milestone?.name}</strong> are complete. Generate your final artifacts before closing the pipeline.</>
+            )
           ) : (
             <>
               {outstanding.length} earlier step{outstanding.length !== 1 ? "s" : ""} still need
@@ -253,6 +172,12 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
             </>
           )}
         </p>
+        {retestedSince && (
+          <p className="text-xs text-muted-foreground max-w-md">
+            The failed / blocked test cases have since been retested and now pass, but the sign-off was recorded as
+            conditional and stays that way.
+          </p>
+        )}
       </div>
 
       {checksLoading ? (
@@ -332,16 +257,16 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
       <div className="pt-4 sm:pt-8 space-y-3">
         <Button
           size="lg"
-          className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-base sm:text-lg px-6 sm:px-8 h-auto py-4 sm:py-6 whitespace-normal"
+          className={`${hasDefects ? "bg-amber-600 hover:bg-amber-700" : "bg-green-600 hover:bg-green-700"} text-white w-full sm:w-auto text-base sm:text-lg px-6 sm:px-8 h-auto py-4 sm:py-6 whitespace-normal`}
           onClick={handleComplete}
           disabled={completing || checksLoading || isCompleted || !allComplete}
         >
           {completing ? (
             <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 animate-spin shrink-0" />
           ) : (
-            <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" />
+            hasDefects ? <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" /> : <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 mr-2 shrink-0" />
           )}
-          {isCompleted ? "Pipeline Completed" : "Mark Milestone as DEPLOYED"}
+          {isCompleted ? "Pipeline Completed" : (hasDefects ? "Mark Milestone as DEPLOYED (Conditional Sign Off)" : "Mark Milestone as DEPLOYED")}
         </Button>
         {!isCompleted && !allComplete && !checksLoading && (
           <p className="text-sm text-muted-foreground">

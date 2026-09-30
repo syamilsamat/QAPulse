@@ -6,7 +6,7 @@ import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { PlayCircle, ShieldAlert, TrendingUp, FileText, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { PlayCircle, ShieldAlert, TrendingUp, FileText, Loader2, RefreshCw, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 function api(path: string, token: string | null) {
@@ -46,10 +46,25 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
     },
   });
 
+  // QA execution files only — UAT execution files belong to UAT (Step 7),
+  // matching how the server gates the pipeline.
   const files = useMemo(
-    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
+    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId && (f.fileType ?? "qa") === "qa"),
     [allFiles, milestoneId],
   );
+
+  // Full pass vs Conditional Pass comes from the server (lib/pipeline-facts.ts)
+  // so this banner can't disagree with the pipeline rail, Step 6 or Step 8.
+  // Shares the ["milestone", id] cache with the parent page.
+  const { data: milestone } = useQuery<any>({
+    queryKey: ["milestone", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/milestones/${milestoneId}`, token);
+      return res.ok ? res.json() : null;
+    },
+    enabled: !!milestoneId,
+  });
+  const outcome: string | undefined = milestone?.executionOutcome;
 
   const totals = useMemo(() => {
     return files.reduce((acc, f: any) => {
@@ -66,7 +81,8 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
   }, [files, progressMap]);
 
   const isLoading = loadingFiles || loadingProgress;
-  const executed = totals.passed + totals.failed + totals.blocked + totals.inProgress;
+  // "In Progress" hasn't produced a result yet, so it isn't executed.
+  const executed = totals.passed + totals.failed + totals.blocked;
   const progressPercent = totals.total > 0 ? Math.round((executed / totals.total) * 100) : 0;
 
   // Release risk / defect leakage are AI-assessed from the real execution
@@ -123,7 +139,15 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => { refetchFiles(); refetchProgress(); }}>
+          <Button
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            onClick={() => {
+              refetchFiles();
+              refetchProgress();
+              queryClient.invalidateQueries({ queryKey: ["milestone", milestoneId] });
+            }}
+          >
             <RefreshCw className="w-4 h-4 mr-2 shrink-0" /> Refresh
           </Button>
           {/* Disabled once the pipeline closes — this navigates into the
@@ -169,11 +193,12 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
             <Progress value={progressPercent} className="h-3" />
             {/* Number-over-label cells: the old single inline row wrapped
                 mid-word ("0 Not / Executed") at phone widths. */}
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
               {[
                 { value: totals.passed, label: "Passed", color: "text-green-600" },
                 { value: totals.failed, label: "Failed", color: "text-red-600" },
                 { value: totals.blocked, label: "Blocked", color: "text-amber-600" },
+                { value: totals.inProgress, label: "In Progress", color: "text-blue-600" },
                 { value: totals.notExecuted, label: "Not Executed", color: "" },
                 { value: totals.total, label: "Total", color: "" },
               ].map((s) => (
@@ -184,6 +209,37 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
               ))}
             </div>
           </div>
+
+          {/* 100% executed: Passed when every test case passed, Conditional
+              Pass when some failed/blocked. */}
+          {outcome === "conditional" && (
+            <Card className="border-amber-400 bg-amber-50 dark:bg-amber-950/20">
+              <CardContent className="p-4 flex items-start gap-3 text-left">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Conditional Pass</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    All {milestone?.execRowCount ?? 0} test case(s) have been executed, but{" "}
+                    <span className="font-semibold text-amber-600">{milestone?.execFailedCount ?? 0} failed / blocked</span>.
+                    Signing off at Step 6 will be recorded as a <strong>Conditional Sign Off</strong>.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {outcome === "full" && (
+            <Card className="border-green-500 bg-green-50 dark:bg-green-950/20">
+              <CardContent className="p-4 flex items-start gap-3 text-left">
+                <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-green-700 dark:text-green-400">Passed</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    All {milestone?.execRowCount ?? 0} test case(s) have been executed and passed — ready for functional sign-off at Step 6.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
             <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -284,7 +340,7 @@ export function Step5Execution({ milestoneId, locked = false }: { milestoneId: n
               <div className="divide-y max-h-72 overflow-y-auto overflow-x-hidden">
                 {files.map((f: any) => {
                   const p = progressMap[f.redmineTicketId] ?? EMPTY;
-                  const done = p.passed + p.failed + p.blocked + p.inProgress;
+                  const done = p.passed + p.failed + p.blocked;
                   const pct = p.total > 0 ? Math.round((done / p.total) * 100) : 0;
                   return (
                     <div key={f.id} className="p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 hover:bg-muted/50">

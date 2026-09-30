@@ -33,8 +33,10 @@ export function Step4Approval({ milestoneId, locked = false }: { milestoneId: nu
     },
   });
 
+  // QA execution files only — UAT execution files belong to UAT (Step 7),
+  // matching how the server gates the pipeline.
   const files = useMemo(
-    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId),
+    () => (allFiles as any[]).filter((f) => f.milestoneId === milestoneId && (f.fileType ?? "qa") === "qa"),
     [allFiles, milestoneId],
   );
 
