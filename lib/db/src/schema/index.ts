@@ -27,6 +27,7 @@ export * from "./milestone-risk-assessments";
 export * from "./execution-risk-assessments";
 export * from "./ai-controls";
 export * from "./redmine-sync";
+export * from "./milestone-trackers";
 export * from "./conversations";
 export * from "./messages";
 export * from "./pipeline-settings";

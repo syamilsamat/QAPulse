@@ -567,6 +567,15 @@ export async function bootstrap() {
         UNIQUE (milestone_id, user_id)
       )
     `),
+    // Milestone type -> default Redmine tracker for new requirements
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_type_trackers (
+        milestone_type TEXT PRIMARY KEY,
+        tracker_name TEXT NOT NULL,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
     // Scheduled Redmine sync: state/lock, run history, flagged requirement changes
     pool.query(`
       CREATE TABLE IF NOT EXISTS redmine_sync_state (
