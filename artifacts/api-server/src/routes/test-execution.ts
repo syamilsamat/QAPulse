@@ -1,6 +1,6 @@
 import { resolveDocumentReference } from "./_document-register";
 import { Router, type IRouter } from "express";
-import { eq, and, ne, sql, inArray, notInArray, ilike, isNull } from "drizzle-orm";
+import { eq, and, ne, sql, inArray, notInArray, ilike, isNull, desc } from "drizzle-orm";
 import {
   db,
   executionFilesTable,
@@ -10,6 +10,7 @@ import {
   executionTcHistoryTable,
   executionSummariesTable,
   executionFileAuditTable,
+  executionReviewLogTable,
   trackersTable,
   usersTable,
   requirementsTable,
@@ -125,6 +126,32 @@ async function canAccessFileProject(
 ): Promise<boolean> {
   if (projectId == null) return true;
   return canAccessProject(ctx.userId, ctx.role, projectId);
+}
+
+// Append one peer-review decision (with its remark) to the history. Never
+// fails the review itself — the decision has already been applied by then.
+async function logReviewDecision(opts: {
+  fileId: number;
+  rowId?: number | null;
+  rowLabel?: string | null;
+  action: "submit" | "approve" | "reject" | "accept" | "return" | "resubmit";
+  actorId: number;
+  remark?: string | null;
+}): Promise<void> {
+  try {
+    const [actor] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, opts.actorId));
+    await db.insert(executionReviewLogTable).values({
+      executionFileId: opts.fileId,
+      executionTestCaseId: opts.rowId ?? null,
+      rowLabel: opts.rowLabel ?? null,
+      action: opts.action,
+      actorId: opts.actorId,
+      actorName: actor?.name ?? null,
+      remark: opts.remark?.trim() || null,
+    });
+  } catch (err) {
+    console.error("[logReviewDecision]", err);
+  }
 }
 
 // An execution file can be created without a milestone (add/edit test cases
@@ -978,6 +1005,11 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
   if (Number.isNaN(id) || !["submit", "approve", "reject"].includes(action)) {
     res.status(400).json({ error: "Invalid request payload" }); return;
   }
+  // A remark is optional on submit/approve but a rejection has to say why.
+  const remark = typeof comment === "string" ? comment.trim() || null : null;
+  if (action === "reject" && !remark) {
+    res.status(400).json({ error: "A reason is required to return an execution file" }); return;
+  }
 
   // Submitting stays open to any QA role (a qa_member submits their own
   // work). Approving/rejecting — signing off on it — is reserved for QA
@@ -986,7 +1018,7 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
   const authorized = action === "submit" ? await canReview("qa", ctx.role) : await canApproveExecutionFile(ctx.role);
   if (!authorized) {
     res.status(403).json({
-      error: action === "submit" ? "QA role required for review actions" : "Only a QA Lead, QA Manager, or HOD QA can approve or reject",
+      error: action === "submit" ? "QA role required for review actions" : "Only a QA Lead, QA Manager, or HOD QA can approve or return",
     });
     return;
   }
@@ -1047,7 +1079,7 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
       update.reviewStatus = "rejected";
       update.rejectedBy = ctx.userId;
       update.rejectedAt = now;
-      update.rejectionReason = comment ?? null;
+      update.rejectionReason = remark;
     }
 
     const [updated] = await db.update(executionFilesTable).set(update).where(eq(executionFilesTable.id, id)).returning();
@@ -1086,9 +1118,11 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
         );
     }
 
+    await logReviewDecision({ fileId: id, action, actorId: ctx.userId, remark });
+
     await logActivity({
       type: `execution_file_${action}`,
-      description: `Execution file "${file_.title || file_.redmineTicketId}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+      description: `Execution file "${file_.title || file_.redmineTicketId}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "returned"}${comment ? `: ${comment}` : ""}`,
       userId: ctx.userId,
       entityId: id,
       entityType: "execution_file",
@@ -1118,10 +1152,10 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
     } else if (action === "approve" || action === "reject") {
       await notifyUser(
         file_.qaPicSetBy,
-        action === "approve" ? "Execution file approved" : "Execution file rejected",
+        action === "approve" ? "Execution file approved" : "Execution file returned",
         action === "approve"
-          ? `"${label}" was approved — you can now execute its test cases.`
-          : `"${label}" was rejected${comment ? `: ${comment}` : ""}.`,
+          ? `"${label}" was approved — you can now execute its test cases.${remark ? ` Reviewer remark: ${remark}` : ""}`
+          : `"${label}" was returned${remark ? `: ${remark}` : ""}.`,
         action === "approve" ? "review_approved" : "review_rejected",
         "execution_file",
         id,
@@ -1194,6 +1228,43 @@ router.patch("/execution-test-cases/:id/content", async (req, res): Promise<void
   }
 });
 
+// GET /execution-files/:id/review-log — newest-first history of every peer
+// review decision on this file (file-level and per-row) with reviewer remarks.
+router.get("/execution-files/:id/review-log", async (req, res): Promise<void> => {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return;
+
+  const id = parseInt(req.params.id);
+  if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid execution file ID" }); return; }
+
+  try {
+    const [file_] = await db.select().from(executionFilesTable).where(eq(executionFilesTable.id, id));
+    if (!file_) { res.status(404).json({ error: "Execution file not found" }); return; }
+    if (!(await canAccessFileProject(ctx, file_.projectId))) {
+      res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+
+    const rows = await db
+      .select()
+      .from(executionReviewLogTable)
+      .where(eq(executionReviewLogTable.executionFileId, id))
+      .orderBy(desc(executionReviewLogTable.createdAt), desc(executionReviewLogTable.id));
+
+    res.json(rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      scope: r.executionTestCaseId != null ? "row" : "file",
+      rowLabel: r.rowLabel ?? null,
+      actorName: r.actorName ?? null,
+      remark: r.remark ?? null,
+      createdAt: r.createdAt.toISOString(),
+    })));
+  } catch (error) {
+    console.error("Failed to load execution review log:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // PATCH /execution-test-cases/:id/review — per-row peer acceptance for test
 // cases added to a file that was already approved.
 //
@@ -1213,6 +1284,11 @@ router.patch("/execution-test-cases/:id/review", async (req, res): Promise<void>
   const { action, comment } = req.body as { action: "accept" | "return" | "resubmit"; comment?: string };
   if (Number.isNaN(id) || !["accept", "return", "resubmit"].includes(action)) {
     res.status(400).json({ error: "action must be accept, return, or resubmit" }); return;
+  }
+  // Accept may carry an optional remark; a return has to say what to fix.
+  const remark = typeof comment === "string" ? comment.trim() || null : null;
+  if (action === "return" && !remark) {
+    res.status(400).json({ error: "Say what needs to be fixed when returning a test case" }); return;
   }
 
   try {
@@ -1241,6 +1317,8 @@ router.patch("/execution-test-cases/:id/review", async (req, res): Promise<void>
         .set({ reviewState: "pending", returnedBy: null, returnedAt: null, reviewComment: null })
         .where(eq(executionTestCasesTable.id, id))
         .returning();
+
+      await logReviewDecision({ fileId: file.id, rowId: id, rowLabel: label, action: "resubmit", actorId: ctx.userId, remark });
 
       await logActivity({
         type: "execution_tc_resubmit",
@@ -1281,13 +1359,15 @@ router.patch("/execution-test-cases/:id/review", async (req, res): Promise<void>
 
     const update = action === "accept"
       ? { reviewState: "accepted", acceptedBy: ctx.userId, acceptedAt: now, reviewComment: null }
-      : { reviewState: "rejected", returnedBy: ctx.userId, returnedAt: now, reviewComment: comment ?? null };
+      : { reviewState: "rejected", returnedBy: ctx.userId, returnedAt: now, reviewComment: remark };
 
     const [updated] = await db
       .update(executionTestCasesTable)
       .set(update)
       .where(eq(executionTestCasesTable.id, id))
       .returning();
+
+    await logReviewDecision({ fileId: file.id, rowId: id, rowLabel: label, action, actorId: ctx.userId, remark });
 
     await logActivity({
       type: action === "accept" ? "execution_tc_accepted" : "execution_tc_returned",
@@ -1303,8 +1383,8 @@ router.patch("/execution-test-cases/:id/review", async (req, res): Promise<void>
       (row as any).addedBy,
       action === "accept" ? "Test case accepted" : "Test case returned to you",
       action === "accept"
-        ? `"${label}" was accepted into ${file.title || file.redmineTicketId} and can now be executed.`
-        : `"${label}" was returned for rework${comment ? `: ${comment}` : ""}. Fix it and resubmit to put it back on the execution sheet.`,
+        ? `"${label}" was accepted into ${file.title || file.redmineTicketId} and can now be executed.${remark ? ` Reviewer remark: ${remark}` : ""}`
+        : `"${label}" was returned for rework${remark ? `: ${remark}` : ""}. Fix it and resubmit to put it back on the execution sheet.`,
       action === "accept" ? "review_approved" : "review_rejected",
       "execution_file",
       file.id,

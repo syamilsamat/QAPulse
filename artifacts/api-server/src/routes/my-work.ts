@@ -266,7 +266,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
     const isRevision = file.reviewStatus === "rejected" && (scope === "unassigned" ? file.qaPicSetBy == null : isTargetId(file.qaPicSetBy));
     const isExecution = file.reviewStatus === "approved" && pendingCount > 0 && (scope === "unassigned" ? unassigned : assigned);
     if (!isReview && !isRevision && !isExecution) continue;
-    const title = isReview ? `Approve execution: ${file.title ?? file.redmineTicketId}` : isRevision ? `Correct rejected execution: ${file.title ?? file.redmineTicketId}` : `Continue execution: ${file.title ?? file.redmineTicketId}`;
+    const title = isReview ? `Approve execution: ${file.title ?? file.redmineTicketId}` : isRevision ? `Correct returned execution: ${file.title ?? file.redmineTicketId}` : `Continue execution: ${file.title ?? file.redmineTicketId}`;
     const stale = ageDays(file.updatedAt) >= 3;
     push({ id: `execution:${file.id}`, type: "execution", title, context: contextFor(file.projectId, file.milestoneId),
       reason: isExecution ? `${pendingCount} test case(s) not executed` : `${isReview ? "Waiting for approval" : "Returned for correction"} · ${ageDays(file.updatedAt)} day(s)`,

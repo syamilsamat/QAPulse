@@ -30,7 +30,7 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: 
   info:                  { icon: Info,          color: "text-slate-600",  bg: "bg-slate-50",  label: "Info" },
   review_request:        { icon: Clock,         color: "text-amber-600",  bg: "bg-amber-50",  label: "Review" },
   review_approved:       { icon: CheckCircle2,  color: "text-green-600",  bg: "bg-green-50",  label: "Approved" },
-  review_rejected:       { icon: XCircle,       color: "text-red-600",    bg: "bg-red-50",    label: "Rejected" },
+  review_rejected:       { icon: XCircle,       color: "text-red-600",    bg: "bg-red-50",    label: "Returned" },
   revision_required:     { icon: RefreshCcw,    color: "text-orange-600", bg: "bg-orange-50", label: "Revision" },
   defect_opened:         { icon: Bug,           color: "text-red-600",    bg: "bg-red-50",    label: "Defect" },
   defect_status_changed: { icon: Bug,           color: "text-amber-600",  bg: "bg-amber-50",  label: "Defect" },

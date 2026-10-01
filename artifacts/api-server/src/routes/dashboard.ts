@@ -693,7 +693,7 @@ export async function computeRequirementTimelinesBatch(
     let status: string;
     const reviewStatus = (r as any).reviewStatus ?? "draft";
     if (reviewStatus !== "approved") {
-      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Rejected — awaiting revision" : "Draft";
+      status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Returned — awaiting revision" : "Draft";
     } else if (uatExecTimes.length > 0) {
       status = "Approved · in UAT";
     } else if (qaExecTimes.length > 0) {
@@ -902,7 +902,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 
   // ── Top blockers: requirements stuck in review or rejected ────────────────
   const blockerEntries = requirementTimelines.filter(r =>
-    r.status === "In review" || r.status === "Rejected — awaiting revision",
+    r.status === "In review" || r.status === "Returned — awaiting revision",
   );
   const blockerIds = new Set(blockerEntries.map(r => r.id));
   const lastBlockerEventByReq = new Map<number, Date>();

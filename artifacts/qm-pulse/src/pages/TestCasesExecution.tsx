@@ -76,6 +76,7 @@ import { format } from "date-fns";
 import { SendVerdictModal, type Verdict } from "@/components/SendVerdictModal";
 import { type ContactOption } from "@/components/ContactMultiSelect";
 import { getApiUrl } from "@/lib/api";
+import { ReviewRemarkDialog } from "@/components/execution/ReviewRemarkDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   fetchExecutionFiles,
@@ -315,7 +316,7 @@ const reviewStatusBadge = (status?: string | null) => {
   if (!status || status === "draft") return <Badge variant="outline" className="text-[9px] h-4 text-slate-500 border-slate-200 shrink-0">Draft</Badge>;
   if (status === "in_review") return <Badge variant="outline" className="text-[9px] h-4 bg-yellow-50 text-yellow-700 border-yellow-200 shrink-0">In Review</Badge>;
   if (status === "approved") return <Badge variant="outline" className="text-[9px] h-4 bg-green-50 text-green-700 border-green-200 shrink-0">Approved</Badge>;
-  if (status === "rejected") return <Badge variant="outline" className="text-[9px] h-4 bg-red-50 text-red-700 border-red-200 shrink-0">Rejected</Badge>;
+  if (status === "rejected") return <Badge variant="outline" className="text-[9px] h-4 bg-red-50 text-red-700 border-red-200 shrink-0">Returned</Badge>;
   return null;
 };
 
@@ -343,6 +344,7 @@ export default function TestCasesExecution() {
 
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectTargetId, setRejectTargetId] = useState<number | null>(null);
+  const [approveTargetId, setApproveTargetId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
   const handleReviewAction = async (id: number, action: "submit" | "approve" | "reject", comment?: string) => {
@@ -360,7 +362,7 @@ export default function TestCasesExecution() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "Failed to perform review action");
       }
-      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      toast({ title: "Success", description: `Execution file ${action === "approve" ? "approved" : action === "reject" ? "returned" : "submitted"} successfully.` });
       fetchExecutionFiles().then(setFiles);
       // We'll let the polling query catch up or wait for next interval, or we can't easily invalidate without queryClient here unless we hook it, but this is fine.
     } catch (err: any) {
@@ -1135,7 +1137,7 @@ export default function TestCasesExecution() {
                         #{f.redmineTicketId} — {f.title}
                       </button>
                       <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => handleReviewAction(f.id, "approve")}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-950" onClick={() => setApproveTargetId(f.id)}>
                           <CheckCircle className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-950" onClick={() => {
@@ -1321,7 +1323,7 @@ export default function TestCasesExecution() {
                             )}
                             {(f as any).reviewStatus === "in_review" && canApproveExecutionFile && (f as any).qaPicSetBy !== user?.id && (f as any).qaPic !== user?.name && (
                               <>
-                                <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => handleReviewAction(f.id, "approve")}>
+                                <DropdownMenuItem className="text-green-600 dark:text-green-400" onClick={() => setApproveTargetId(f.id)}>
                                   <CheckCircle className="w-4 h-4 mr-2" /> Approve
                                 </DropdownMenuItem>
                                 <DropdownMenuItem className="text-red-600 dark:text-red-400" onClick={() => {
@@ -1329,7 +1331,7 @@ export default function TestCasesExecution() {
                                   setRejectReason("");
                                   setRejectDialogOpen(true);
                                 }}>
-                                  <XIcon className="w-4 h-4 mr-2" /> Reject
+                                  <XIcon className="w-4 h-4 mr-2" /> Return
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                               </>
@@ -1901,6 +1903,19 @@ export default function TestCasesExecution() {
         />
       )}
 
+      <ReviewRemarkDialog
+        open={approveTargetId !== null}
+        onOpenChange={(open) => { if (!open) setApproveTargetId(null); }}
+        title="Approve Execution File"
+        description="Add a remark for the author if there is anything they should know. It is saved in the review history."
+        confirmLabel="Approve"
+        onConfirm={(remark) => {
+          const id = approveTargetId;
+          setApproveTargetId(null);
+          if (id !== null) handleReviewAction(id, "approve", remark || undefined);
+        }}
+      />
+
       {/* Reject Reason Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
         setRejectDialogOpen(open);
@@ -1913,16 +1928,16 @@ export default function TestCasesExecution() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <XIcon className="w-5 h-5 text-red-500" />
-              Reject Execution File
+              Return Execution File
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="reject-reason" className="mb-2 block">
-              Reason for rejection <span className="text-destructive">*</span>
+              Reason for returning <span className="text-destructive">*</span>
             </Label>
             <Textarea
               id="reject-reason"
-              placeholder="Please explain why this is being rejected..."
+              placeholder="Please explain why this is being returned..."
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               rows={4}
@@ -1943,7 +1958,7 @@ export default function TestCasesExecution() {
                 }
               }}
             >
-              Reject
+              Return
             </Button>
           </DialogFooter>
         </DialogContent>

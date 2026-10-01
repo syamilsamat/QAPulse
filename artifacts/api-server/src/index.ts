@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startCalendarReminderScheduler } from "./lib/calendar-reminders";
+import { startRedmineSyncScheduler } from "./lib/redmine-sync-scheduler";
 import { pool } from "@workspace/db";
 import { bootstrap } from "./routes/roles";
 
@@ -58,5 +59,6 @@ bootstrapOrTimeout
 
       logger.info({ port }, "Server listening");
       startCalendarReminderScheduler();
+      startRedmineSyncScheduler();
     });
   });

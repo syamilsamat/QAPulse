@@ -36,6 +36,8 @@ const TestCasesExecution = lazy(() => import("@/pages/TestCasesExecution"));
 const TestCasesExecutionProgressPage = lazy(() => import("@/pages/TestCasesExecutionProgressPage"));
 const ModuleAndProject = lazy(() => import("@/pages/ModuleAndProject"));
 const Roles = lazy(() => import("@/pages/Roles"));
+const AiControls = lazy(() => import("@/pages/AiControls"));
+const RedmineSync = lazy(() => import("@/pages/RedmineSync"));
 const TraceabilityMatrix = lazy(() => import("@/pages/TraceabilityMatrix"));
 const AuditLog = lazy(() => import("@/pages/AuditLog"));
 const Defects = lazy(() => import("@/pages/Defects"));
@@ -282,6 +284,14 @@ function Router() {
           permKey="nav:configurations"
           roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "pm_lead"]}
         />
+      </Route>
+
+      <Route path="/redmine-sync">
+        <ProtectedRoute component={RedmineSync} roles={["admin", "cto"]} />
+      </Route>
+
+      <Route path="/ai-controls">
+        <ProtectedRoute component={AiControls} roles={["admin", "cto"]} />
       </Route>
 
       <Route path="/roles">

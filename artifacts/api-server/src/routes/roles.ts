@@ -567,6 +567,114 @@ export async function bootstrap() {
         UNIQUE (milestone_id, user_id)
       )
     `),
+    // Scheduled Redmine sync: state/lock, run history, flagged requirement changes
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS redmine_sync_state (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        interval_minutes INTEGER NOT NULL DEFAULT 15,
+        last_run_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        last_full_at TIMESTAMPTZ,
+        last_status TEXT,
+        last_error TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        running_since TIMESTAMPTZ,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS redmine_sync_runs (
+        id SERIAL PRIMARY KEY,
+        trigger TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMPTZ,
+        defects_refreshed INTEGER NOT NULL DEFAULT 0,
+        defects_failed INTEGER NOT NULL DEFAULT 0,
+        requirements_checked INTEGER NOT NULL DEFAULT 0,
+        requirements_updated INTEGER NOT NULL DEFAULT 0,
+        requirements_flagged INTEGER NOT NULL DEFAULT 0,
+        error TEXT
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS redmine_sync_runs_started_idx ON redmine_sync_runs (started_at)`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_redmine_changes (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL,
+        redmine_ticket_id TEXT NOT NULL,
+        changes TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        resolved_by INTEGER,
+        resolved_at TIMESTAMPTZ
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS req_redmine_changes_req_idx ON requirement_redmine_changes (requirement_id, status)`),
+    // AI controls: kill switch / caps, per-feature overrides, usage log
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_global_settings (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        daily_cap_per_user INTEGER NOT NULL DEFAULT 100,
+        hourly_cap_per_user INTEGER NOT NULL DEFAULT 30,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_feature_settings (
+        feature TEXT PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        allowed_roles TEXT,
+        daily_cap_per_user INTEGER,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_usage_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        user_role TEXT,
+        feature TEXT NOT NULL,
+        project_id INTEGER,
+        status TEXT NOT NULL,
+        blocked_reason TEXT,
+        input_chars INTEGER,
+        duration_ms INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS ai_usage_user_time_idx ON ai_usage_log (user_id, created_at)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS ai_usage_feature_time_idx ON ai_usage_log (feature, created_at)`),
+    // Append-only peer-review history with reviewer remarks
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS execution_review_log (
+        id SERIAL PRIMARY KEY,
+        execution_file_id INTEGER NOT NULL REFERENCES execution_files(id) ON DELETE CASCADE,
+        execution_test_case_id INTEGER,
+        row_label TEXT,
+        action TEXT NOT NULL,
+        actor_id INTEGER,
+        actor_name TEXT,
+        remark TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS exec_review_log_file_idx ON execution_review_log (execution_file_id)`),
+    // Modules a milestone covers; no rows = whole project
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_modules (
+        milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        module_id INTEGER NOT NULL,
+        PRIMARY KEY (milestone_id, module_id)
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS milestone_modules_module_idx ON milestone_modules (module_id)`),
     // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
     pool.query(`
       CREATE TABLE IF NOT EXISTS uat_signoffs (

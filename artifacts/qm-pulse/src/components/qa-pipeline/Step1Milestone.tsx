@@ -19,6 +19,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { DATA_PREP_TEMPLATE } from "@/components/DataPrepFilesSection";
+import { MilestoneModulePicker, EMPTY_MODULE_SELECTION, isModuleSelectionValid, useProjectModules, type ModuleSelection } from "@/components/MilestoneModulePicker";
 
 const TYPE_OPTIONS = [
   { value: "cr", label: "Change Request" },
@@ -95,6 +96,8 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
     requiresUat: false,
   });
   const [saving, setSaving] = useState(false);
+  const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
+  const { data: projectModules = [] } = useProjectModules(projectId, token);
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -130,6 +133,10 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
       toast({ variant: "destructive", title: "Milestone name is required" });
       return;
     }
+    if (!isModuleSelectionValid(moduleSel, projectModules.length, form.type)) {
+      toast({ variant: "destructive", title: "Select at least one module, or choose All modules" });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -151,6 +158,8 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
           goLiveDate: form.goLiveDate || null,
           description: form.description,
           requiresUat: form.requiresUat,
+          moduleIds: form.type === "data_prep" ? [] : moduleSel.moduleIds,
+          allModules: form.type === "data_prep" ? false : moduleSel.allModules,
           pipelineEnabled: true,
           pipelineStep: 1, // Advance to step 1
         }),
@@ -219,6 +228,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             </Select>
           </div>
         </div>
+        <MilestoneModulePicker projectId={projectId} token={token} value={moduleSel} onChange={setModuleSel} type={form.type} />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Priority</Label>

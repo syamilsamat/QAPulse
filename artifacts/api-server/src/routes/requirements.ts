@@ -31,6 +31,7 @@ import {
   reviewEvidenceTable,
   requirementPrioritySchema,
 } from "@workspace/db";
+import { moduleScopeWarning } from "../lib/milestone-modules";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -293,7 +294,7 @@ router.post("/requirements", async (req, res): Promise<void> => {
     await notifyUser(requirement.assigneeId, "Requirement assigned", `"${requirement.title}" has been assigned to you.`, "requirement", "requirement", requirement.id, actorId);
   }
 
-  res.status(201).json(await formatRequirement(requirement));
+  res.status(201).json({ ...(await formatRequirement(requirement)), moduleWarning: await moduleScopeWarning(requirement.milestoneId, requirement.module) });
 });
 
 // Lookup requirement by Redmine ticket ID
@@ -731,7 +732,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     await cascadeUpdate(requirement.id);
   }
 
-  res.json(await formatRequirement(requirement));
+  res.json({ ...(await formatRequirement(requirement)), moduleWarning: await moduleScopeWarning(requirement.milestoneId, requirement.module) });
 });
 
 router.delete("/requirements/:id", async (req, res): Promise<void> => {
@@ -865,7 +866,7 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
 
   await logActivity({
     type: `requirement_${action}`,
-    description: `Requirement "${req_.title}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "rejected"}${comment ? `: ${comment}` : ""}`,
+    description: `Requirement "${req_.title}" ${action === "submit" ? "submitted for review" : action === "approve" ? "approved" : "returned"}${comment ? `: ${comment}` : ""}`,
     userId: ctx.userId,
     entityId: id,
     entityType: "requirement",
@@ -899,10 +900,10 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
   // Notify on approve: author + assignee ("routine progress", no PM needed)
   // Notify on reject: author + assignee + the milestone's PM ("needs visibility because of a stall")
   if (action === "approve" || action === "reject") {
-    const title = action === "approve" ? "Requirement approved" : "Requirement rejected";
+    const title = action === "approve" ? "Requirement approved" : "Requirement returned";
     const msg = action === "approve"
       ? `Your requirement "${req_.title}" has been approved.`
-      : `Requirement "${req_.title}" was rejected${comment ? `: ${comment}` : ""}.`;
+      : `Requirement "${req_.title}" was returned${comment ? `: ${comment}` : ""}.`;
     const notifType = action === "approve" ? "review_approved" : "review_rejected";
 
     const recipients = new Set<number>();

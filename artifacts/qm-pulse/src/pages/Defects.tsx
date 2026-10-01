@@ -4,6 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 import { format, formatDistanceToNow } from "date-fns";
@@ -815,6 +816,9 @@ export default function Defects() {
             <RefreshCw className="w-3 h-3" />
             Status synced from Redmine
             {lastSynced ? ` · ${formatDistanceToNow(new Date(lastSynced), { addSuffix: true })}` : " · never"}
+          </p>
+          <p className="mt-1">
+            <RedmineSyncBadge />
           </p>
         </div>
         <div className="flex gap-2">
