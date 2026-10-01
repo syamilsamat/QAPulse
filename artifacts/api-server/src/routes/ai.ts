@@ -1857,16 +1857,37 @@ function composeMultiRequirementAnswer(
 ): string {
   const subject = answered.find((a) => a.subject)?.subject || "answer";
 
-  const groups: { valueKey: string; value: string; projects: string[] }[] = [];
+  // "20" and "20 characters" are the same fact — compare without a trailing unit word.
+  const normalize = (v: string) => v.toLowerCase().replace(/\s*(characters?|chars?)\.?$/, "").trim();
+
+  // Several requirements can belong to the same project (duplicates or
+  // re-specified rows). The user asks per project, so collapse each project to
+  // one value first: the most frequent, ties going to the most descriptive.
+  const byProject = new Map<string, { value: string; count: number }[]>();
   for (const a of answered) {
-    const valueKey = a.value.toLowerCase();
     const projectName = a.candidate.projectName ?? "an unspecified project";
+    const key = normalize(a.value);
+    const entries = byProject.get(projectName) ?? [];
+    const entry = entries.find((e) => normalize(e.value) === key);
+    if (entry) {
+      entry.count++;
+      if (a.value.length > entry.value.length) entry.value = a.value;
+    } else {
+      entries.push({ value: a.value, count: 1 });
+    }
+    byProject.set(projectName, entries);
+  }
+
+  const groups: { valueKey: string; value: string; projects: string[] }[] = [];
+  for (const [projectName, entries] of byProject) {
+    const best = [...entries].sort((x, y) => y.count - x.count || y.value.length - x.value.length)[0];
+    const valueKey = normalize(best.value);
     let group = groups.find((g) => g.valueKey === valueKey);
     if (!group) {
-      group = { valueKey, value: a.value, projects: [] };
+      group = { valueKey, value: best.value, projects: [] };
       groups.push(group);
     }
-    if (!group.projects.includes(projectName)) group.projects.push(projectName);
+    group.projects.push(projectName);
   }
 
   let answerSentence: string;
@@ -1879,9 +1900,12 @@ function composeMultiRequirementAnswer(
     answerSentence = `${body.charAt(0).toUpperCase()}${body.slice(1)}.`;
   }
 
-  const sources = answered
-    .map((a) => `${a.candidate.title}${a.candidate.projectName ? ` (${a.candidate.projectName})` : ""}`)
-    .join(", ");
+  // A single project needs no source list; otherwise list each source once.
+  if (byProject.size === 1) return answerSentence;
+
+  const sources = [...new Set(
+    answered.map((a) => `${a.candidate.title}${a.candidate.projectName ? ` (${a.candidate.projectName})` : ""}`),
+  )].join(", ");
 
   return `${answerSentence}\n\nI found it in: ${sources}.`;
 }
