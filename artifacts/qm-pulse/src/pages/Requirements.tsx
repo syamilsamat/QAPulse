@@ -78,6 +78,7 @@ import {
   Link2 as LinkIcon,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
+import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
 function capitalize(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
@@ -837,7 +838,7 @@ parentId: finalParentId,
     draft: "Draft",
     in_review: "In Review",
     approved: "Approved",
-    rejected: "Rejected",
+    rejected: "Returned",
   };
   const reviewStatusBadge = (reviewStatus?: string | null) => {
     const status = reviewStatus || "draft";
@@ -1159,6 +1160,9 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
           </h1>
           <p className="text-muted-foreground mt-1">
             Manage and track project requirements
+          </p>
+          <p className="mt-1">
+            <RedmineSyncBadge />
           </p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">

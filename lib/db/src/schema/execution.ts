@@ -224,3 +224,28 @@ export const executionSummariesTable = pgTable("execution_summaries", {
 }, (t) => [
   index("execution_summaries_ticket_idx").on(t.redmineTicketId),
 ]);
+
+// 7. Execution Review Log — append-only record of every peer-review decision
+// (file-level submit/approve/reject and per-row accept/return/resubmit) with
+// the reviewer's remark. rejection_reason / review_comment stay as the
+// "current" value shown on the sheet and are cleared on resubmit/approve;
+// this is the history that survives that.
+export const executionReviewLogTable = pgTable("execution_review_log", {
+  id: serial("id").primaryKey(),
+  executionFileId: integer("execution_file_id")
+    .references(() => executionFilesTable.id, { onDelete: "cascade" })
+    .notNull(),
+  // Null for a file-level action; the row's id for accept/return/resubmit.
+  executionTestCaseId: integer("execution_test_case_id"),
+  // Label captured at write time so history survives a row delete/renumber.
+  rowLabel: text("row_label"),
+  action: text("action").notNull(), // 'submit' | 'approve' | 'reject' | 'accept' | 'return' | 'resubmit'
+  actorId: integer("actor_id"),
+  actorName: text("actor_name"),
+  remark: text("remark"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("exec_review_log_file_idx").on(t.executionFileId),
+]);
+
+export type ExecutionReviewLog = typeof executionReviewLogTable.$inferSelect;

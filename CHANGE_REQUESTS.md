@@ -66,6 +66,11 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
 | [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ✅ Deployed | 2026-09-24 |
 | [CR082](#cr082--generate-srs--brs-from-requirements) | Generate SRS / BRS from Requirements | 📋 Planned | 2026-09-25 |
+| [CR083](#cr083--module-selection-on-milestone-creation) | Module Selection on Milestone Creation | 🚧 Built, not deployed | 2026-10-01 |
+| [CR084](#cr084--review-remarks-and-history-on-execution-file-review) | Review Remarks and History on Execution File Review | 🚧 Built, not deployed | 2026-10-01 |
+| [CR085](#cr085--ai-controls-guard-limits-usage-log-and-draft-only-writes) | AI Controls: Guard, Limits, Usage Log and Draft-Only Writes | 🚧 Built, not deployed | 2026-10-01 |
+| [CR086](#cr086--ai-document-and-result-cache) | AI Document and Result Cache | 🚧 Built, not deployed | 2026-10-01 |
+| [CR087](#cr087--scheduled-redmine-sync) | Scheduled Redmine Sync | 🚧 Built, not deployed | 2026-10-01 |
 
 ---
 
@@ -1757,5 +1762,141 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR:** SRS/BRS → requirements extraction; generating test cases from the generated document; two-way sync between edited documents and requirement rows.
 
 **Sequencing:** no dependency on CR021. Builds on CR022/CR023 (requirement review workflow and acceptance criteria) and the existing AI Requirement Analyzer. Do the template question (1) first — it can invalidate the rest of the scoping.
+
+---
+
+### CR083 — Module Selection on Milestone Creation
+**Status: 🚧 Built, not deployed (2026-10-01).** Typechecks clean on api-server and qm-pulse; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "no module selection in milestone creation". A milestone had no module concept at all, even though modules already exist as a per-project catalog (CR035) and every requirement and test case carries one.
+
+**What it does:**
+- **Storage.** New `milestone_modules(milestone_id, module_id)` join table, same shape as `project_modules`. **No rows = the milestone covers the whole project**, so every milestone created before this CR keeps working with no data migration. The table is created idempotently by the startup bootstrap in `roles.ts` (this app creates its tables there) and is also in the drizzle schema.
+- **API.** `POST` and `PATCH /milestones` accept `moduleIds` and `allModules`; list, detail and create/edit responses return `modules: [{id, name}]`. Rejected with 400 if a module is not associated with the milestone's project, or if nothing was chosen and `allModules` is not set.
+- **Required, with exemptions.** Required for new milestones — choose specific modules or explicitly "All modules (whole project)". Exempt: `data_prep` milestones (no requirements to scope) and projects with no modules set up (nothing to choose from).
+- **UI.** Shared `MilestoneModulePicker` in both create forms (Milestones dialog and QA Pipeline Step 1); editable from the Milestones edit dialog. Milestone cards show module chips, or "All modules".
+- **Scoping (warn, don't block).** Pipeline Step 2's Redmine-sync module dialog lists only the milestone's modules, preselected; requirements already outside the set get an "Outside milestone modules" badge. `POST` and `PATCH /requirements` return a non-blocking `moduleWarning` when a requirement's module falls outside its milestone's set. Traceability and the TC Library milestone filter (CR017, CR025) are untouched — they scope through the milestone's requirements, so they pick this up via Step 2.
+
+**Decisions taken (from the CTO-feedback review):** required rather than optional; scope pickers and reports rather than label-only or hard-block.
+
+**Known gaps / follow-ups:**
+- `moduleWarning` is returned by the API but not yet shown anywhere except the Step 2 badge (the Requirements page does not surface it).
+- The milestone edit dialog on the QA Pipeline page has no module picker; modules are editable from the Milestones page only.
+- Existing milestones show "All modules" and the picker forces a choice the next time one is saved from the Milestones page.
+- Hard-blocking out-of-scope links, if the CTO wants it, is a small change on top of `moduleScopeWarning` in `lib/milestone-modules.ts`.
+
+**Files:** `lib/db/src/schema/milestones.ts`, `artifacts/api-server/src/lib/milestone-modules.ts` (new), `routes/milestones.ts`, `routes/requirements.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/components/MilestoneModulePicker.tsx` (new), `pages/Milestones.tsx`, `components/qa-pipeline/Step1Milestone.tsx`, `components/qa-pipeline/Step2Requirements.tsx`.
+
+
+---
+
+### CR084 — Review Remarks and History on Execution File Review
+**Status: 🚧 Built, not deployed (2026-10-01).** Both packages typecheck clean; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "add remark field during test case review". Peer review happens on the compiled execution file (file-level Submit/Approve/Reject) and per row (Accept/Return/Resubmit). Reject and Return already took a reason, but Approve and Accept took none, and only the *latest* reason was kept: `rejection_reason` / `review_comment` are cleared on resubmit or approve, so the reason a file bounced was lost once it was fixed.
+
+**What it does:**
+- **Remark on approve and accept.** A small dialog (`ReviewRemarkDialog`) now opens on file Approve (Execution page queue + row menu, and the file page) and on per-row Accept. The remark is optional there; confirming with nothing typed still approves.
+- **Reject and Return stay mandatory, now enforced server-side.** The existing dialogs already required a reason, but the API accepted an empty one; it now returns 400 for `reject` without a reason and `return` without "what to fix".
+- **Append-only history.** New `execution_review_log` table (file, optional row + its label, action, reviewer, remark, timestamp). Every submit/approve/reject/accept/return/resubmit writes a row; the existing `rejection_reason` / `review_comment` columns keep their "current value" role. `GET /execution-files/:id/review-log` returns it newest-first, project-access checked.
+- **UI.** Collapsible "Review history" list on the execution file page (`ReviewHistory`), showing badge, row label, reviewer, time and remark; it reloads after each review action.
+- **Notifications.** The approval / acceptance notification to the author now includes the reviewer's remark.
+- The table is created idempotently by the startup bootstrap in `roles.ts` and is also in the drizzle schema.
+- **"Reject" is now "Return" everywhere users see it** (CTO wording): buttons, dialog titles and labels, status badges, toasts, notification titles and messages, activity descriptions, the PM dashboard status and legend. Display text only — the stored values (`reviewStatus = "rejected"`, the `reject` action/decision, `rejection_reason`, `rejected_by/at`, notification type `review_rejected`) are unchanged, so the API and existing data stay compatible. Deliberately left alone: Redmine statuses and messages ("Rejected" defect status, "Redmine rejected the update"), JavaScript `Promise` rejection, and the API validation messages that name the accepted value (`action must be submit, approve, or reject`).
+
+**Decisions taken:** covers both file-level and per-row review; remark optional on approve/accept, required on reject/return; history table rather than overwriting.
+
+**Known gaps / follow-ups:**
+- **Submit has no remark input.** The API accepts and logs a remark on submit, but the only submit UI is the bulk "submit all files" button in QA Pipeline Step 3; a per-file submit dialog would be a follow-up.
+- **"Accept all" records no remark** — one remark across many rows would be misleading.
+- **Not in the Excel export.** The exported Review Log sheet is fed by `execution_file_audit`, which has no remark column; adding remarks there is a separate change.
+- Review history before this CR is not backfilled; it starts from the first review action after deploy.
+
+**Files:** `lib/db/src/schema/execution.ts`, `artifacts/api-server/src/routes/test-execution.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/components/execution/ReviewRemarkDialog.tsx` (new), `components/execution/ReviewHistory.tsx` (new), `pages/TestCasesExecution.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR085 — AI Controls: Guard, Limits, Usage Log and Draft-Only Writes
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "lock AI usage (don't let it go too far by itself)". Reviewing the AI routes found two things beyond the comment itself:
+- **12 of the 25 `/ai` routes had no login check at all** (`analyze-requirement`, `edge-cases`, `duplicate-detection`, `weekly-summary`, `risk-score`, `release-readiness`, `chat`, `test-data`, `regression-selection`, `natural-language-search`, `capa-analysis`, `search-tcs`), and several of the rest did not check project access. Read from the handlers; not yet confirmed against a live server.
+- **Two routes wrote data with no human step:** `/ai/tag-risk-priority` overwrote the priority of every test case in a milestone with the model's output, and `/ai/analyze-milestone-requirements` was a stub that marked requirements "completed" without calling AI (writing a column that may not exist).
+
+**What it does:**
+- **One guard for every AI call** (`lib/ai-guard.ts`, `aiGuard(feature)`): requires a signed-in user; honours the global kill switch and the per-feature switch; checks the caller's role against the feature's allowed roles; resolves the project from `projectId` / `milestoneId` / `requirementId` and checks access; enforces per-user hourly and daily caps; and logs the attempt. Fails closed if the guard itself errors. Admins bypass the off-switches (so a fix can be tested before re-enabling) but not the caps.
+- **Admin controls** (`routes/ai-controls.ts`, page `/ai-controls`, reached from a new AI Controls tab in Settings; admin and CTO only): master on/off, per-user daily and hourly limits (defaults 100/day, 30/hour), and per feature an on/off switch, allowed roles and a daily limit. Changes are written to the audit log and take effect within ~15 seconds.
+- **Usage log** (`ai_usage_log`): every attempt, including blocked ones with the reason (AI off, feature off, role, project access, hourly or daily limit), user, feature, project, input size and duration. The admin page shows usage by feature, by user and the 50 most recent calls.
+- **Draft-only for the one AI write.** `tag-risk-priority` now only returns suggestions; a QA user ticks the ones they agree with in a review dialog and `POST /ai/tag-risk-priority/apply` saves them, restricted to QA roles, to test cases of that milestone, with each change written to the audit log with the old value. The dead `analyze-milestone-requirements` stub was removed.
+- **Autocomplete metered separately.** The inline typing suggestion on the execution sheet was calling `/ai/chat` with no token on every typing pause. It now uses `/ai/autocomplete` (sends the token) with its own 300/day limit that does not count against the shared caps, so it cannot exhaust them.
+- Tables (`ai_global_settings`, `ai_feature_settings`, `ai_usage_log`) are created idempotently by the startup bootstrap in `roles.ts` and are also in the drizzle schema.
+
+**Decisions taken:** full scope including the admin page; per-user caps (not per-project); suggest-then-confirm for risk priorities.
+
+**Known gaps / follow-ups:**
+- **Not covered:** the model fallback list in `ai.ts` (`runOpenRouterCascade`) still tries a long list of third-party models in turn; which models may receive project data is a separate decision. Data sent to external providers is not redacted.
+- Acceptance of AI output (accepted vs ignored) is not tracked per call — only the risk-priority apply is logged as a data change. Requirement suggestions already have their own accepted/ignored status.
+- Caps are per user, not per project; a per-project budget would be a follow-up.
+- The three conversation-history GETs under `/ai/requirement-chat` and the stored-assessment GETs are reads, not AI calls, so they are authenticated but not metered.
+- Behaviour change to expect: calls that previously worked without a token now return 401; the one such client caller found (autocomplete) was fixed, but any external script hitting `/api/ai/*` unauthenticated will break.
+
+**Files:** `lib/db/src/schema/ai-controls.ts` (new), `artifacts/api-server/src/lib/ai-guard.ts` (new), `routes/ai-controls.ts` (new), `routes/ai.ts`, `routes/index.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/pages/AiControls.tsx` (new), `pages/Settings.tsx`, `App.tsx`, `components/qa-pipeline/RiskPrioritySuggestionsDialog.tsx` (new), `components/qa-pipeline/Step3TestCases.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR086 — AI Document and Result Cache
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; the cache module itself was exercised with a throwaway script (14 checks: parse-once, same-bytes hit, per-user isolation, type and size rejection, fingerprint change on edit/add, eviction). The routes and UI have not been run against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "add memory to cache any big file used in the AI API on the page". The one large file in the AI flow is the **coverage-gap spec document** (AI Features page, PDF/XLS/XLSX up to 8 MB): every "Analyze Coverage Gaps" click re-read the file, re-encoded it to base64, re-posted it, re-parsed the spreadsheet and called the model again — even when nothing had changed.
+
+**What it does:**
+- **Upload once.** New `POST /ai/documents` stores the file in a bounded in-memory cache keyed by the SHA-256 of its bytes (per user) and returns a `documentId`; a spreadsheet is parsed to text once. `GET /ai/documents/:id` checks whether it is still cached. Later AI calls send only the id. Limits: 20 documents, 64 MB total, 2-hour expiry, least-recently-used eviction.
+- **No re-upload from the browser.** The page hashes the chosen file locally and asks the server whether it already holds those bytes; if so nothing is uploaded. The id is kept in `sessionStorage`, so leaving and returning to the page still shows the file as cached (and quietly drops it if the server has since expired it).
+- **Result cache.** `POST /ai/coverage-gap` returns a saved answer for an identical request, keyed by a hash of the document plus a fingerprint of the requirement and test-case rows it was built from (id + updated-at). Any edit, add or delete changes the fingerprint, so a stale analysis is never served. The page says "Showing a saved result from HH:MM" with a **Run fresh** button (`refresh: true`). Failed or fallback AI responses are never cached.
+- **Cache hits are free.** The AI guard (CR085) records a hit as `cached`, not `ok`, so it does not count against the user's hourly or daily cap; AI Controls → Usage shows a Cached column and a "Cached (free)" badge.
+- Backward compatible: the route still accepts the old inline `attachment` and stores it into the same cache.
+- A flaw found while testing and fixed before shipping: a cache hit skipped the file-type check, so identical bytes under an unsupported file name were accepted.
+
+**Decisions taken:** in-memory (not database or Gemini Files API); cache the coverage document and the coverage-gap result.
+
+**Known gaps / follow-ups:**
+- **Memory-only and per API process.** A restart, or a second server instance, loses the cache; the cost is one re-upload or one fresh AI call, never a wrong answer. If the API is scaled to several instances, requests for the same user may land on different caches.
+- **Only coverage-gap uses it.** Other AI routes send small text built from database rows, not files. The cache module is generic (`lib/ai-cache.ts`) if another document-taking route is added.
+- **Not done: provider-side caching** (Gemini Files API / context caching), which would also avoid re-sending the PDF bytes to the model on a fresh run. It depends on provider limits and pricing and is a separate decision.
+- The route still loads every requirement and test case from the database before filtering to the user's projects; it is correct but not efficient, and out of scope here.
+
+**Files:** `artifacts/api-server/src/lib/ai-cache.ts` (new), `routes/ai.ts`, `lib/ai-guard.ts`, `routes/ai-controls.ts`, `lib/db/src/schema/ai-controls.ts` (comment), `artifacts/qm-pulse/src/pages/AiFeatures.tsx`, `pages/AiControls.tsx`.
+
+---
+
+### CR087 — Scheduled Redmine Sync
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; the comparison logic was exercised with a throwaway script (13 checks: line-ending noise is not a change, each field detected, unknown priority, empty remote title never blanks local text, which review states auto-apply). The scheduler, Redmine calls, database writes and screens have **not** been run against a database, a real Redmine or the browser.
+
+**Origin:** CTO feedback after the demo — "something to ensure syncing with Redmine (maybe after a certain time)". Every Redmine sync in QM Pulse was a manual button (defect status refresh, tracker pull, requirement import); there was no scheduler on the server at all. A defect closed in Redmine kept showing open, and an already-imported requirement was never updated again (Step 2 skips existing ones).
+
+**What it does:**
+- **Background job.** A scheduler (`lib/redmine-sync-scheduler.ts`) wakes every minute and runs a sync when one is due. Default **every 15 minutes**, changeable (5 min – 4 h) or switchable off from the admin screen without a redeploy. After failures it backs off (2x, 4x, up to 8x the interval). The first run after a deploy is a full check; a full check re-runs every 24 h, in between runs are incremental (only issues Redmine reports as changed since the last success, with a 5-minute overlap).
+- **One run at a time.** A database lock (`redmine_sync_state.running_since`, treated as dead after 30 min) means several API instances ticking together still produce one sync. The cursor only advances on a run that actually read Redmine, so a failed run is retried over the same window.
+- **Defects:** status and assignee are refreshed with the existing `refreshDefectStatuses`, which already keeps a newer local assignment instead of overwriting it.
+- **Requirements (title, description, priority, tracker):**
+  - a **draft** (or returned) requirement takes Redmine's change automatically — but only if Redmine was edited *after* the last local edit; if someone changed it in QM Pulse more recently it is flagged instead, so their work is not overwritten;
+  - a requirement that is **in review or approved** is never overwritten: the difference is recorded (`requirement_redmine_changes`) and shown as a banner on the requirement with the old and new text; the author, assignee or a lead chooses **Accept Redmine's version** or **Keep this version**;
+  - accepting or auto-applying a description change re-opens review on the requirement's test cases and tasks, as editing the description in QM Pulse does (CR023p4); every change is written to the audit log with old and new values;
+  - the author and assignee are notified once per distinct difference; a difference someone already chose to keep is not raised again, and a flag is withdrawn automatically if Redmine reverts to match.
+- **Service key.** A background job has no signed-in user, so it uses `REDMINE_API_KEY` from the environment, or else the Redmine key saved on an administrator account. With neither, runs fail with a clear message and the admin screen shows a warning.
+- **Visibility.** "Synced with Redmine 4 min ago" on the Requirements and Defects pages (amber when older than two intervals or the last run failed). Admins get a **Redmine Sync** screen (Settings → Admin Tools): on/off, interval, **Sync now**, key source, and the last 30 runs with counts. Admins are notified after 3 consecutive failed runs.
+- Tables (`redmine_sync_state`, `redmine_sync_runs`, `requirement_redmine_changes`) are created idempotently by the startup bootstrap in `roles.ts` and are also in the drizzle schema. `REDMINE_SYNC_DISABLED=1` switches the scheduler off (e.g. for local development).
+
+**Decisions taken:** 15-minute interval; auto-apply for drafts, flag for approved; defects and requirements in phase 1; existing `REDMINE_API_KEY` or the admin's key.
+
+**Known gaps / follow-ups:**
+- **One-way only.** Redmine → QM Pulse. QM Pulse edits are not pushed back by this job (the existing write-through for defect status/assignee is unchanged).
+- **Not synced:** requirement assignee, status, parent/child structure, new child tickets, attachments, and milestones — only the four text fields above. New tickets created in Redmine still need the existing import/pull.
+- **Deletions are not applied.** A ticket deleted or hidden in Redmine is counted as unavailable for defects (existing behaviour) and simply not returned for requirements; nothing is removed or marked.
+- **Defects are re-read in full each run** (in batches of 90 per request), not incrementally; fine for hundreds of defects, worth revisiting if the register grows to many thousands.
+- **Rate limits.** The job makes about one Redmine request per 90 linked issues per run; if the Redmine server rate-limits the service account, runs show as partial/failed on the admin screen.
+- A first deploy performs a full check, so a one-time burst of draft updates and flagged requirements is expected.
+
+**Files:** `lib/db/src/schema/redmine-sync.ts` (new), `artifacts/api-server/src/lib/redmine-sync.ts`, `lib/redmine-sync-diff.ts`, `lib/redmine-sync-scheduler.ts` (new), `routes/redmine-sync.ts` (new), `routes/index.ts`, `routes/roles.ts`, `src/index.ts`, `artifacts/qm-pulse/src/pages/RedmineSync.tsx` (new), `components/RedmineSyncBadge.tsx` (new), `components/RedmineChangesBanner.tsx` (new), `pages/Requirements.tsx`, `pages/Defects.tsx`, `pages/RequirementDetail.tsx`, `pages/Settings.tsx`, `App.tsx`.
 
 ---

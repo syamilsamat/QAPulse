@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
 import { eq, and, ne, inArray, sql, desc } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
+import { db, milestonesTable, milestoneModulesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, getRoleDepartment } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
 import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
 import { syncMilestoneStatus } from "../lib/milestone-status";
+import { loadMilestoneModules, parseModuleIds, validateMilestoneModules, setMilestoneModules } from "../lib/milestone-modules";
 import { loadPipelineFacts, executionOutcome, isConditionalSignoff, computeDeployChecks } from "../lib/pipeline-facts";
 
 const router: IRouter = Router();
@@ -280,11 +281,14 @@ router.get("/milestones", async (req, res): Promise<void> => {
         .from(dataPrepFilesTable).where(inArray(dataPrepFilesTable.milestoneId, ids))
     : [];
 
+  const modulesByMilestone = await loadMilestoneModules(ids);
+
   res.json(rows.map(m => {
     const mReqs = reqs.filter(r => r.milestoneId === m.id);
     const mExecFiles = execFiles.filter(f => f.milestoneId === m.id);
     return {
       ...fmt(m),
+      modules: modulesByMilestone.get(m.id) ?? [],
       requirementCount: mReqs.length,
       approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
       executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
@@ -369,6 +373,15 @@ router.post("/milestones", async (req, res): Promise<void> => {
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
   if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
 
+  // Module scope — required for every type except data_prep. moduleIds picks
+  // specific modules; allModules explicitly means "the whole project".
+  const moduleIds = parseModuleIds(req.body.moduleIds ?? []);
+  if (moduleIds == null) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
+  const moduleError = await validateMilestoneModules({
+    projectId: Number(projectId), type, moduleIds, allModules: req.body.allModules === true,
+  });
+  if (moduleError) { res.status(400).json({ error: moduleError }); return; }
+
   const [m] = await db.insert(milestonesTable).values({
     projectId: Number(projectId),
     name: name.trim(),
@@ -393,6 +406,8 @@ router.post("/milestones", async (req, res): Promise<void> => {
     pipelineEnabled: Boolean(pipelineEnabled),
     pipelineStep: pipelineStep ? Number(pipelineStep) : null,
   }).returning();
+
+  await setMilestoneModules(m.id, moduleIds);
 
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: (ctx as any).id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
 
@@ -428,7 +443,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     if (staffed) await ensureAssigningLead(m.id, ctx.role, ctx.userId);
   }
 
-  res.status(201).json(fmt(m));
+  res.status(201).json({ ...fmt(m), modules: (await loadMilestoneModules([m.id])).get(m.id) ?? [] });
 });
 
 // GET /milestones/assignable-users?projectId=N — same staffing-candidate
@@ -519,6 +534,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
 
   res.json({
     ...fmt(m),
+    modules: (await loadMilestoneModules([id])).get(id) ?? [],
     signedOffByName,
     signedOffByRole,
     requirementCount: reqs.length,
@@ -700,7 +716,19 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     }
   }
 
+  // Only touched when the caller sends moduleIds (the edit form always does).
+  let newModuleIds: number[] | null = null;
+  if (req.body.moduleIds !== undefined) {
+    newModuleIds = parseModuleIds(req.body.moduleIds);
+    if (newModuleIds == null) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
+    const moduleError = await validateMilestoneModules({
+      projectId: m.projectId, type: update.type ?? m.type, moduleIds: newModuleIds, allModules: req.body.allModules === true,
+    });
+    if (moduleError) { res.status(400).json({ error: moduleError }); return; }
+  }
+
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
+  if (newModuleIds) await setMilestoneModules(id, newModuleIds);
 
   // Clicking between pipeline steps only saves where the user is standing —
   // not worth an activity-log entry or a status recompute on every click.
@@ -720,7 +748,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     if (fresh) responseMilestone = fresh;
   }
 
-  res.json(fmt(responseMilestone));
+  res.json({ ...fmt(responseMilestone), modules: (await loadMilestoneModules([id])).get(id) ?? [] });
 });
 
 // ── CR054p2: milestone staffing ─────────────────────────────────────────────
@@ -852,6 +880,7 @@ router.delete("/milestones/:id", async (req, res): Promise<void> => {
   if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
+  await db.delete(milestoneModulesTable).where(eq(milestoneModulesTable.milestoneId, id));
   await db.delete(milestonesTable).where(eq(milestonesTable.id, id));
   await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.sendStatus(204);
@@ -889,7 +918,7 @@ router.patch("/milestones/:id/review", async (req, res): Promise<void> => {
 
   await logActivity({
     type: action === "approve" ? "milestone_approved" : "milestone_rejected",
-    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "rejected"} by user #${(ctx as any).id ?? ctx.userId}`,
+    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "returned"} by user #${(ctx as any).id ?? ctx.userId}`,
     userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone",
   });
 

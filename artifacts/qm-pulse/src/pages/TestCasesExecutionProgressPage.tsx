@@ -62,6 +62,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
+import { authHeaders } from "@/lib/api";
+import { ReviewRemarkDialog } from "@/components/execution/ReviewRemarkDialog";
+import { ReviewHistory } from "@/components/execution/ReviewHistory";
 import { useAuth } from "@/contexts/AuthContext";
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
@@ -499,9 +502,9 @@ const CopilotTextarea = ({
     const handler = setTimeout(async () => {
       if (value && isTyping) {
         try {
-          const res = await fetch("/api/ai/chat", {
+          const res = await fetch("/api/ai/autocomplete", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({
               message: `You are an inline AI autocomplete assistant for a QA tester writing a test case. Current field: ${fieldName}. Current text written so far: "${value}". Provide ONLY the next logical 3-10 words to continue or complete the thought. Do NOT repeat the existing text. Do NOT wrap in quotes. If the sentence is fully complete, return an empty string.`,
             }),
@@ -1473,6 +1476,10 @@ export default function TestCasesExecutionProgressPage() {
   const [returnRowTarget, setReturnRowTarget] = useState<AppExecutionTestCase | null>(null);
   const [returnRowComment, setReturnRowComment] = useState("");
   const [rowReviewBusy, setRowReviewBusy] = useState(false);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [acceptRowTarget, setAcceptRowTarget] = useState<AppExecutionTestCase | null>(null);
+  // Bumped after any review action so the Review history list reloads.
+  const [reviewLogKey, setReviewLogKey] = useState(0);
   // DEF-0022 — inline edit of a returned row's Test Steps / Expected Result,
   // right from the rework banner (the row is off the main sheet, so there's
   // no other way to fix it before resubmitting).
@@ -1937,8 +1944,9 @@ export default function TestCasesExecutionProgressPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "Failed to perform review action");
       }
-      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      toast({ title: "Success", description: `Execution file ${action === "approve" ? "approved" : action === "reject" ? "returned" : "submitted"} successfully.` });
       setCurrentFileReviewStatus(action === "approve" ? "approved" : "rejected");
+      setReviewLogKey((k) => k + 1);
       if (action === "reject") setCurrentFileRejectionReason(comment ?? null);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
@@ -1970,6 +1978,7 @@ export default function TestCasesExecutionProgressPage() {
     setRowReviewBusy(true);
     try {
       await reviewExecutionTestCase(rowId, action, comment);
+      setReviewLogKey((k) => k + 1);
       if (action === "accept") {
         setData((prev) => prev.map((r) =>
           r.id === rowId ? { ...r, reviewState: "accepted" as const } : r,
@@ -4119,6 +4128,8 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
+      <ReviewHistory fileId={currentFileId} refreshKey={reviewLogKey} />
+
       {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -4132,7 +4143,7 @@ export default function TestCasesExecutionProgressPage() {
               </p>
               {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
-                  <strong>Rejection Reason:</strong> <br/>
+                  <strong>Return Reason:</strong> <br/>
                   <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
                 </div>
               )}
@@ -4141,9 +4152,9 @@ export default function TestCasesExecutionProgressPage() {
           {(currentFileReviewStatus || '') === "in_review" && canApproveExecutionFile && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
-                <XCircle className="w-4 h-4 mr-2" /> Reject
+                <XCircle className="w-4 h-4 mr-2" /> Return
               </Button>
-              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewAction("approve")}>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => setApproveDialogOpen(true)}>
                 <CheckCircle className="w-4 h-4 mr-2" /> Approve
               </Button>
             </div>
@@ -4207,7 +4218,7 @@ export default function TestCasesExecutionProgressPage() {
                         size="sm"
                         className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
                         disabled={rowReviewBusy}
-                        onClick={() => handleRowReview(Number(row.id), "accept")}
+                        onClick={() => setAcceptRowTarget(row)}
                       >
                         Accept
                       </Button>
@@ -5626,6 +5637,32 @@ export default function TestCasesExecutionProgressPage() {
         </DialogContent>
       </Dialog>
 
+      <ReviewRemarkDialog
+        open={approveDialogOpen}
+        onOpenChange={setApproveDialogOpen}
+        title="Approve Execution File"
+        description="Add a remark for the author if there is anything they should know. It is saved in the review history."
+        confirmLabel="Approve"
+        onConfirm={(remark) => {
+          setApproveDialogOpen(false);
+          handleReviewAction("approve", remark || undefined);
+        }}
+      />
+
+      <ReviewRemarkDialog
+        open={acceptRowTarget !== null}
+        onOpenChange={(open) => { if (!open) setAcceptRowTarget(null); }}
+        title="Accept Test Case"
+        description={acceptRowTarget ? `${acceptRowTarget.testCaseId ?? ""} ${acceptRowTarget.caseName ?? ""}`.trim() : undefined}
+        confirmLabel="Accept"
+        busy={rowReviewBusy}
+        onConfirm={(remark) => {
+          const target = acceptRowTarget;
+          setAcceptRowTarget(null);
+          if (target) handleRowReview(Number(target.id), "accept", remark || undefined);
+        }}
+      />
+
       {/* Reject Reason Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
         setRejectDialogOpen(open);
@@ -5635,12 +5672,12 @@ export default function TestCasesExecutionProgressPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <X className="w-5 h-5 text-red-500" />
-              Reject Execution File
+              Return Execution File
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="reject-reason" className="mb-2 block text-sm font-medium">
-              Reason for rejection <span className="text-red-500">*</span>
+              Reason for returning <span className="text-red-500">*</span>
             </Label>
             <Textarea
               id="reject-reason"
@@ -5661,7 +5698,7 @@ export default function TestCasesExecutionProgressPage() {
                 setRejectReason("");
               }}
             >
-              Reject
+              Return
             </Button>
           </DialogFooter>
         </DialogContent>

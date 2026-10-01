@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
@@ -77,6 +77,17 @@ export const milestoneAssigneesTable = pgTable("milestone_assignees", {
   index("milestone_assignees_user_idx").on(t.userId),
 ]);
 
+// Modules a milestone covers (many-to-many, same shape as project_modules).
+// No rows = the milestone covers the whole project, so milestones created
+// before this table existed keep working without a data migration.
+export const milestoneModulesTable = pgTable("milestone_modules", {
+  milestoneId: integer("milestone_id").notNull(),
+  moduleId: integer("module_id").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.milestoneId, t.moduleId] }),
+  index("milestone_modules_module_idx").on(t.moduleId),
+]);
+
 // CR054p3 — UAT sign-off documents. File bytes stored base64 in-row: sign-off
 // packs are small (a few MB) and this keeps backup/restore trivial; revisit
 // only if volume grows.
@@ -114,6 +125,7 @@ export const dataPrepFilesTable = pgTable("data_prep_files", {
   index("data_prep_files_milestone_idx").on(t.milestoneId),
 ]);
 
+export type MilestoneModule = typeof milestoneModulesTable.$inferSelect;
 export type MilestoneAssignee = typeof milestoneAssigneesTable.$inferSelect;
 export type UatSignoff = typeof uatSignoffsTable.$inferSelect;
 export type DataPrepFile = typeof dataPrepFilesTable.$inferSelect;

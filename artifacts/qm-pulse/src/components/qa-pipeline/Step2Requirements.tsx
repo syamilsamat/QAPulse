@@ -102,6 +102,18 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
   const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
   const [syncModules, setSyncModules] = useState<string[]>([]);
 
+  const { data: milestoneDetail } = useQuery<{ modules?: { id: number; name: string }[] } | null>({
+    queryKey: ["milestone", milestoneId],
+    queryFn: async () => {
+      const res = await api(`/milestones/${milestoneId}`, token);
+      return res.ok ? res.json() : null;
+    },
+    enabled: !!milestoneId,
+  });
+  const scopeNames = new Set((milestoneDetail?.modules ?? []).map((m) => m.name));
+  const isOutOfScope = (moduleCsv?: string | null) =>
+    scopeNames.size > 0 && !!moduleCsv && moduleCsv.split(",").some((n) => n.trim() && !scopeNames.has(n.trim()));
+
   const { data: executionModules = [] } = useQuery({
     queryKey: ["executionModules"],
     queryFn: async () => {
@@ -354,6 +366,8 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
       toast({ variant: "destructive", title: "Parent Redmine ID is required" });
       return;
     }
+    // Offer only the milestone's modules, preselected; a milestone with none covers the whole project.
+    setSyncModules(scopeNames.size > 0 ? [...scopeNames] : []);
     setModuleDialogOpen(true);
   };
 
@@ -627,6 +641,9 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm sm:text-base break-words">{req.title}</div>
                             <div className="text-xs text-muted-foreground mt-0.5">Redmine #{req.redmineTicketId ?? "—"}</div>
+                            {isOutOfScope(req.module) && (
+                              <Badge variant="outline" className="mt-1 text-[10px] border-amber-300 text-amber-700">Outside milestone modules ({req.module})</Badge>
+                            )}
                             {req.parentRedmineId && (
                               <span
                                 className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap bg-muted text-muted-foreground border-border/60 max-w-full truncate align-bottom"
@@ -845,7 +862,7 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
               Applied to ticket #{redmineId.trim()} and every subtask being synced.
             </p>
             <div className="border rounded-md p-2 max-h-52 overflow-y-auto space-y-0.5">
-              {(executionModules as any[]).map((m: any) => (
+              {(executionModules as any[]).filter((m: any) => scopeNames.size === 0 || scopeNames.has(m.name)).map((m: any) => (
                 <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
                   <Checkbox
                     checked={syncModules.includes(m.name)}

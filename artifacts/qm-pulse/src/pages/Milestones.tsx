@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { format } from "date-fns";
+import { MilestoneModulePicker, EMPTY_MODULE_SELECTION, selectionFromMilestone, isModuleSelectionValid, useProjectModules, type ModuleSelection } from "@/components/MilestoneModulePicker";
 
 interface Milestone {
   id: number;
@@ -67,6 +68,7 @@ interface Milestone {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  modules?: { id: number; name: string }[];
   requirementCount?: number;
   approvedCount?: number;
   executionFileCount?: number;
@@ -179,6 +181,8 @@ export default function Milestones() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+  const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
+  const { data: projectModules = [] } = useProjectModules(filterProject, token);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -290,6 +294,7 @@ export default function Milestones() {
     setEditing(null);
     setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
     setPendingAssignees([]);
+    setModuleSel(EMPTY_MODULE_SELECTION);
     setDialogOpen(true);
   };
 
@@ -312,6 +317,7 @@ export default function Milestones() {
       lessonsLearnedType: m.lessonsLearnedType ?? "none",
       description: m.description ?? "",
     });
+    setModuleSel(selectionFromMilestone(m.modules));
     setDialogOpen(true);
   };
 
@@ -335,6 +341,7 @@ export default function Milestones() {
   const handleSave = async () => {
     if (!form.name.trim()) { toast({ variant: "destructive", title: "Name is required" }); return; }
     if (!filterProject || filterProject === "all") { toast({ variant: "destructive", title: "Select a project first" }); return; }
+    if (!isModuleSelectionValid(moduleSel, projectModules.length, form.type)) { toast({ variant: "destructive", title: "Select at least one module, or choose All modules" }); return; }
     setSaving(true);
     try {
       const body = {
@@ -355,6 +362,8 @@ export default function Milestones() {
         lessonsLearned: form.lessonsLearned.trim() || null,
         lessonsLearnedType: form.lessonsLearnedType === "none" ? null : form.lessonsLearnedType,
         description: form.description.trim() || null,
+        moduleIds: form.type === "data_prep" ? [] : moduleSel.moduleIds,
+        allModules: form.type === "data_prep" ? false : moduleSel.allModules,
         ...(editing ? {} : { assigneeUserIds: pendingAssignees.map((a) => a.id) }),
       };
       const res = editing
@@ -466,6 +475,15 @@ export default function Milestones() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
+                {m.type !== "data_prep" && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {m.modules && m.modules.length > 0
+                      ? m.modules.map((mod) => (
+                          <Badge key={mod.id} variant="secondary" className="text-[10px]">{mod.name}</Badge>
+                        ))
+                      : <Badge variant="outline" className="text-[10px] text-muted-foreground">All modules</Badge>}
+                  </div>
+                )}
                 {(m.targetDate || m.environment) && (
                   <div className="flex items-center justify-between gap-2">
                     {m.targetDate ? (
@@ -550,6 +568,7 @@ export default function Milestones() {
                 </Select>
               </div>
             </div>
+            <MilestoneModulePicker projectId={filterProject} token={token} value={moduleSel} onChange={setModuleSel} type={form.type} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Priority</Label>
