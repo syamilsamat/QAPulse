@@ -66,6 +66,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
 | [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ✅ Deployed | 2026-09-24 |
 | [CR082](#cr082--generate-srs--brs-from-requirements) | Generate SRS / BRS from Requirements | 📋 Planned | 2026-09-25 |
+| [CR083](#cr083--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
 
 ---
 
@@ -1757,5 +1758,44 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR:** SRS/BRS → requirements extraction; generating test cases from the generated document; two-way sync between edited documents and requirement rows.
 
 **Sequencing:** no dependency on CR021. Builds on CR022/CR023 (requirement review workflow and acceptance criteria) and the existing AI Requirement Analyzer. Do the template question (1) first — it can invalidate the rest of the scoping.
+
+---
+
+### CR083 — BA Requirement Template in the Add Requirement Dialog
+**Status:** 📋 Planned (2026-10-01). Mockup reviewed; not yet scoped to tasks or started. Open questions below need an answer before build.
+
+**Origin:** the Add Requirement dialog (`Requirements.tsx`, `<Dialog open={dialogOpen}>`) captures title, description, module, priority, milestone, acceptance criteria and attachments — enough to *track* a requirement, not enough for FA, Dev and QA to *work from* one. A BA has no guided structure, so the problem, scope, business rules, non-functional needs and open questions live in chat or side documents, and QA has to chase them before writing test cases. This is also the "thin input" problem named in CR082: a generated SRS/BRS can only be as good as the requirement data behind it.
+
+**Idea:** turn the dialog into a guided template the BA fills in, using a standard requirement structure for B2B SaaS, with a readiness check before the requirement goes to FA review.
+
+**Sections (7), keeping the existing fields where they already exist:**
+1. **Basics** — title, Redmine ID, project, module, tracker, priority, milestone, parent (all existing).
+2. **Background and objective** — problem statement (replaces the free-text description's role), measurable objective and success measure.
+3. **Scope and stakeholders** — in scope, out of scope, future phase; user roles affected.
+4. **Business rules** — rows with auto IDs (BR-001, BR-002 …) so test cases can reference a rule.
+5. **Acceptance criteria** — Given / When / Then rows, each tagged Happy path / Negative / Edge case.
+6. **Non-functional and data needs** — category ticks, a measurable target per ticked item, data and integrations notes.
+7. **Assumptions, risks and open questions** — assumptions, risk + mitigation, open question with owner and due date.
+
+**Readiness checklist:** a side panel shows "n of 7 sections complete". Save as draft is always allowed. *Proposed:* Submit for FA review stays disabled until all 7 are complete. Sits on top of the existing review workflow (`reviewStatus`: draft → in_review → approved / rejected); that workflow is unchanged.
+
+**Design decisions (proposed, to confirm):**
+- **Storage:** one JSON column (e.g. `templateData` on `requirementsTable`) rather than a dozen new columns; section completeness is computed, not stored. Existing `description` and `acceptanceCriteria` stay for backward compatibility and for requirements imported from Redmine.
+- **User roles are per project, and separate from QM Pulse's own roles.** The existing `roles` table holds QM Pulse users (admin, qa_lead, qa_member …); the roles in section 3 belong to the *system under test* (e.g. Employer, Agent). New table `project_user_roles` (project, name, optional description), maintained on the Project & Module Config page (same place modules are managed, `project_modules` pattern). The dialog loads the list for the selected project. A "+ Add role" chip lets a BA add a missing role on the spot, marked *pending* until the QA Lead confirms, to avoid duplicates. Requirements store role IDs, not names, so a rename does not break old requirements.
+- **Non-functional categories:** a default list (Performance, Security, Audit trail, Access control, Data retention, Localisation, Browser/device) that is editable, plus a "+ Add" chip for custom ones (e.g. Availability, Scalability, Compliance, Backup and recovery, Accessibility, Integration, Usability). The hint text should say "give a number or a rule" in plain words with an example, e.g. "500 rows in under 60 seconds", so the target is testable.
+- **Acceptance criteria format:** today `acceptanceCriteria` is a JSON array of strings (CR022). Given/When/Then rows need a structured shape; either store them in `templateData` and keep the old column for imports, or migrate. Decision needed.
+
+**Open questions:**
+1. Should Submit for FA review be blocked until all 7 sections are complete, or only warn?
+2. Are all 7 sections mandatory for every requirement, or can small change requests use a lighter version (e.g. only sections 1, 2 and 5)?
+3. Who maintains the project user-role list and the non-functional category list — QA Lead only, or BA as well?
+4. Requirements imported from Redmine have no template data — show them as "legacy" and allow filling in later, or leave as they are?
+5. Is a downloadable Word/Markdown copy of the blank template also needed for BAs who prefer to draft offline?
+
+**Likely touch points (dialog and schema verified, rest not yet):** `lib/db/src/schema/requirements.ts` (template column) and a new `project-user-roles.ts`; requirement create/update routes in `artifacts/api-server/src/routes/`; `lib/api-spec/openapi.yaml` + codegen for the new fields; `artifacts/qm-pulse/src/pages/Requirements.tsx` (dialog, ~lines 1595–1914), `RequirementDetail.tsx` (show the sections), and `ModuleAndProject.tsx` (role list management).
+
+**Relationship to other CRs:** extends CR022/CR023 (acceptance criteria, review workflow). Feeds CR082 — structured sections give the SRS/BRS generator real input instead of `[TBD]` gaps. Test-case generation (CR015) could later use business rules and Given/When/Then rows as input.
+
+**Not in this CR:** SRS/BRS document generation (CR082); changes to the FA review/approval flow; auto-extracting template sections from Redmine tickets with AI.
 
 ---
