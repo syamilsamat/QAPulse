@@ -57,3 +57,12 @@ Thumbs.db
 # every seed run; never meant to be committed.
 scripts/demo-seed-manifest.json
 scripts/sparrow-seed-manifest.json
+
+# Playwright — credentials, run output, reports. Never committed.
+e2e/.auth/
+e2e/.output/
+playwright-report/
+test-results/
+
+# co2 credentials — never commit (mirrors techres)
+SECRET.md
