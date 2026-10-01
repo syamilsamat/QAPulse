@@ -1788,7 +1788,7 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Decisions (2026-10-01):**
 1. Submit for FA review is **not** locked by completeness — advisory only (see Readiness checklist).
 2. Sections are **optional** — a small change request can fill only what it needs.
-3. The project user-role list and the non-functional category list are maintained by **FA and QA** (QA Lead / FA Lead and above; exact role gate to confirm against the CR014 role tiers).
+3. The project user-role list and the non-functional category list are maintained by **FA Lead and QA Lead only** (decided 2026-10-01). Map to the existing lead tiers (`fa_lead`, `qa_lead`); whether higher tiers (`hod_*`, `admin`) inherit it is checked at build time against the CR014 tiers. BAs can still propose a role through the "+ Add role" chip, which stays *Pending lead* until a lead confirms.
 4. **Requirements imported from Redmine** — proposed: leave untouched, show a "Template not filled" badge, and offer "Fill from description with AI" (same AI assist as below; the user reviews before anything is saved). No bulk migration, nothing blocked.
 5. Downloadable blank Word/Markdown template — **not in v1** (explained to the user; revisit with CR082 as an export of a *filled* requirement).
 
@@ -1799,10 +1799,12 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 - Principle from CR082: **ask, don't invent.** The AI proposes only what the existing text supports; unknowns become open questions with no owner, not made-up facts. AI-added text is marked until the BA edits it.
 - The same flow powers "Fill from description with AI" for Redmine-imported requirements (point 4).
 
+6. Accepted AI suggestions **are recorded in the requirement's History** (a new activity type alongside `requirement_ai_analysis`), including which section each one went into.
+
+**Dialog footer actions (in scope):** today the dialog only has **Cancel** and **Create / Save Changes**; "Submit for Review" exists only on the Requirement Detail page (`PATCH /requirements/:id/review`). This CR adds to the dialog: **Cancel**, **Save as draft** (saves with `reviewStatus = 'draft'`) and **Submit for FA review** (saves, then moves it to `in_review` using the same review endpoint and the same permission check as the detail page, `canSubmitForReview`). Neither button is blocked by template completeness. Editing an existing requirement keeps "Save Changes".
+
 **Open questions (remaining):**
-1. Exact role gate for maintaining the role / category lists (FA Lead + QA Lead, or all FA and QA members?).
-2. Redmine-imported requirements: confirm the proposal in decision 4.
-3. Should AI suggestions the BA accepts be recorded in the requirement's History (as `requirement_ai_analysis` runs already are)?
+1. Redmine-imported requirements: confirm the proposal in decision 4.
 
 **Likely touch points (dialog and schema verified, rest not yet):** `lib/db/src/schema/requirements.ts` (template column) and a new `project-user-roles.ts`; requirement create/update routes in `artifacts/api-server/src/routes/`; `lib/api-spec/openapi.yaml` + codegen for the new fields; `artifacts/qm-pulse/src/pages/Requirements.tsx` (dialog, ~lines 1595–1914), `RequirementDetail.tsx` (show the sections), and `ModuleAndProject.tsx` (role list management).
 
