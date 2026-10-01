@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, ShieldAlert, Loader2 } from "lucide-react";
+import { Bot, ShieldAlert, Loader2, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl, authHeaders } from "@/lib/api";
@@ -101,6 +102,9 @@ export default function AiControls() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-6xl">
+      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
+        <ArrowLeft className="w-4 h-4" /> Back to Settings
+      </Link>
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <Bot className="w-7 h-7 text-primary" /> AI Controls
