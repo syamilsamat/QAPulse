@@ -1452,6 +1452,27 @@ export default function TestCasesExecutionProgressPage() {
   const [requirementsList, setRequirementsList] = useState<RequirementOption[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
+
+  // Module dropdown options: the file's compiled modules (availableModules)
+  // plus every module its test cases actually use — the same set the module
+  // tree on the left groups by. availableModules alone only covers what was
+  // picked at compile time, so a file whose rows came in from a library pull
+  // or an import across 4 modules offered 1 or 2 of them per row (just the
+  // compiled one, plus the row's own via withCurrentModuleOption).
+  // availableModules itself stays as-is: the "only one module → auto-fill"
+  // rules on Add Row and import depend on the compiled set.
+  const moduleOptions = useMemo<ExecutionModule[]>(() => {
+    const seen = new Set(availableModules.map((m) => m.name.trim().toLowerCase()));
+    const extra: ExecutionModule[] = [];
+    for (const row of data) {
+      const name = (row.moduleName || "").trim();
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      // Negative ids: these exist only as option keys, never sent to the server.
+      extra.push({ id: -(extra.length + 2), name } as ExecutionModule);
+    }
+    return [...availableModules, ...extra];
+  }, [availableModules, data]);
   // This file's own milestone, so an Excel import that auto-creates a
   // requirement (via resolveRequirementByRedmine) can inherit it instead of
   // leaving the new requirement milestone-less.
@@ -3997,7 +4018,7 @@ export default function TestCasesExecutionProgressPage() {
                 onChange={(e) => setSelectedImportModule(e.target.value)}
               >
                 <option value="">Leave unassigned</option>
-                {availableModules.map((m) => (
+                {moduleOptions.map((m) => (
                   <option key={m.id} value={m.name}>
                     {m.name}
                   </option>
@@ -4742,7 +4763,7 @@ export default function TestCasesExecutionProgressPage() {
                           onUpdateLibrary={handleUpdateLibraryFromExecution}
                           onPullLatest={handlePullLatestFromLibrary}
                           libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
-                          availableModules={availableModules}
+                          availableModules={moduleOptions}
                           availableTrackers={availableTrackers}
                           qaUsers={qaUsers}
                           mode={mode}
@@ -4986,7 +5007,7 @@ export default function TestCasesExecutionProgressPage() {
                           {mode === "edit"
                             ? <select className="flex h-8 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
                                 <option value="">Select...</option>
-                                {withCurrentModuleOption(availableModules, row.moduleName).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                {withCurrentModuleOption(moduleOptions, row.moduleName).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
                               </select>
                             : <p className="text-sm">{row.moduleName || "—"}</p>
                           }
@@ -5601,7 +5622,7 @@ export default function TestCasesExecutionProgressPage() {
                 onValueChange={(v) => setPromoteForm(f => ({ ...f, module: v }))}
                 options={[
                   { value: "", label: "Select module..." },
-                  ...withCurrentModuleOption(availableModules, promoteForm.module).map((m) => ({ value: m.name, label: m.name })),
+                  ...withCurrentModuleOption(moduleOptions, promoteForm.module).map((m) => ({ value: m.name, label: m.name })),
                 ]}
                 placeholder="Select module..."
                 searchPlaceholder="Search module..."
