@@ -1762,7 +1762,7 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR083 — BA Requirement Template in the Add Requirement Dialog
-**Status:** 📋 Planned (2026-10-01). Mockup reviewed; not yet scoped to tasks or started. Open questions below need an answer before build.
+**Status:** 📋 Planned (2026-10-01). Mockup reviewed and first decisions recorded (see Decisions below); not yet scoped to tasks or started.
 
 **Origin:** the Add Requirement dialog (`Requirements.tsx`, `<Dialog open={dialogOpen}>`) captures title, description, module, priority, milestone, acceptance criteria and attachments — enough to *track* a requirement, not enough for FA, Dev and QA to *work from* one. A BA has no guided structure, so the problem, scope, business rules, non-functional needs and open questions live in chat or side documents, and QA has to chase them before writing test cases. This is also the "thin input" problem named in CR082: a generated SRS/BRS can only be as good as the requirement data behind it.
 
@@ -1777,7 +1777,7 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 6. **Non-functional and data needs** — category ticks, a measurable target per ticked item, data and integrations notes.
 7. **Assumptions, risks and open questions** — assumptions, risk + mitigation, open question with owner and due date.
 
-**Readiness checklist:** a side panel shows "n of 7 sections complete". Save as draft is always allowed. *Proposed:* Submit for FA review stays disabled until all 7 are complete. Sits on top of the existing review workflow (`reviewStatus`: draft → in_review → approved / rejected); that workflow is unchanged.
+**Readiness checklist:** a side panel shows "n of 7 sections complete" and what is missing. **Decided 2026-10-01:** completeness is *advisory* — Save as draft and Submit for FA review are never blocked, and no section is mandatory beyond the existing required Basics fields (so small change requests can fill only what they need). Sits on top of the existing review workflow (`reviewStatus`: draft → in_review → approved / rejected); that workflow is unchanged.
 
 **Design decisions (proposed, to confirm):**
 - **Storage:** one JSON column (e.g. `templateData` on `requirementsTable`) rather than a dozen new columns; section completeness is computed, not stored. Existing `description` and `acceptanceCriteria` stay for backward compatibility and for requirements imported from Redmine.
@@ -1785,12 +1785,24 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 - **Non-functional categories:** a default list (Performance, Security, Audit trail, Access control, Data retention, Localisation, Browser/device) that is editable, plus a "+ Add" chip for custom ones (e.g. Availability, Scalability, Compliance, Backup and recovery, Accessibility, Integration, Usability). The hint text should say "give a number or a rule" in plain words with an example, e.g. "500 rows in under 60 seconds", so the target is testable.
 - **Acceptance criteria format:** today `acceptanceCriteria` is a JSON array of strings (CR022). Given/When/Then rows need a structured shape; either store them in `templateData` and keep the old column for imports, or migrate. Decision needed.
 
-**Open questions:**
-1. Should Submit for FA review be blocked until all 7 sections are complete, or only warn?
-2. Are all 7 sections mandatory for every requirement, or can small change requests use a lighter version (e.g. only sections 1, 2 and 5)?
-3. Who maintains the project user-role list and the non-functional category list — QA Lead only, or BA as well?
-4. Requirements imported from Redmine have no template data — show them as "legacy" and allow filling in later, or leave as they are?
-5. Is a downloadable Word/Markdown copy of the blank template also needed for BAs who prefer to draft offline?
+**Decisions (2026-10-01):**
+1. Submit for FA review is **not** locked by completeness — advisory only (see Readiness checklist).
+2. Sections are **optional** — a small change request can fill only what it needs.
+3. The project user-role list and the non-functional category list are maintained by **FA and QA** (QA Lead / FA Lead and above; exact role gate to confirm against the CR014 role tiers).
+4. **Requirements imported from Redmine** — proposed: leave untouched, show a "Template not filled" badge, and offer "Fill from description with AI" (same AI assist as below; the user reviews before anything is saved). No bulk migration, nothing blocked.
+5. Downloadable blank Word/Markdown template — **not in v1** (explained to the user; revisit with CR082 as an export of a *filled* requirement).
+
+**AI assist inside the dialog (added 2026-10-01):** an "Analyze with AI" button in the dialog, with suggestions that the user accepts into the *correct section*.
+- The existing analyzer (`POST /ai/analyze-requirement`, `ai.ts`) only reads title, description and module and returns issues / missing items / questions with no target field. For the dialog it must read **all filled sections** and return each suggestion with a `section` target (basics, problem, objective, scope, business rule, acceptance criterion, non-functional, assumption, risk, open question) plus a ready-to-insert `proposedValue`.
+- The dialog works **before the requirement exists** (no `requirementId`), so it sends the form content in the request body; triage statuses are held in the dialog and written to `requirement_ai_suggestions` on save (new nullable `section` column, additive).
+- **Accept** inserts the proposed text into the right place: appends to a list section (new BR-00n row, new Given/When/Then row, new open question) or appends to a text box without overwriting what the BA typed. **Ignore** hides it. Nothing is ever filled automatically.
+- Principle from CR082: **ask, don't invent.** The AI proposes only what the existing text supports; unknowns become open questions with no owner, not made-up facts. AI-added text is marked until the BA edits it.
+- The same flow powers "Fill from description with AI" for Redmine-imported requirements (point 4).
+
+**Open questions (remaining):**
+1. Exact role gate for maintaining the role / category lists (FA Lead + QA Lead, or all FA and QA members?).
+2. Redmine-imported requirements: confirm the proposal in decision 4.
+3. Should AI suggestions the BA accepts be recorded in the requirement's History (as `requirement_ai_analysis` runs already are)?
 
 **Likely touch points (dialog and schema verified, rest not yet):** `lib/db/src/schema/requirements.ts` (template column) and a new `project-user-roles.ts`; requirement create/update routes in `artifacts/api-server/src/routes/`; `lib/api-spec/openapi.yaml` + codegen for the new fields; `artifacts/qm-pulse/src/pages/Requirements.tsx` (dialog, ~lines 1595–1914), `RequirementDetail.tsx` (show the sections), and `ModuleAndProject.tsx` (role list management).
 
