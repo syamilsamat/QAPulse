@@ -8,6 +8,7 @@ import { notifyRolesInProject, notifyUser } from "./_notify";
 import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
 import { syncMilestoneStatus } from "../lib/milestone-status";
 import { loadMilestoneModules, parseModuleIds, validateMilestoneModules, setMilestoneModules } from "../lib/milestone-modules";
+import { loadTypeTrackerMap } from "../lib/milestone-trackers";
 import { loadPipelineFacts, executionOutcome, isConditionalSignoff, computeDeployChecks } from "../lib/pipeline-facts";
 
 const router: IRouter = Router();
@@ -282,6 +283,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
     : [];
 
   const modulesByMilestone = await loadMilestoneModules(ids);
+  const trackerByType = await loadTypeTrackerMap();
 
   res.json(rows.map(m => {
     const mReqs = reqs.filter(r => r.milestoneId === m.id);
@@ -289,6 +291,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
     return {
       ...fmt(m),
       modules: modulesByMilestone.get(m.id) ?? [],
+      tracker: trackerByType[m.type] ?? null,
       requirementCount: mReqs.length,
       approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
       executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
@@ -535,6 +538,7 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   res.json({
     ...fmt(m),
     modules: (await loadMilestoneModules([id])).get(id) ?? [],
+    tracker: (await loadTypeTrackerMap())[m.type] ?? null,
     signedOffByName,
     signedOffByRole,
     requirementCount: reqs.length,

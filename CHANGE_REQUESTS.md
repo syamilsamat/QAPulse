@@ -71,6 +71,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR085](#cr085--ai-controls-guard-limits-usage-log-and-draft-only-writes) | AI Controls: Guard, Limits, Usage Log and Draft-Only Writes | 🚧 Built, not deployed | 2026-10-01 |
 | [CR086](#cr086--ai-document-and-result-cache) | AI Document and Result Cache | 🚧 Built, not deployed | 2026-10-01 |
 | [CR087](#cr087--scheduled-redmine-sync) | Scheduled Redmine Sync | 🚧 Built, not deployed | 2026-10-01 |
+| [CR088](#cr088--new-requirement-form-rework-and-milestone-type-tracker-mapping) | New Requirement Form Rework and Milestone-Type Tracker Mapping | 🚧 Built, not deployed | 2026-10-02 |
 
 ---
 
@@ -1780,7 +1781,7 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Decisions taken (from the CTO-feedback review):** required rather than optional; scope pickers and reports rather than label-only or hard-block.
 
 **Known gaps / follow-ups:**
-- `moduleWarning` is returned by the API but not yet shown anywhere except the Step 2 badge (the Requirements page does not surface it).
+- ~~`moduleWarning` not shown on the Requirements page~~ — shown as a toast after save since CR088.
 - The milestone edit dialog on the QA Pipeline page has no module picker; modules are editable from the Milestones page only.
 - Existing milestones show "All modules" and the picker forces a choice the next time one is saved from the Milestones page.
 - Hard-blocking out-of-scope links, if the CTO wants it, is a small change on top of `moduleScopeWarning` in `lib/milestone-modules.ts`.
@@ -1898,5 +1899,29 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 - A first deploy performs a full check, so a one-time burst of draft updates and flagged requirements is expected.
 
 **Files:** `lib/db/src/schema/redmine-sync.ts` (new), `artifacts/api-server/src/lib/redmine-sync.ts`, `lib/redmine-sync-diff.ts`, `lib/redmine-sync-scheduler.ts` (new), `routes/redmine-sync.ts` (new), `routes/index.ts`, `routes/roles.ts`, `src/index.ts`, `artifacts/qm-pulse/src/pages/RedmineSync.tsx` (new), `components/RedmineSyncBadge.tsx` (new), `components/RedmineChangesBanner.tsx` (new), `pages/Requirements.tsx`, `pages/Defects.tsx`, `pages/RequirementDetail.tsx`, `pages/Settings.tsx`, `App.tsx`.
+
+---
+
+### CR088 — New Requirement Form Rework and Milestone-Type Tracker Mapping
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean. The form, mapping screen and routes have not been run against a database or in the browser. A clickable mock-up of the layout was reviewed first.
+
+**Origin:** CTO/user review of the New Requirement dialog after CR083: the milestone was the last field although it decides the project, module and tracker; the module list showed all 28 modules regardless of the milestone; the tracker was typed by hand; the Create button scrolled out of view.
+
+**What it does:**
+- **Field order, project first.** The dialog is now four sections: *Where it belongs* (Project, then Milestone filtered by that project, then Module), *What it is* (Title, Description, Acceptance criteria), *Redmine link* (Ticket ID with **Fetch**, Parent ID, Tracker) and *Priority* (with Attachments and links collapsed under a disclosure). Footer (Cancel / Create) is sticky.
+- **Module follows the milestone.** No milestone yet: "Choose a milestone first". A milestone with exactly one module: that module is shown locked and set automatically. Several modules: chips limited to those modules. A milestone covering all modules: the project's modules (falling back to the global list if the project has none linked), with a search box once there are more than 8. A module already on an existing requirement but outside the milestone stays visible with a ⚠ mark.
+- **Tracker from the milestone type (admin-defined mapping).** New table `milestone_type_trackers`, edited in **Configuration → Global Settings → "Milestone type to Redmine tracker"**: each milestone type (Change Request, Phase, Sprint, Release; Data Prep is excluded as it has no requirements) is mapped to one of the trackers synced from Redmine, with a button to refresh that list. A mapped type shows the tracker locked on a *new* requirement; an unmapped type leaves it a normal dropdown. Editing an existing requirement never forces the tracker. The server also fills a missing tracker on `POST /requirements` from the mapping (a tracker the caller sends, e.g. from a Redmine import, is never replaced). Milestone list/detail responses now carry the mapped `tracker`.
+- **Fetch from Redmine** (reuses `/verdict-report/redmine/:id`): fills title, description and priority from the ticket. The tracker is taken from the ticket only when the milestone type has no mapping; otherwise the form notes when the ticket's tracker differs from the mapped one.
+- **Module outside the milestone: warn only.** The server still saves and returns `moduleWarning`; the form now shows it as a toast after save (closes the CR083 gap).
+
+**Decisions taken:** project before milestone (not milestone-first); tracker mapped by milestone type, defined by the administrator; module mismatch warns rather than rejects.
+
+**Known gaps / follow-ups:**
+- Until an administrator fills in the mapping, every type is "not mapped" and the tracker behaves as before.
+- A milestone's mapped tracker locks the field even when the Redmine ticket says otherwise (the form shows a note). If that proves too strict, the lock could become a default.
+- Child requirements created from a parent also take the milestone's mapped tracker, replacing the parent's.
+- The existing Redmine import dialog and the Step 2 sync are unchanged and keep each ticket's own tracker.
+
+**Files:** `lib/db/src/schema/milestone-trackers.ts` (new), `artifacts/api-server/src/lib/milestone-trackers.ts` (new), `routes/milestone-trackers.ts` (new), `routes/milestones.ts`, `routes/requirements.ts`, `routes/roles.ts`, `routes/index.ts`, `artifacts/qm-pulse/src/components/MilestoneTrackerMapping.tsx` (new), `pages/ModuleAndProject.tsx`, `pages/Requirements.tsx`.
 
 ---
