@@ -1789,7 +1789,7 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 1. Submit for FA review is **not** locked by completeness — advisory only (see Readiness checklist).
 2. Sections are **optional** — a small change request can fill only what it needs.
 3. The project user-role list and the non-functional category list are maintained by **FA Lead and QA Lead only** (decided 2026-10-01). Map to the existing lead tiers (`fa_lead`, `qa_lead`); whether higher tiers (`hod_*`, `admin`) inherit it is checked at build time against the CR014 tiers. BAs can still propose a role through the "+ Add role" chip, which stays *Pending lead* until a lead confirms.
-4. **Requirements imported from Redmine** — proposed: leave untouched, show a "Template not filled" badge, and offer "Fill from description with AI" (same AI assist as below; the user reviews before anything is saved). No bulk migration, nothing blocked.
+4. **Requirements imported from Redmine** — decided 2026-10-01 (idea from Syamil): keep a separate **Description** field in the dialog (the existing `description` column, no migration) that holds the original text, e.g. what Redmine sent. **Analyze with AI** reads it and suggests which section each part belongs to; the user accepts or ignores each suggestion. Accepting *copies* the part into the section and leaves the Description untouched as the original source. No badge, no bulk migration, nothing blocked; imported and new requirements use the same flow. Optional later: a "Template not filled" filter so leads can see the backlog.
 5. Downloadable blank Word/Markdown template — **not in v1** (explained to the user; revisit with CR082 as an export of a *filled* requirement).
 
 **AI assist inside the dialog (added 2026-10-01):** an "Analyze with AI" button in the dialog, with suggestions that the user accepts into the *correct section*.
@@ -1797,14 +1797,14 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 - The dialog works **before the requirement exists** (no `requirementId`), so it sends the form content in the request body; triage statuses are held in the dialog and written to `requirement_ai_suggestions` on save (new nullable `section` column, additive).
 - **Accept** inserts the proposed text into the right place: appends to a list section (new BR-00n row, new Given/When/Then row, new open question) or appends to a text box without overwriting what the BA typed. **Ignore** hides it. Nothing is ever filled automatically.
 - Principle from CR082: **ask, don't invent.** The AI proposes only what the existing text supports; unknowns become open questions with no owner, not made-up facts. AI-added text is marked until the BA edits it.
-- The same flow powers "Fill from description with AI" for Redmine-imported requirements (point 4).
+- Each suggestion that comes from the Description shows the **exact source sentence** ("From description: …") next to the target section, so the BA can verify it. A mixed paragraph can produce several suggestions, one per section. This replaces the earlier "Fill from description with AI" button idea (point 4).
 
 6. Accepted AI suggestions **are recorded in the requirement's History** (a new activity type alongside `requirement_ai_analysis`), including which section each one went into.
 
 **Dialog footer actions (in scope):** today the dialog only has **Cancel** and **Create / Save Changes**; "Submit for Review" exists only on the Requirement Detail page (`PATCH /requirements/:id/review`). This CR adds to the dialog: **Cancel**, **Save as draft** (saves with `reviewStatus = 'draft'`) and **Submit for FA review** (saves, then moves it to `in_review` using the same review endpoint and the same permission check as the detail page, `canSubmitForReview`). Neither button is blocked by template completeness. Editing an existing requirement keeps "Save Changes".
 
 **Open questions (remaining):**
-1. Redmine-imported requirements: confirm the proposal in decision 4.
+1. When Redmine re-syncs and the Description changes, the template sections do not update by themselves. Check the existing sync behaviour and decide whether to show a "Description changed since last analysis" hint.
 
 **Likely touch points (dialog and schema verified, rest not yet):** `lib/db/src/schema/requirements.ts` (template column) and a new `project-user-roles.ts`; requirement create/update routes in `artifacts/api-server/src/routes/`; `lib/api-spec/openapi.yaml` + codegen for the new fields; `artifacts/qm-pulse/src/pages/Requirements.tsx` (dialog, ~lines 1595–1914), `RequirementDetail.tsx` (show the sections), and `ModuleAndProject.tsx` (role list management).
 
