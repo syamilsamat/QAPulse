@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Loader2, AlertTriangle } from "lucide-react";
+import { RefreshCw, Loader2, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -118,6 +119,9 @@ export default function RedmineSync() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl">
+      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
+        <ArrowLeft className="w-4 h-4" /> Back to Settings
+      </Link>
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <RefreshCw className="w-7 h-7 text-primary" /> Redmine Sync

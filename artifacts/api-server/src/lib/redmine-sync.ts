@@ -140,13 +140,23 @@ async function syncRequirements(
     const chunk = rows.slice(i, i + ISSUE_BATCH).filter((r) => /^\d+$/.test(r.redmineTicketId ?? ""));
     if (chunk.length === 0) continue;
     const ids = chunk.map((r) => r.redmineTicketId).join(",");
-    const sinceParam = since ? `&updated_on=${encodeURIComponent(`>=${since.toISOString()}`)}` : "";
+    // Redmine's date filter wants whole seconds ("2026-10-02T06:00:00Z"); the
+    // milliseconds toISOString() adds can make it answer 422.
+    const sinceParam = since ? `&updated_on=${encodeURIComponent(`>=${since.toISOString().replace(/\.\d{3}Z$/, "Z")}`)}` : "";
     try {
-      const res = await redmineGet(`/issues.json?issue_id=${ids}&status_id=*&limit=100${sinceParam}`, apiKey);
+      const url = (extra: string) => `/issues.json?issue_id=${ids}&status_id=*&limit=100${extra}`;
+      let res = await redmineGet(url(sinceParam), apiKey);
+      // The "changed since" filter is only an optimisation (every returned
+      // issue is compared field by field anyway), so if Redmine refuses it,
+      // ask again for the whole batch rather than skip the batch.
+      if (!res.ok && sinceParam && res.status !== 401 && res.status !== 403) {
+        res = await redmineGet(url(""), apiKey);
+      }
       if (!res.ok) {
+        const detail = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 160);
         firstError ??= res.status === 401 || res.status === 403
           ? "Redmine rejected the service key for requirements"
-          : `Redmine returned ${res.status}`;
+          : `Redmine returned ${res.status}${detail ? `: ${detail}` : ""}`;
         continue;
       }
       const data: any = await res.json();
@@ -267,12 +277,16 @@ export async function runRedmineSync(trigger: RunTrigger, actorId: number | null
     .returning();
   if (!locked) return { skipped: true, reason: "A sync is already running" };
 
-  const full = trigger === "nightly" || !state.lastFullAt || now.getTime() - state.lastFullAt.getTime() > FULL_EVERY_MS || !state.lastSuccessAt;
+  // The requirements cursor is separate from lastSuccessAt: the defect half can
+  // succeed while the requirements half fails, and that must not move the
+  // window past changes that were never read.
+  const full = trigger === "nightly" || !state.lastFullAt || now.getTime() - state.lastFullAt.getTime() > FULL_EVERY_MS || !state.requirementsCursorAt;
   const mode = full ? "full" : "incremental";
   const [run] = await db.insert(redmineSyncRunsTable).values({ trigger, mode }).returning();
 
   let status: "ok" | "partial" | "error" = "ok";
   let error: string | undefined;
+  let requirementsRead = false; // true only when every requirements batch was read
   const counts = { defectsRefreshed: 0, defectsFailed: 0, requirementsChecked: 0, requirementsUpdated: 0, requirementsFlagged: 0 };
 
   try {
@@ -288,11 +302,12 @@ export async function runRedmineSync(trigger: RunTrigger, actorId: number | null
       counts.defectsFailed = defects.failed;
       if (defects.error) { status = "partial"; error = defects.error; }
 
-      const since = full ? null : new Date((state.lastSuccessAt as Date).getTime() - CURSOR_OVERLAP_MS);
+      const since = full ? null : new Date((state.requirementsCursorAt as Date).getTime() - CURSOR_OVERLAP_MS);
       const reqs = await syncRequirements(key, since);
       counts.requirementsChecked = reqs.checked;
       counts.requirementsUpdated = reqs.updated;
       counts.requirementsFlagged = reqs.flagged;
+      requirementsRead = !reqs.error;
       if (reqs.error) { status = status === "ok" ? "partial" : status; error = error ? `${error} ${reqs.error}` : reqs.error; }
 
       // Redmine was reachable but nothing at all could be read: treat as a failure.
@@ -314,9 +329,11 @@ export async function runRedmineSync(trigger: RunTrigger, actorId: number | null
     lastStatus: status,
     lastError: error ?? null,
     consecutiveFailures: failures,
-    // The cursor only advances on a run that actually read Redmine, so a
-    // failed run is retried over the same window instead of skipping it.
-    ...(status !== "error" ? { lastSuccessAt: finished, ...(full ? { lastFullAt: finished } : {}) } : {}),
+    // lastSuccessAt drives the "synced X ago" label; the requirements cursor
+    // only advances when every requirements batch was read, so a failed pass
+    // is retried over the same window instead of skipping it.
+    ...(status !== "error" ? { lastSuccessAt: finished } : {}),
+    ...(requirementsRead ? { requirementsCursorAt: finished, ...(full ? { lastFullAt: finished } : {}) } : {}),
   }).where(eq(redmineSyncStateTable.id, STATE_ID));
 
   // Tell administrators once when it has failed three runs in a row.

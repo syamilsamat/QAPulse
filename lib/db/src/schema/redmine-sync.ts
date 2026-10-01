@@ -11,6 +11,9 @@ export const redmineSyncStateTable = pgTable("redmine_sync_state", {
   lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
   // Last run that ignored the "changed since" cursor and re-checked everything.
   lastFullAt: timestamp("last_full_at", { withTimezone: true }),
+  // How far requirements have been read. Only moves forward when the whole
+  // requirements pass succeeded, so a partial run does not skip changes.
+  requirementsCursorAt: timestamp("requirements_cursor_at", { withTimezone: true }),
   lastStatus: text("last_status"), // 'ok' | 'partial' | 'error'
   lastError: text("last_error"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
