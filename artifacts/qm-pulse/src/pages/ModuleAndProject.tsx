@@ -37,6 +37,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { MilestoneTrackerMapping } from "@/components/MilestoneTrackerMapping";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -1743,6 +1744,7 @@ export default function ModuleAndProject() {
             )}
           </CardContent>
         </Card>
+        <MilestoneTrackerMapping />
       </TabsContent>
       </Tabs>
 

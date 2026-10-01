@@ -32,6 +32,7 @@ import {
   requirementPrioritySchema,
 } from "@workspace/db";
 import { moduleScopeWarning } from "../lib/milestone-modules";
+import { loadTypeTrackerMap } from "../lib/milestone-trackers";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -251,6 +252,15 @@ router.post("/requirements", async (req, res): Promise<void> => {
   if (parsed.data.priority != null && !requirementPrioritySchema.safeParse(parsed.data.priority).success) {
     res.status(400).json({ error: `priority must be one of ${requirementPrioritySchema.options.join(", ")}` });
     return;
+  }
+
+  // No tracker supplied: use the one an administrator mapped to this
+  // milestone's type (Configuration -> Global Settings). A tracker the caller
+  // does send, e.g. copied from a Redmine ticket, is never replaced.
+  if (!parsed.data.tracker && parsed.data.milestoneId) {
+    const [ms] = await db.select({ type: milestonesTable.type }).from(milestonesTable).where(eq(milestonesTable.id, parsed.data.milestoneId));
+    const mapped = ms ? (await loadTypeTrackerMap())[ms.type] : undefined;
+    if (mapped) (parsed.data as any).tracker = mapped;
   }
 
   // Pulling a ticket in from Redmine is not authoring a requirement — every

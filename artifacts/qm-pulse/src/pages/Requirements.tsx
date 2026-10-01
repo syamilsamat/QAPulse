@@ -76,8 +76,10 @@ import {
   XCircle as XCircleIcon,
   Paperclip,
   Link2 as LinkIcon,
+  Lock,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
+import { useProjectModules } from "@/components/MilestoneModulePicker";
 import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
 function capitalize(s: string) {
@@ -149,6 +151,24 @@ async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
   });
   await Promise.all(workers);
 }
+
+type FormMilestone = {
+  id: number;
+  name: string;
+  type: string;
+  modules?: { id: number; name: string }[];
+  tracker?: string | null;
+  environment?: string | null;
+  goLiveDate?: string | null;
+};
+
+const MILESTONE_TYPE_LABEL: Record<string, string> = {
+  cr: "Change Request",
+  phase: "Phase",
+  sprint: "Sprint",
+  release: "Release",
+  data_prep: "Data Prep",
+};
 
 export default function Requirements() {
   const { user, token } = useAuth();
@@ -265,7 +285,7 @@ export default function Requirements() {
   });
 
   const formProjectId = form.projectId;
-  const { data: milestonesForProject = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: milestonesForProject = [] } = useQuery<FormMilestone[]>({
     queryKey: ["milestones", formProjectId],
     queryFn: async () => {
       if (!formProjectId) return [];
@@ -276,6 +296,98 @@ export default function Requirements() {
     },
     enabled: !!formProjectId && dialogOpen,
   });
+
+  // Project first, then milestone. The milestone decides the module choices
+  // and (via the admin's type -> tracker mapping) the tracker.
+  const selectedMilestone = milestonesForProject.find((m) => m.id === form.milestoneId) ?? null;
+  const { data: formProjectModules = [] } = useProjectModules(form.projectId ?? null, token);
+  const msModuleNames = (selectedMilestone?.modules ?? []).map((m) => m.name);
+  const formModuleOptions: string[] = !selectedMilestone
+    ? []
+    : msModuleNames.length > 0
+      ? msModuleNames
+      : formProjectModules.length > 0
+        ? formProjectModules.map((m) => m.name)
+        : (executionModules as any[]).map((m: any) => m.name);
+  // A module already on the requirement but not in the milestone's set (an
+  // older requirement, or a milestone whose modules changed): shown, flagged.
+  const extraSelected = reqFormModules.filter((n) => !formModuleOptions.includes(n));
+  const moduleChoices = [...formModuleOptions, ...extraSelected];
+  const moduleLocked = !!selectedMilestone && formModuleOptions.length === 1 && extraSelected.length === 0;
+  // Editing keeps the tracker the requirement already has; only a new
+  // requirement takes the mapped one.
+  const lockedTracker = !editingReq && selectedMilestone?.tracker ? selectedMilestone.tracker : null;
+  const [moduleQuery, setModuleQuery] = useState("");
+  const [fetchingTicket, setFetchingTicket] = useState(false);
+  const [fetchNote, setFetchNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // Choosing a milestone narrows the module selection to what it allows.
+  useEffect(() => {
+    if (!dialogOpen || !selectedMilestone) return;
+    if (msModuleNames.length === 1 && (!editingReq || reqFormModules.length === 0)) {
+      setReqFormModules([msModuleNames[0]]);
+    } else if (msModuleNames.length > 1 && !editingReq) {
+      setReqFormModules((prev) => prev.filter((n) => msModuleNames.includes(n)));
+    }
+    setModuleQuery("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMilestone?.id, dialogOpen]);
+
+  useEffect(() => { if (!dialogOpen) setFetchNote(null); }, [dialogOpen]);
+
+  const lockedField = (label: string, value: string, why: string) => (
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1.5">
+        {label}
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">locked</span>
+      </Label>
+      <div className="flex min-h-9 items-center gap-2 rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm">
+        <Lock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+        <span className="font-medium break-words">{value}</span>
+        <span className="ml-auto text-right text-xs text-muted-foreground">{why}</span>
+      </div>
+    </div>
+  );
+
+  // Pulls title, description and priority from the Redmine ticket. The tracker
+  // is only taken from the ticket when the milestone type has no mapped one.
+  const fetchTicketIntoForm = async () => {
+    const id = (form.redmineTicketId ?? "").trim().replace(/^#/, "");
+    if (!/^\d+$/.test(id)) { setFetchNote({ kind: "err", text: "Enter the ticket number, for example 41247." }); return; }
+    setFetchingTicket(true);
+    setFetchNote(null);
+    try {
+      const res = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(id)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.connected || !data.issue) {
+        setFetchNote({ kind: "err", text: `Redmine #${id} was not found, or you can't see it.` });
+        return;
+      }
+      const issue = data.issue;
+      const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
+      const ticketTracker: string | undefined = issue.tracker?.name;
+      setForm((f: any) => ({
+        ...f,
+        redmineTicketId: id,
+        title: issue.subject ?? f.title,
+        description: issue.description ?? f.description,
+        priority: priorityMap[String(issue.priority?.name ?? "").toLowerCase()] ?? f.priority,
+        ...(!lockedTracker && ticketTracker ? { tracker: ticketTracker } : {}),
+      }));
+      setFetchNote({
+        kind: "ok",
+        text: lockedTracker && ticketTracker && ticketTracker !== lockedTracker
+          ? `Filled from Redmine #${id}. Redmine lists it as "${ticketTracker}"; this milestone type uses "${lockedTracker}".`
+          : `Filled from Redmine #${id}. You can still edit the title, description and priority.`,
+      });
+    } catch {
+      setFetchNote({ kind: "err", text: "Could not reach Redmine. Try again." });
+    } finally {
+      setFetchingTicket(false);
+    }
+  };
 
   // Milestone options for the "Import from Redmine" dialog — scoped to the
   // selected import Project, mandatory so every imported requirement (and
@@ -762,18 +874,23 @@ tracker: parentReq.tracker ?? undefined,
       // @ts-ignore
 parentId: finalParentId,
       module: reqFormModules.join(",") || undefined,
+      // @ts-ignore
+      tracker: lockedTracker ?? form.tracker ?? undefined,
       milestoneId: milestoneId ?? undefined,
       acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
     };
 
     try {
       let savedId: number | undefined;
+      let moduleWarning: string | null = null;
       if (editingReq) {
-        await updateMutation.mutateAsync({ id: editingReq.id, data: payload as any });
+        const updated: any = await updateMutation.mutateAsync({ id: editingReq.id, data: payload as any });
         savedId = editingReq.id;
+        moduleWarning = updated?.moduleWarning ?? null;
       } else {
         const created: any = await createMutation.mutateAsync({ data: payload as RequirementInput });
         savedId = created?.id;
+        moduleWarning = created?.moduleWarning ?? null;
       }
 
       // Attachment changes are all deferred to here so Cancel is a true
@@ -799,6 +916,7 @@ parentId: finalParentId,
       setEditingReq(null);
       resetAttachmentDrafts();
       toast({ title: editingReq ? "Requirement updated" : "Requirement created" });
+      if (moduleWarning) toast({ title: "Saved, but check the module", description: moduleWarning });
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
     }
@@ -1597,7 +1715,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[75vw] max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
           <DialogHeader>
             <DialogTitle>
               {editingReq
@@ -1607,10 +1725,120 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                   : "New Requirement"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-6 py-2">
+          <div className="space-y-0 py-1">
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <div className="space-y-1.5 sm:col-span-3">
+            {/* 1 · Where it belongs — project first, then the milestone, which decides module and tracker */}
+            <section className="space-y-3 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where it belongs</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Project <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.projectId ? String(form.projectId) : ""}
+                    onValueChange={(v) => {
+                      setForm({ ...form, projectId: Number(v), milestoneId: null });
+                      if (!editingReq) setReqFormModules([]);
+                    }}
+                    options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+                    placeholder="Select project"
+                    searchPlaceholder="Search project..."
+                    className={errors.projectId ? "border-destructive" : ""}
+                  />
+                  {errors.projectId && <p className="text-xs text-destructive">{errors.projectId}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Milestone <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.milestoneId ? String(form.milestoneId) : ""}
+                    onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
+                    options={[
+                      { value: "", label: form.projectId ? "Select milestone…" : "Select a project first" },
+                      ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name })),
+                    ]}
+                    placeholder={form.projectId ? "Select milestone…" : "Select a project first"}
+                    searchPlaceholder="Search milestones…"
+                    disabled={!form.projectId}
+                    className={errors.milestoneId ? "border-destructive" : ""}
+                  />
+                  {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
+                  {form.projectId && milestonesForProject.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                {!selectedMilestone ? (
+                  <>
+                    <Label>Module <span className="text-destructive">*</span></Label>
+                    <div className={`rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground ${errors.module ? "border-destructive" : ""}`}>
+                      Choose a milestone first
+                    </div>
+                  </>
+                ) : moduleLocked ? (
+                  lockedField("Module", formModuleOptions[0], "only module in this milestone")
+                ) : (
+                  <>
+                    <Label>
+                      Module <span className="text-destructive">*</span>
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">{reqFormModules.length} selected</span>
+                    </Label>
+                    <div className={`rounded-md border p-2 space-y-2 ${errors.module ? "border-destructive" : ""}`}>
+                      {moduleChoices.length > 8 && (
+                        <Input
+                          placeholder="Search modules…"
+                          value={moduleQuery}
+                          onChange={(e) => setModuleQuery(e.target.value)}
+                          className="h-8"
+                          aria-label="Search modules"
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {moduleChoices
+                          .filter((n) => !moduleQuery.trim() || n.toLowerCase().includes(moduleQuery.trim().toLowerCase()))
+                          .map((n) => {
+                            const on = reqFormModules.includes(n);
+                            const outside = !formModuleOptions.includes(n);
+                            return (
+                              <button
+                                key={n}
+                                type="button"
+                                aria-pressed={on}
+                                title={outside ? "Not one of this milestone's modules" : undefined}
+                                onClick={() => setReqFormModules((prev) => on ? prev.filter((x) => x !== n) : [...prev, n])}
+                                className={`rounded-full border px-3 py-1 text-sm transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"} ${outside ? "border-amber-500" : ""}`}
+                              >
+                                {n}{outside ? " ⚠" : ""}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {msModuleNames.length > 0
+                        ? "Limited to this milestone's modules."
+                        : "This milestone covers all modules, so the project's list is shown."}
+                      {extraSelected.length > 0 && " ⚠ marks a module outside the milestone; it will be saved with a warning."}
+                    </p>
+                  </>
+                )}
+                {errors.module && <p className="text-xs text-destructive">{errors.module}</p>}
+              </div>
+
+              {selectedMilestone && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-primary/10 px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">From the milestone:</span>
+                  <span className="font-medium">{MILESTONE_TYPE_LABEL[selectedMilestone.type] ?? selectedMilestone.type}</span>
+                  {selectedMilestone.environment && <span>{selectedMilestone.environment}</span>}
+                  {selectedMilestone.goLiveDate && <span>Go-live {new Date(selectedMilestone.goLiveDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>}
+                </div>
+              )}
+            </section>
+
+            {/* 2 · What it is */}
+            <section className="space-y-4 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">What it is</h3>
+              <div className="space-y-1.5">
                 <Label>Title <span className="text-destructive">*</span></Label>
                 <Input
                   placeholder="Requirement title"
@@ -1621,110 +1849,9 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                 {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Redmine Ticket ID</Label>
-                <Input placeholder="e.g. 12345" value={form.redmineTicketId ?? ""} onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value })} />
+                <Label>Description</Label>
+                <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
               </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label>Project <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v), milestoneId: null })}
-                  options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select project"
-                  searchPlaceholder="Search project..."
-                  className={errors.projectId ? "border-destructive" : ""}
-                />
-                {errors.projectId && <p className="text-xs text-destructive">{errors.projectId}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Module <span className="text-destructive">*</span></Label>
-                <div className={`border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5 ${errors.module ? "border-destructive" : ""}`}>
-                  {(executionModules as any[]).map((m: any) => (
-                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
-                      <Checkbox
-                        checked={reqFormModules.includes(m.name)}
-                        onCheckedChange={(checked) => setReqFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
-                      />
-                      <span className="text-sm">{m.name}</span>
-                    </label>
-                  ))}
-                </div>
-                {errors.module
-                  ? <p className="text-xs text-destructive">{errors.module}</p>
-                  : reqFormModules.length > 0 && <p className="text-xs text-muted-foreground">{reqFormModules.length} selected</p>
-                }
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tracker</Label>
-                <SearchableSelect
-                  value={form.tracker ?? ""}
-                  onValueChange={(v) => setForm({ ...form, // @ts-ignore
-tracker: v })}
-                  options={[
-                    { value: "", label: "None" },
-                    ...trackers.map((t) => ({ value: t.name, label: t.name })),
-                    ...(form.tracker && !trackers.some((t) => t.name === form.tracker)
-                      ? [{ value: form.tracker, label: form.tracker }]
-                      : []),
-                  ]}
-                  placeholder="Select tracker..."
-                  searchPlaceholder="Search tracker..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Priority <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.priority ?? "normal"}
-                  onValueChange={(v) => setForm({ ...form, priority: v as any })}
-                  options={[
-                    { value: "low", label: "Low" },
-                    { value: "normal", label: "Normal" },
-                    { value: "high", label: "High" },
-                    { value: "urgent", label: "Urgent" },
-                  ]}
-                  searchPlaceholder="Search..."
-                  className={errors.priority ? "border-destructive" : ""}
-                />
-              </div>
-              {form.release && (
-                <div className="space-y-1.5">
-                  <Label>Release (legacy)</Label>
-                  <Input value={form.release} disabled className="text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Parent Redmine ID (Optional)</Label>
-                <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Milestone <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.milestoneId ? String(form.milestoneId) : ""}
-                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
-                  options={[
-                    { value: "", label: form.projectId ? "Select milestone…" : "Select a project first" },
-                    ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name })),
-                  ]}
-                  placeholder="Select milestone…"
-                  searchPlaceholder="Search milestones…"
-                  className={errors.milestoneId ? "border-destructive" : ""}
-                />
-                {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
-                {form.projectId && milestonesForProject.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
-                )}
-              </div>
-            </div>
-
             {/* Acceptance Criteria */}
             <div className="space-y-2">
               <Label>Acceptance Criteria</Label>
@@ -1778,7 +1905,92 @@ tracker: v })}
                 </div>
               </div>
             </div>
+            </section>
 
+            {/* 3 · Redmine link */}
+            <section className="space-y-3 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Redmine link</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Redmine Ticket ID</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. 12345"
+                      value={form.redmineTicketId ?? ""}
+                      onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); fetchTicketIntoForm(); } }}
+                      className="min-w-0 flex-1 font-mono"
+                    />
+                    <Button type="button" variant="outline" onClick={fetchTicketIntoForm} disabled={fetchingTicket || !(form.redmineTicketId ?? "").trim()}>
+                      {fetchingTicket ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
+                    </Button>
+                  </div>
+                  {fetchNote && (
+                    <p className={`text-xs ${fetchNote.kind === "err" ? "text-destructive" : "text-muted-foreground"}`}>{fetchNote.text}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Parent Redmine ID <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+                  <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} className="font-mono" />
+                </div>
+              </div>
+              {lockedTracker ? (
+                lockedField("Tracker", lockedTracker, `set by the ${MILESTONE_TYPE_LABEL[selectedMilestone?.type ?? ""] ?? "milestone"} type`)
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Tracker</Label>
+                  <SearchableSelect
+                    value={form.tracker ?? ""}
+                    onValueChange={(v) => setForm({ ...form, // @ts-ignore
+tracker: v })}
+                    options={[
+                      { value: "", label: "None" },
+                      ...trackers.map((t) => ({ value: t.name, label: t.name })),
+                      ...(form.tracker && !trackers.some((t) => t.name === form.tracker)
+                        ? [{ value: form.tracker, label: form.tracker }]
+                        : []),
+                    ]}
+                    placeholder="Select tracker..."
+                    searchPlaceholder="Search tracker..."
+                  />
+                </div>
+              )}
+            </section>
+
+            {/* 4 · Priority and extras */}
+            <section className="space-y-4 py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Priority <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.priority ?? "normal"}
+                    onValueChange={(v) => setForm({ ...form, priority: v as any })}
+                    options={[
+                      { value: "low", label: "Low" },
+                      { value: "normal", label: "Normal" },
+                      { value: "high", label: "High" },
+                      { value: "urgent", label: "Urgent" },
+                    ]}
+                    searchPlaceholder="Search..."
+                    className={errors.priority ? "border-destructive" : ""}
+                  />
+                </div>
+                {form.release && (
+                  <div className="space-y-1.5">
+                    <Label>Release (legacy)</Label>
+                    <Input value={form.release} disabled className="text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
+                  </div>
+                )}
+              </div>
+
+              <details className="rounded-lg border" open={!!editingReq || pendingFiles.length > 0 || pendingLinks.length > 0}>
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Attachments and links</span>
+                  <span className="text-xs font-normal text-muted-foreground">optional</span>
+                </summary>
+                <div className="p-3 pt-1">
             {/* Attachments */}
             <div className="space-y-2">
               <Label className="flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Attachments</Label>
@@ -1905,8 +2117,11 @@ tracker: v })}
                 <p className="text-xs text-muted-foreground">No attachments on this requirement yet.</p>
               )}
             </div>
+                </div>
+              </details>
+            </section>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+          <DialogFooter className="sticky bottom-0 z-10 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 mt-2 gap-2 border-t bg-background px-4 py-3 sm:gap-0 sm:px-8">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
             <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
               {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
