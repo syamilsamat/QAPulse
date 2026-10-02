@@ -1974,7 +1974,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR090 — Notify Devs When a Returned Requirement Is Re-approved
-**Status: 📋 Planned** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** the re-approval message (CR104) plus the held edit-time notice: while a requirement has an earlier approved version and is not currently approved, the old edit route no longer sends "Requirement revised"; test cases and tasks are still flagged for re-review at edit time, and the activity entry is still logged. Edits to a never-approved requirement, or one that is still approved, notify as before.
 
 **Origin:** CTO feedback, second round (2026-10-02) — "dev returns requirement to FA, FA edits, submits for review, another FA approves: notify the devs who have tasks under that requirement that it has changes, plus the dev lead."
 
