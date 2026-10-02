@@ -73,8 +73,8 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR087](#cr087--scheduled-redmine-sync) | Scheduled Redmine Sync | 🚧 Built, not deployed | 2026-10-01 |
 | [CR088](#cr088--new-requirement-form-rework-and-milestone-type-tracker-mapping) | New Requirement Form Rework and Milestone-Type Tracker Mapping | 🚧 Built, not deployed | 2026-10-02 |
 | [CR089](#cr089--execution-test-case-ownership-and-edit-lock) | Execution Test Case Ownership and Edit Lock | 🚧 Built, not deployed | 2026-10-02 |
-| [CR090](#cr090--notify-devs-when-a-returned-requirement-is-re-approved) | Notify Devs When a Returned Requirement Is Re-approved | 🚧 Partly built in CR104 | 2026-10-02 |
-| [CR091](#cr091--requirement-priority-defaults-from-milestone-priority) | Requirement Priority Defaults from Milestone Priority | 📋 Planned | 2026-10-02 |
+| [CR090](#cr090--notify-devs-when-a-returned-requirement-is-re-approved) | Notify Devs When a Returned Requirement Is Re-approved | 🔨 Built, not deployed | 2026-10-02 |
+| [CR091](#cr091--requirement-priority-defaults-from-milestone-priority) | Requirement Priority Defaults from Milestone Priority | 🔨 Built, not deployed | 2026-10-02 |
 | [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 🔨 Built, not deployed | 2026-10-02 |
 | [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
 | [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
@@ -1996,7 +1996,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR091 — Requirement Priority Defaults from Milestone Priority
-**Status: 📋 Planned** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** the Requirements page form now starts a new requirement at the milestone's priority (Low→low, Medium→normal, High→high, Critical→urgent) once a milestone is chosen, including milestones reached by a deep link and child requirements. It stops once the user changes priority by hand, a Redmine ticket fetch keeps the ticket's priority, and editing an existing requirement is never touched. The milestone dialog already did this (CR104). No server change.
 
 **Origin:** CTO feedback, second round — "in the New Requirement dialog, Priority should auto-populate based on the milestone's priority, but the user can change it."
 
