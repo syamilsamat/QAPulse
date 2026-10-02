@@ -26,9 +26,11 @@ import { eq, and } from "drizzle-orm";
 import {
   db,
   milestonesTable,
+  milestoneAssigneesTable,
   requirementsTable,
 } from "@workspace/db";
 import { logActivity } from "../routes/_audit";
+import { notifyUser } from "../routes/_notify";
 import { rollupExecutionByMilestone } from "../routes/dashboard";
 import { loadPipelineFacts } from "./pipeline-facts";
 
@@ -114,6 +116,16 @@ export async function syncMilestoneStatus(milestoneId: number): Promise<void> {
       oldValue: { status: m.status },
       newValue: { status: target },
     }).catch(() => {});
+
+    // CR102 — the system moved it on its own, so nobody else would know:
+    // tell the team and the milestone's author.
+    const team = await db.select({ userId: milestoneAssigneesTable.userId }).from(milestoneAssigneesTable)
+      .where(eq(milestoneAssigneesTable.milestoneId, milestoneId));
+    const recipients = new Set<number>(team.map((t) => t.userId));
+    if (m.createdBy != null) recipients.add(m.createdBy);
+    await Promise.all([...recipients].map((uid) =>
+      notifyUser(uid, "Milestone status changed", `"${m.name}" moved from ${m.status} to ${target} automatically.`, "milestone_updated", "milestone", milestoneId, null).catch(() => {}),
+    ));
   } catch (err) {
     console.error(`syncMilestoneStatus(${milestoneId}) failed:`, err);
   }

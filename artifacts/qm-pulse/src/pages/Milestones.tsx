@@ -1,4 +1,4 @@
-import { useSearch } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -69,6 +69,8 @@ interface Milestone {
   createdAt: string;
   updatedAt: string;
   modules?: { id: number; name: string }[];
+  can?: { edit: boolean; staff: boolean; createRequirement: boolean };
+  assigned?: boolean;
   requirementCount?: number;
   approvedCount?: number;
   executionFileCount?: number;
@@ -203,6 +205,18 @@ export default function Milestones() {
     },
     enabled: filterProject !== "all",
   });
+
+  // The milestone page links here with ?edit=<id>; open that milestone's form
+  // once, if the person is allowed to edit it.
+  const editParam = new URLSearchParams(activitySearch).get("edit");
+  const [editHandled, setEditHandled] = useState(false);
+  useEffect(() => {
+    if (editHandled || !editParam || milestones.length === 0) return;
+    const target = milestones.find((x) => String(x.id) === editParam);
+    if (target?.can?.edit) openEdit(target);
+    setEditHandled(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, milestones, editHandled]);
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
   // dev_lead gets Team access only (DEF-0012) — not create/edit-other-fields/delete,
@@ -515,18 +529,22 @@ export default function Milestones() {
                     </div>
                   </div>
                 )}
-                {canManageTeam && (
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </Button>
-                    {canWrite && (
-                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
+                <div className="flex gap-2 pt-1">
+                  <Button asChild size="sm" variant="outline" className="flex-1 gap-1.5">
+                    <Link href={`/milestones/${m.id}`}>Open</Link>
+                  </Button>
+                  {/* Only the milestone's author, a PM Lead (or admin/CTO) edit or delete it. */}
+                  {m.can?.edit && (
+                    <>
+                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" aria-label={`Delete ${m.name}`} onClick={() => setDeleteId(m.id)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

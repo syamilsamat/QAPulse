@@ -6,6 +6,7 @@ import {
   executionFilesTable,
   executionTestCasesTable,
   milestonesTable,
+  milestoneAssigneesTable,
   projectsTable,
   requirementsTable,
   risksTable,
@@ -29,7 +30,7 @@ type WorkSection = "urgent" | "action" | "waiting";
 
 interface WorkItem {
   id: string;
-  type: "task" | "requirement" | "test_case" | "execution" | "defect" | "risk";
+  type: "task" | "requirement" | "test_case" | "execution" | "defect" | "risk" | "milestone";
   title: string;
   context: string;
   reason: string;
@@ -289,6 +290,38 @@ router.get("/my-work", async (req, res): Promise<void> => {
       ownerName: defect.assigneeId ? userNameById.get(defect.assigneeId) ?? null : defect.assigneeName, updatedAt: defect.updatedAt.toISOString() });
   }
 
+  // CR103 — milestones the person is on the team of. A milestone is "mine" when
+  // the target user is on its team; under "unassigned" it is a milestone nobody
+  // has been put on yet. Finished and cancelled milestones drop off.
+  {
+    const teamRows = await db.select({ milestoneId: milestoneAssigneesTable.milestoneId, userId: milestoneAssigneesTable.userId }).from(milestoneAssigneesTable);
+    const teamByMilestone = new Map<number, number[]>();
+    for (const row of teamRows) teamByMilestone.set(row.milestoneId, [...(teamByMilestone.get(row.milestoneId) ?? []), row.userId]);
+    const PHASES: [label: string, key: "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "uatTargetDate" | "goLiveDate"][] = [
+      ["Requirements", "reqTargetDate"], ["Dev done", "devTargetDate"], ["QA done", "qaTargetDate"], ["UAT done", "uatTargetDate"], ["Go-live", "goLiveDate"],
+    ];
+    for (const milestone of milestones) {
+      if (!canSeeProject(milestone.projectId) || ["completed", "cancelled"].includes(milestone.status)) continue;
+      const team = teamByMilestone.get(milestone.id) ?? [];
+      if (scope === "unassigned" ? team.length > 0 : !team.some((id) => isTargetId(id))) continue;
+      // The next phase date that has not passed yet, or the earliest overdue one.
+      const dated = PHASES.map(([label, key]) => ({ label, at: milestone[key] as Date | null })).filter((p): p is { label: string; at: Date } => p.at != null)
+        .sort((a, b) => a.at.getTime() - b.at.getTime());
+      const upcoming = dated.find((p) => p.at.getTime() >= Date.now() - DAY_MS) ?? null;
+      const overdue = dated.find((p) => p.at.getTime() < Date.now() - DAY_MS && !upcoming) ?? null;
+      const nextText = upcoming ? `Next: ${upcoming.label} ${upcoming.at.toISOString().slice(0, 10)}` : overdue ? `${overdue.label} was due ${overdue.at.toISOString().slice(0, 10)}` : "No phase dates set";
+      const soon = !!upcoming && upcoming.at.getTime() - Date.now() <= 3 * DAY_MS;
+      const late = !!overdue;
+      push({ id: `milestone-team:${milestone.id}`, type: "milestone", title: `Milestone: ${milestone.name}`,
+        context: contextFor(milestone.projectId, milestone.id), reason: `${milestone.status} · ${nextText}`,
+        priority: late ? "urgent" : soon ? "high" : "normal", section: late ? "urgent" : "action",
+        actionLabel: scope === "unassigned" ? "Assign a team" : "Open milestone", actionUrl: `/milestones/${milestone.id}`,
+        projectId: milestone.projectId, projectName: projectNameById.get(milestone.projectId) ?? null,
+        milestoneName: milestone.name, ownerName: milestone.createdBy ? userNameById.get(milestone.createdBy) ?? null : null,
+        updatedAt: milestone.updatedAt.toISOString() });
+    }
+  }
+
   if (department === "pm" || department == null) {
     for (const risk of risks) {
       if (!canSeeProject(risk.projectId) || risk.status === "closed") continue;
@@ -305,7 +338,7 @@ router.get("/my-work", async (req, res): Promise<void> => {
       if (!canSeeProject(milestone.projectId) || milestone.status !== "active" || !isOverdue(milestone.targetDate)) continue;
       push({ id: `milestone:${milestone.id}`, type: "requirement", title: `Milestone overdue: ${milestone.name}`,
         context: contextFor(milestone.projectId, milestone.id), reason: `Target date ${milestone.targetDate?.toISOString().slice(0, 10)}`,
-        priority: "urgent", section: "urgent", actionLabel: "Open milestone", actionUrl: `/milestones?highlight=${milestone.id}`,
+        priority: "urgent", section: "urgent", actionLabel: "Open milestone", actionUrl: `/milestones/${milestone.id}`,
         projectId: milestone.projectId, projectName: projectNameById.get(milestone.projectId) ?? null,
         milestoneName: milestone.name, ownerName: milestone.createdBy ? userNameById.get(milestone.createdBy) ?? null : null, updatedAt: milestone.updatedAt.toISOString() });
     }

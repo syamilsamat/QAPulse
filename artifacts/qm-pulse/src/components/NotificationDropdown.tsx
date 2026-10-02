@@ -35,6 +35,8 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: 
   retest_needed:        { icon: RefreshCcw,     color: "text-orange-600", bg: "bg-orange-50" },
   uat_milestone_ready:  { icon: Calendar,       color: "text-green-600",  bg: "bg-green-50" },
   milestone_created:    { icon: Calendar,       color: "text-indigo-600", bg: "bg-indigo-50" },
+  milestone_updated:    { icon: Calendar,       color: "text-indigo-600", bg: "bg-indigo-50" },
+  milestone_team_removed: { icon: Calendar,     color: "text-slate-600",  bg: "bg-slate-50" },
   returned_to_dev:      { icon: RefreshCcw,     color: "text-red-600",    bg: "bg-red-50" },
   requirement_returned_to_fa: { icon: RefreshCcw, color: "text-orange-600", bg: "bg-orange-50" },
   defect_reopened:      { icon: Bug,            color: "text-red-600",    bg: "bg-red-50" },
@@ -53,7 +55,7 @@ export function resolveNotifRoute(entityType: string | null, entityId: number | 
     case "execution_file": return `/test-cases/execution`;
     case "defect":         return `/defects?highlight=${entityId}`;
     case "task":           return `/tasks?highlight=${entityId}`;
-    case "milestone":      return `/milestones?highlight=${entityId}`;
+    case "milestone":      return `/milestones/${entityId}`;
     case "test_case":      return `/test-cases?tc=${entityId}`;
     case "audit_log":      return `/audit-log?entityId=${entityId}`;
     case "platform_issue": return `/platform-issues?highlight=${entityId}`;
