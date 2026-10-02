@@ -157,10 +157,14 @@ type FormMilestone = {
   name: string;
   type: string;
   modules?: { id: number; name: string }[];
+  priority?: string | null;
   tracker?: string | null;
   environment?: string | null;
   goLiveDate?: string | null;
 };
+
+// CR091 — milestone priority (Low/Medium/High/Critical) to requirement priority.
+const MILESTONE_PRIORITY_TO_REQUIREMENT: Record<string, string> = { Low: "low", Medium: "normal", High: "high", Critical: "urgent" };
 
 const MILESTONE_TYPE_LABEL: Record<string, string> = {
   cr: "Change Request",
@@ -300,6 +304,17 @@ export default function Requirements() {
   // Project first, then milestone. The milestone decides the module choices
   // and (via the admin's type -> tracker mapping) the tracker.
   const selectedMilestone = milestonesForProject.find((m) => m.id === form.milestoneId) ?? null;
+
+  // CR091 — a new requirement starts at the milestone's priority until the user
+  // sets one by hand (or a Redmine ticket supplies its own). Never touches an
+  // existing requirement being edited.
+  const priorityTouched = useRef(false);
+  useEffect(() => {
+    if (!dialogOpen) { priorityTouched.current = false; return; }
+    if (editingReq || priorityTouched.current || !selectedMilestone) return;
+    const mapped = MILESTONE_PRIORITY_TO_REQUIREMENT[selectedMilestone.priority ?? ""];
+    if (mapped) setForm((f: any) => (f.priority === mapped ? f : { ...f, priority: mapped }));
+  }, [dialogOpen, editingReq, selectedMilestone?.id, selectedMilestone?.priority]);
   const { data: formProjectModules = [] } = useProjectModules(form.projectId ?? null, token);
   const msModuleNames = (selectedMilestone?.modules ?? []).map((m) => m.name);
   const formModuleOptions: string[] = !selectedMilestone
@@ -366,6 +381,7 @@ export default function Requirements() {
         return;
       }
       const issue = data.issue;
+      priorityTouched.current = true; // the ticket's own priority wins over the milestone's
       const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
       const ticketTracker: string | undefined = issue.tracker?.name;
       setForm((f: any) => ({
@@ -714,6 +730,7 @@ parentId: number) => {
   });
 
   const openCreate = () => {
+    priorityTouched.current = false;
     setEditingReq(null);
     setForm({ priority: "normal", status: "draft" });
     setAcceptanceCriteria([]);
@@ -754,6 +771,7 @@ parentId: r.parentId ?? undefined,
   };
 
   const openCreateChild = (parentReq: any) => {
+    priorityTouched.current = false;
     setEditingReq(null);
     setForm({
       // @ts-ignore
@@ -1987,7 +2005,7 @@ tracker: v })}
                   <Label>Priority <span className="text-destructive">*</span></Label>
                   <SearchableSelect
                     value={form.priority ?? "normal"}
-                    onValueChange={(v) => setForm({ ...form, priority: v as any })}
+                    onValueChange={(v) => { priorityTouched.current = true; setForm({ ...form, priority: v as any }); }}
                     options={[
                       { value: "low", label: "Low" },
                       { value: "normal", label: "Normal" },
