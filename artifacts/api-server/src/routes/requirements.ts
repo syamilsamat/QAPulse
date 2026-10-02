@@ -765,6 +765,10 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
       .returning({ id: tasksTable.id, assigneeIds: tasksTable.assigneeIds });
 
     if (revisedTcs.length > 0 || revisedTasks.length > 0) {
+      // CR090 — a requirement that was approved before and is being reworked
+      // gets one "re-approved with changes" message at approval instead of a
+      // notice on every edit. The flags above still go out at edit time.
+      const awaitingReapproval = (requirement as any).reviewStatus !== "approved" && (await getSnapshot(requirement.id)) != null;
       const recipients = new Set<number>();
       if (requirement.createdBy) recipients.add(requirement.createdBy);
       if (requirement.assigneeId) recipients.add(requirement.assigneeId);
@@ -774,7 +778,7 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
 
       const actorId = actorFromReq(req);
       await Promise.all(
-        [...recipients].map((uid) =>
+        [...(awaitingReapproval ? [] : recipients)].map((uid) =>
           notifyUser(
             uid,
             "Requirement revised",
