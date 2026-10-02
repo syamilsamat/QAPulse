@@ -374,7 +374,7 @@ export default function TestCasesExecution() {
   const [files, setFiles] = useState<ExecutionFile[]>([]);
   const [modules, setModules] = useState<ExecutionModule[]>([]);
   const [projects, setProjects] = useState<ExecutionProject[]>([]);
-  const [requirements, setRequirements] = useState<{ id: number; title: string; projectId?: number | null; module?: string | null }[]>([]);
+  const [requirements, setRequirements] = useState<{ id: number; title: string; projectId?: number | null; module?: string | null; tracker?: string | null; milestoneId?: number | null; redmineTicketId?: string | null }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [progress, setProgress] = useState<ProgressData>({});
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
@@ -405,6 +405,15 @@ export default function TestCasesExecution() {
     milestoneId: "",
     fileType: "qa",
   });
+  // CR096 — milestone and requirement come first; project, module and tracker follow them.
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [allMilestones, setAllMilestones] = useState<{ id: number; name: string; projectId: number; projectName?: string | null }[]>([]);
+  const [linkedTcs, setLinkedTcs] = useState<any[]>([]);
+  const [copyLinked, setCopyLinked] = useState(true);
+  const fileFormRef = useRef(fileForm);
+  useEffect(() => { fileFormRef.current = fileForm; }, [fileForm]);
+  const titleTouchedRef = useRef(false);
+  useEffect(() => { titleTouchedRef.current = titleTouched; }, [titleTouched]);
   const [parsedExcelRows, setParsedExcelRows] = useState<ExecutionTestCase[] | null>(null);
   const [excelFileName, setExcelFileName] = useState("");
   const [isParsingExcel, setIsParsingExcel] = useState(false);
@@ -418,12 +427,6 @@ export default function TestCasesExecution() {
   const tokenRef = useRef(token);
   useEffect(() => { modulesRef.current = modules; }, [modules]);
   useEffect(() => { tokenRef.current = token; }, [token]);
-  // TC copy dialog
-  const [tcCopyDialog, setTcCopyDialog] = useState<{
-    open: boolean;
-    tcs: any[];
-    pendingFileTicketId: string;
-  }>({ open: false, tcs: [], pendingFileTicketId: "" });
   const [pendingCreatePayload, setPendingCreatePayload] = useState<any>(null);
 
   const [editFileOpen, setEditFileOpen] = useState(false);
@@ -801,24 +804,62 @@ export default function TestCasesExecution() {
   }, [sortedFiles, page, pageSize]);
 
   // ─── Requirement auto-fill ─────────────────────────────────────────────────
+  const moduleIdsForReq = (req: any): number[] => {
+    const names = String(req?.module ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+    return modules.filter((m) => names.includes(m.name.trim().toLowerCase())).map((m) => m.id);
+  };
+
+  // Milestone first: it sets the project, and drops a requirement that belongs to another milestone.
+  const handleMilestoneChange = (v: string) => {
+    const ms = allMilestones.find((m) => String(m.id) === v);
+    setFileForm((f) => {
+      const keep = !!f.requirementId && requirements.some((r) => String(r.id) === f.requirementId && String(r.milestoneId) === v);
+      return {
+        ...f,
+        milestoneId: v,
+        projectId: keep ? f.projectId : ms ? String(ms.projectId) : "",
+        ...(keep ? {} : { requirementId: "", tracker: "", selectedModules: [] as number[] }),
+        ...(!titleTouchedRef.current && ms ? { title: ms.name } : {}),
+      };
+    });
+  };
+
+  // Requirement second: project, module, tracker and its Redmine ticket follow it.
   const handleRequirementChange = (reqId: string) => {
     const req = requirements.find((r: any) => String(r.id) === reqId);
-    const updatedForm = { ...fileForm, requirementId: reqId };
-
-    if (req) {
-      // Auto-fill project
-      if (req.projectId) updatedForm.projectId = String(req.projectId);
-      // Auto-fill module: find execution module matching the requirement's module name
-      if (req.module) {
-        const matchedMod = modules.find(m => m.name.toLowerCase() === req.module?.toLowerCase());
-        if (matchedMod && !updatedForm.selectedModules.includes(matchedMod.id)) {
-          updatedForm.selectedModules = [matchedMod.id];
-        }
-      }
-    }
-
-    setFileForm(updatedForm);
+    if (!req) { setFileForm((f) => ({ ...f, requirementId: "" })); return; }
+    const ms = allMilestones.find((m) => m.id === req.milestoneId);
+    setFileForm((f) => ({
+      ...f,
+      requirementId: reqId,
+      milestoneId: req.milestoneId ? String(req.milestoneId) : f.milestoneId,
+      projectId: req.projectId ? String(req.projectId) : f.projectId,
+      tracker: req.tracker || "",
+      selectedModules: moduleIdsForReq(req),
+      redmineTicketId: req.redmineTicketId ? String(req.redmineTicketId) : "",
+      ...(!titleTouchedRef.current && ms ? { title: ms.name } : {}),
+    }));
   };
+
+  // Milestones the person can see, for the first field.
+  useEffect(() => {
+    if (!newFileOpen) return;
+    fetch(`${getApiUrl()}/milestones?projectId=all`, { headers: getHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setAllMilestones(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
+  }, [newFileOpen]);
+
+  // Test cases already linked to the chosen requirement, offered for copying.
+  useEffect(() => {
+    if (!newFileOpen || !fileForm.requirementId) { setLinkedTcs([]); return; }
+    let cancelled = false;
+    fetch(`${getApiUrl()}/requirements/${fileForm.requirementId}/test-cases`, { headers: getHeaders() })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => { if (!cancelled) setLinkedTcs(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (!cancelled) setLinkedTcs([]); });
+    return () => { cancelled = true; };
+  }, [newFileOpen, fileForm.requirementId]);
 
   // ─── Redmine ticket ID lookup ──────────────────────────────────────────────
 
@@ -846,19 +887,23 @@ export default function TestCasesExecution() {
         const data = await res.json();
         if (data.found && data.requirement) {
           const req = data.requirement;
-          const currentModules = modulesRef.current;
-          const matchedMod = req.module
-            ? currentModules.find((m: any) => m.name.trim().toLowerCase() === req.module.trim().toLowerCase())
-            : null;
-          setFileForm(prev => ({
-            ...prev,
-            requirementId: String(req.id),
-            title: req.title || prev.title,
-            projectId: req.projectId ? String(req.projectId) : prev.projectId,
-            tracker: req.tracker || prev.tracker,
-            selectedModules: matchedMod ? [matchedMod.id] : prev.selectedModules,
-          }));
-          setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — fields auto-filled.` });
+          if (fileFormRef.current.requirementId) {
+            // A requirement is already chosen (it supplied this ticket): keep it.
+            setTicketLookupMsg({ type: "info", text: `Redmine ticket of the chosen requirement.` });
+          } else {
+            const currentModules = modulesRef.current;
+            const names = String(req.module ?? "").split(",").map((x: string) => x.trim().toLowerCase()).filter(Boolean);
+            const ids = currentModules.filter((m: any) => names.includes(m.name.trim().toLowerCase())).map((m: any) => m.id);
+            setFileForm(prev => ({
+              ...prev,
+              requirementId: String(req.id),
+              milestoneId: req.milestoneId ? String(req.milestoneId) : prev.milestoneId,
+              projectId: req.projectId ? String(req.projectId) : prev.projectId,
+              tracker: req.tracker || prev.tracker,
+              selectedModules: ids.length ? ids : prev.selectedModules,
+            }));
+            setTicketLookupMsg({ type: "info", text: `Requirement found: "${req.title}" — selected.` });
+          }
         } else {
           setTicketLookupMsg({ type: "warn", text: "No requirement found locally. On create, the ticket will be fetched from Redmine and saved as a requirement." });
         }
@@ -904,11 +949,14 @@ export default function TestCasesExecution() {
   // ─── Create file ───────────────────────────────────────────────────────────
   const resetFileForm = () => {
     setFileForm({ redmineTicketId: "", title: "", remarks: "", requirementId: "", projectId: "", tracker: "", selectedModules: [], milestoneId: "", fileType: "qa" });
+    setTitleTouched(false);
+    setLinkedTcs([]);
+    setCopyLinked(true);
     setTicketLookupMsg(null);
     clearExcel();
   };
 
-  const doCreateFile = async (copyTcs: any[] | null) => {
+  const doCreateFile = async (copyTcs: any[] | null, submitAfter = false) => {
     setIsCreating(true);
     try {
       const selectedModuleNames = fileForm.selectedModules
@@ -966,29 +1014,26 @@ export default function TestCasesExecution() {
       setTicketLookupMsg(null);
 
       // Determine which TCs to save
-      let rowsToSave: ExecutionTestCase[] | null = null;
-      if (copyTcs && copyTcs.length > 0) {
-        rowsToSave = copyTcs.map((tc: any, i: number) => ({
-          moduleName: tc.module || "",
-          caseId: tc.caseId || "",
-          libraryTcId: tc.id,
-          userStory: "",
-          tracker: tc.tracker || "",
-          scenario: tc.scenario || "",
-          preCondition: tc.preCondition || "",
-          caseName: tc.title || "",
-          testSteps: tc.testSteps || "",
-          testData: tc.testData || "",
-          expectedResult: tc.expectedResult || "",
-          result: "",
-          defectNumber: "",
-          comments: "",
-          qaPic: "",
-          rowOrder: i,
-        }));
-      } else if (parsedExcelRows && parsedExcelRows.length > 0) {
-        rowsToSave = parsedExcelRows;
-      }
+      // Copied test cases first, then any imported from Excel.
+      const copied: ExecutionTestCase[] = (copyTcs ?? []).map((tc: any) => ({
+        moduleName: tc.module || "",
+        caseId: tc.caseId || "",
+        libraryTcId: tc.id,
+        userStory: "",
+        tracker: tc.tracker || "",
+        scenario: tc.scenario || "",
+        preCondition: tc.preCondition || "",
+        caseName: tc.title || "",
+        testSteps: tc.testSteps || "",
+        testData: tc.testData || "",
+        expectedResult: tc.expectedResult || "",
+        result: "",
+        defectNumber: "",
+        comments: "",
+        qaPic: "",
+        rowOrder: 0,
+      }));
+      const rowsToSave: ExecutionTestCase[] | null = [...copied, ...(parsedExcelRows ?? [])].map((r, i) => ({ ...r, rowOrder: i }));
 
       if (rowsToSave && rowsToSave.length > 0) {
         try {
@@ -998,8 +1043,10 @@ export default function TestCasesExecution() {
           toast({ variant: "destructive", title: "File created but test cases failed to import. Open the file to retry." });
         }
       } else {
-        toast({ title: "Test Case File created" });
+        toast({ title: submitAfter ? "Test Case File created" : "Saved as draft" });
       }
+      // Submit to Review: the same action as the file row's menu. A failure leaves the draft in place.
+      if (submitAfter) await handleReviewAction(newFile.id, "submit");
     } catch {
       toast({ variant: "destructive", title: "Failed to create file. Ticket ID might already exist." });
     } finally {
@@ -1007,39 +1054,21 @@ export default function TestCasesExecution() {
     }
   };
 
-  const handleCreateFile = async () => {
-    if (!fileForm.redmineTicketId.trim()) return;
-    if (!fileForm.projectId) {
-      toast({ variant: "destructive", title: "Project is required" });
-      return;
-    }
+  const handleCreateFile = async (submit = false) => {
     if (!fileForm.milestoneId) {
       toast({ variant: "destructive", title: "Milestone is required" });
       return;
     }
-    if (fileForm.selectedModules.length === 0) {
-      toast({ variant: "destructive", title: "At least one module must be selected" });
+    if (!fileForm.requirementId && !fileForm.redmineTicketId.trim()) {
+      toast({ variant: "destructive", title: "Choose a requirement, or enter a Redmine ticket" });
       return;
     }
-
-    // If requirement already linked locally, check for existing TCs first
-    if (fileForm.requirementId) {
-      try {
-        const res = await fetch(`${getApiUrl()}/requirements/${fileForm.requirementId}/test-cases`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        const tcs = await res.json();
-        if (Array.isArray(tcs) && tcs.length > 0) {
-          setTcCopyDialog({ open: true, tcs, pendingFileTicketId: fileForm.redmineTicketId });
-          return;
-        }
-      } catch {
-        // ignore — proceed
-      }
+    if (!fileForm.projectId) {
+      toast({ variant: "destructive", title: "Project is required" });
+      return;
     }
-
-    // No local requirement — doCreateFile will fetch from Redmine, then proceed
-    await doCreateFile(null);
+    // Test cases already linked to the requirement are copied unless the box is unticked.
+    await doCreateFile(copyLinked && linkedTcs.length > 0 ? linkedTcs : null, submit);
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -1083,7 +1112,16 @@ export default function TestCasesExecution() {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>;
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
-  const canCreate = !!fileForm.redmineTicketId.trim() && !!fileForm.projectId && !!fileForm.milestoneId && fileForm.selectedModules.length > 0 && ticketLookupMsg?.type !== "error";
+  const caseCount = (copyLinked ? linkedTcs.length : 0) + (parsedExcelRows?.length ?? 0);
+  const canCreate = !!fileForm.milestoneId && !!fileForm.projectId && (!!fileForm.requirementId || !!fileForm.redmineTicketId.trim()) && ticketLookupMsg?.type !== "error";
+  const canSubmit = canCreate && caseCount > 0;
+  const chosenReq = requirements.find((r) => String(r.id) === fileForm.requirementId) ?? null;
+  const fileModuleNames = fileForm.selectedModules.map((id) => modules.find((m) => m.id === id)?.name).filter(Boolean) as string[];
+  const createWhy = !fileForm.milestoneId ? "Choose a milestone."
+    : !fileForm.requirementId && !fileForm.redmineTicketId.trim() ? "Choose a requirement, or enter a Redmine ticket."
+    : ticketLookupMsg?.type === "error" ? "That Redmine ticket already has a file."
+    : caseCount === 0 ? "Submit to Review needs at least one test case. Import an Excel, or save as a draft and add them later."
+    : "";
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -1439,54 +1477,60 @@ export default function TestCasesExecution() {
           </DialogHeader>
 
           <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
-            {/* Redmine Ticket ID */}
+            {/* Milestone first (required) */}
             <div className="space-y-1">
-              <Label>Redmine Ticket ID <span className="text-destructive">*</span></Label>
-              <div className="relative">
-                <Input
-                  placeholder="e.g. 38032"
-                  value={fileForm.redmineTicketId}
-                  onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
-                />
-                {ticketLookupLoading && (
-                  <div className="absolute right-2 top-2.5">
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-              {ticketLookupMsg && (
-                <p className={`text-xs mt-1 ${ticketLookupMsg.type === "info" ? "text-green-600" : ticketLookupMsg.type === "error" ? "text-red-600" : "text-yellow-600"}`}>
-                  {ticketLookupMsg.text}
-                </p>
-              )}
+              <Label>Milestone <span className="text-destructive">*</span></Label>
+              <SearchableSelect
+                value={fileForm.milestoneId}
+                onValueChange={handleMilestoneChange}
+                options={allMilestones.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                placeholder="Select milestone..."
+                searchPlaceholder="Search milestones..."
+              />
             </div>
 
-            {/* Requirement (optional) */}
+            {/* Requirement second (required), narrowed by the milestone */}
             <div className="space-y-1">
-              <Label>Requirement <span className="text-xs text-muted-foreground">(optional — auto-fills Project & Module)</span></Label>
+              <Label>Requirement <span className="text-destructive">*</span></Label>
               <SearchableSelect
                 value={fileForm.requirementId}
                 onValueChange={handleRequirementChange}
-                options={[
-                  { value: "", label: "None" },
-                  ...requirements.map((r: any) => ({ value: String(r.id), label: r.title })),
-                ]}
-                placeholder="Search requirement..."
+                options={requirements
+                  .filter((r) => !fileForm.milestoneId || String(r.milestoneId) === fileForm.milestoneId)
+                  .map((r: any) => ({ value: String(r.id), label: r.title, keywords: r.redmineTicketId ?? undefined }))}
+                placeholder="Search by title or Redmine ID..."
+                searchPlaceholder="Search by title or Redmine ID..."
               />
+              <p className="text-xs text-muted-foreground">
+                {fileForm.milestoneId ? "Shows the requirements in this milestone." : "Shows all requirements until a milestone is chosen."}
+              </p>
             </div>
 
-            {/* Project (mandatory) */}
-            <div className="space-y-1">
-              <Label>Project <span className="text-destructive">*</span></Label>
-              <SearchableSelect
-                value={fileForm.projectId}
-                onValueChange={v => setFileForm({ ...fileForm, projectId: v, milestoneId: "" })}
-                options={[
-                  { value: "", label: "Select project..." },
-                  ...projects.map(p => ({ value: String(p.id), label: p.name })),
-                ]}
-                placeholder="Search project..."
-              />
+            {/* Derived from the requirement: read-only */}
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">From the requirement (read-only)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Project</Label>
+                  <p className="text-sm min-h-[1.5rem]">
+                    {projects.find((p) => String(p.id) === fileForm.projectId)?.name ?? <span className="text-muted-foreground">Filled from the milestone</span>}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Tracker</Label>
+                  <p className="text-sm min-h-[1.5rem]">
+                    {fileForm.tracker || <span className="text-muted-foreground">{chosenReq ? "None set" : "Filled from the requirement"}</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Module</Label>
+                <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
+                  {fileModuleNames.length > 0
+                    ? fileModuleNames.map((m) => <Badge key={m} variant="outline">{m}</Badge>)
+                    : <span className="text-sm text-muted-foreground">{chosenReq ? "No module set on this requirement" : "Filled from the requirement"}</span>}
+                </div>
+              </div>
             </div>
 
             {/* File Type (QA vs UAT) */}
@@ -1506,62 +1550,39 @@ export default function TestCasesExecution() {
               </div>
             </div>
 
-            {/* Milestone (required) */}
-            {fileForm.projectId && (
-              <MilestonePicker
-                projectId={fileForm.projectId}
-                token={token}
-                value={fileForm.milestoneId}
-                onChange={v => setFileForm({ ...fileForm, milestoneId: v })}
-                required
-              />
-            )}
-
-            {/* Module (mandatory, multi-select) */}
+            {/* Title: starts as the milestone name */}
             <div className="space-y-1">
-              <Label>Module <span className="text-destructive">*</span></Label>
-              <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
-                {modules.length === 0
-                  ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
-                  : modules.map(m => (
-                    <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300"
-                        checked={fileForm.selectedModules.includes(m.id)}
-                        onChange={e => setFileForm({
-                          ...fileForm,
-                          selectedModules: e.target.checked
-                            ? [...fileForm.selectedModules, m.id]
-                            : fileForm.selectedModules.filter(id => id !== m.id),
-                        })}
-                      />
-                      {m.name}
-                    </label>
-                  ))
-                }
-              </div>
-              {fileForm.selectedModules.length > 0 && (
-                <p className="text-xs text-muted-foreground">{fileForm.selectedModules.length} module(s) selected</p>
-              )}
+              <Label>Title</Label>
+              <Input
+                value={fileForm.title}
+                onChange={e => { setTitleTouched(true); setFileForm({ ...fileForm, title: e.target.value }); }}
+              />
+              <p className="text-xs text-muted-foreground">Starts as the milestone name. You can change it.</p>
             </div>
 
-            {/* Tracker */}
+            {/* Redmine Ticket ID (optional) */}
             <div className="space-y-1">
-              <Label>Tracker</Label>
-              <SearchableSelect
-                value={fileForm.tracker}
-                onValueChange={v => setFileForm({ ...fileForm, tracker: v })}
-                options={[
-                  { value: "", label: "None" },
-                  ...trackers.map(t => ({ value: t.name, label: t.name })),
-                  ...(fileForm.tracker && !trackers.some(t => t.name === fileForm.tracker)
-                    ? [{ value: fileForm.tracker, label: fileForm.tracker }]
-                    : []),
-                ]}
-                placeholder="Select tracker..."
-                searchPlaceholder="Search tracker..."
-              />
+              <Label>Redmine Ticket ID <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <div className="relative">
+                <Input
+                  placeholder="e.g. 38032"
+                  value={fileForm.redmineTicketId}
+                  onChange={e => setFileForm({ ...fileForm, redmineTicketId: e.target.value.replace(/\D/g, "") })}
+                />
+                {ticketLookupLoading && (
+                  <div className="absolute right-2 top-2.5">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+              {ticketLookupMsg && (
+                <p className={`text-xs mt-1 ${ticketLookupMsg.type === "info" ? "text-green-600" : ticketLookupMsg.type === "error" ? "text-red-600" : "text-yellow-600"}`}>
+                  {ticketLookupMsg.text}
+                </p>
+              )}
+              {!fileForm.redmineTicketId.trim() && (
+                <p className="text-xs text-muted-foreground">Left blank, the file gets an internal INT- reference.</p>
+              )}
             </div>
 
             {/* Remarks */}
@@ -1569,6 +1590,14 @@ export default function TestCasesExecution() {
               <Label>Remarks</Label>
               <Input value={fileForm.remarks} onChange={e => setFileForm({ ...fileForm, remarks: e.target.value })} />
             </div>
+
+            {/* Test cases already linked to the requirement */}
+            {linkedTcs.length > 0 && (
+              <label className="flex items-start gap-2 rounded-md bg-primary/5 p-3 text-sm cursor-pointer">
+                <input type="checkbox" className="mt-1 rounded border-gray-300" checked={copyLinked} onChange={e => setCopyLinked(e.target.checked)} />
+                <span>Copy the {linkedTcs.length} test case(s) already linked to this requirement into the file.</span>
+              </label>
+            )}
 
             {/* Excel upload */}
             <div className="space-y-1">
@@ -1611,15 +1640,16 @@ export default function TestCasesExecution() {
             </div>
           </div>
 
+          {createWhy && <p className="text-xs text-muted-foreground">{createWhy}</p>}
           <DialogFooter className="gap-2 pt-2 border-t">
             <Button variant="ghost" onClick={() => { setNewFileOpen(false); resetFileForm(); }} disabled={isCreating}>
               Cancel
             </Button>
-            <Button onClick={handleCreateFile} disabled={!canCreate || isCreating || isParsingExcel}>
-              {isCreating
-                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
-                : <><Plus className="w-4 h-4 mr-2" /> Create File</>
-              }
+            <Button variant="outline" onClick={() => handleCreateFile(false)} disabled={!canCreate || isCreating || isParsingExcel}>
+              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save as Draft"}
+            </Button>
+            <Button onClick={() => handleCreateFile(true)} disabled={!canSubmit || isCreating || isParsingExcel}>
+              Submit to Review
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1749,41 +1779,6 @@ export default function TestCasesExecution() {
       </Dialog>
 
       {/* TC Copy Dialog */}
-      <Dialog open={tcCopyDialog.open} onOpenChange={open => !open && setTcCopyDialog(d => ({ ...d, open: false }))}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Copy Test Cases?</DialogTitle>
-            <DialogDescription>
-              {tcCopyDialog.tcs.length} test case(s) are linked to this requirement. Do you want to copy them into the new execution file?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-48 overflow-y-auto border rounded-md divide-y text-sm">
-            {tcCopyDialog.tcs.map((tc: any) => (
-              <div key={tc.id} className="px-3 py-2 flex gap-2 items-start">
-                <span className="font-mono text-xs text-muted-foreground shrink-0">{tc.caseId || `#${tc.id}`}</span>
-                <span>{tc.title}</span>
-              </div>
-            ))}
-          </div>
-          <DialogFooter className="gap-2 pt-2">
-            <Button variant="ghost" onClick={() => setTcCopyDialog(d => ({ ...d, open: false }))}>Cancel</Button>
-            <Button variant="outline" onClick={async () => {
-              setTcCopyDialog(d => ({ ...d, open: false }));
-              await doCreateFile(null);
-            }}>
-              No, create empty
-            </Button>
-            <Button onClick={async () => {
-              const tcs = tcCopyDialog.tcs;
-              setTcCopyDialog(d => ({ ...d, open: false }));
-              await doCreateFile(tcs);
-            }}>
-              Yes, copy {tcCopyDialog.tcs.length} TC(s)
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Clone Dialog */}
       <Dialog open={cloneOpen} onOpenChange={o => { if (!o) { setCloneOpen(false); setCloneSourceFile(null); setCloneTicketMsg(null); } }}>
         <DialogContent className="sm:max-w-[480px] w-[95vw]">

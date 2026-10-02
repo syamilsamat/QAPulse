@@ -79,7 +79,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
 | [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
 | [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
-| [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
+| [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
 | [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | ⏸️ On hold | 2026-10-02 |
 | [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | ⏸️ On hold | 2026-10-02 |
 | [CR099](#cr099--milestone-page-read-only-detail-opened-from-notifications) | Milestone Page (Read-Only Detail, Opened from Notifications) | 🚧 Built, not deployed | 2026-10-02 |
@@ -2081,7 +2081,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR096 — New Execution File Dialog Rearrangement
-**Status: ⏸️ On hold** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** order is Milestone (required), Requirement (required, narrowed by the milestone), read-only Project, Tracker and Module, File type, Title (starts as the milestone name, editable), Redmine Ticket ID (optional, filled from the chosen requirement, blank gets the existing INT- reference), Remarks, a copy-linked-test-cases tick box (replaces the pop-up question), and the Excel import. Typing a ticket that matches a requirement still selects it; one with no local requirement is imported from Redmine on save and counts as the requirement. Buttons: Cancel, Save as Draft, Submit to Review (creates, then submits through the same review action as the file menu; off until the file has at least one test case from the copy or the Excel import). Frontend only; no server change.
 
 **Origin:** CTO feedback, second round — new execution file fields in the order Project, Milestone, Module (from the test case, not changeable), Tracker (from the test case, not changeable), Requirement (mandatory), Title (defaults to the milestone name, editable), Redmine Ticket ID (optional); buttons Cancel, Save as Draft, Submit to Review.
 
