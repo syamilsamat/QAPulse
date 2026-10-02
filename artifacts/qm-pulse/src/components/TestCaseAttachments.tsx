@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { AlertTriangle, Paperclip, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AttachmentFileList } from "@/components/AttachmentFileList";
@@ -126,7 +126,7 @@ export function TestCaseAttachments({ testCaseId, readOnly = false }: { testCase
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    <Dialog open={!!preview} onOpenChange={open => { if (!open) setPreview(null); }}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle className="break-all">{preview?.file.fileName}</DialogTitle></DialogHeader>{preview && (preview.file.mimeType.startsWith("image/") ? <img src={preview.url} alt={preview.file.fileName} className="max-h-[70vh] object-contain mx-auto" /> : preview.file.mimeType === "text/plain" ? <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-sm">{preview.text}</pre> : <iframe src={preview.url} title={preview.file.fileName} className="w-full h-[65vh] border-0" />)}</DialogContent></Dialog>
+    <Dialog open={!!preview} onOpenChange={open => { if (!open) setPreview(null); }}><DialogContent className="max-w-4xl"><DialogHeader><DialogTitle className="break-all">{preview?.file.fileName}</DialogTitle></DialogHeader>{preview && (preview.file.mimeType.startsWith("image/") ? <img src={preview.url} alt={preview.file.fileName} className="max-h-[70vh] object-contain mx-auto" /> : preview.file.mimeType === "text/plain" ? <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-sm">{preview.text}</pre> : <iframe src={preview.url} title={preview.file.fileName} className="w-full h-[65vh] border-0" />)}<DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent></Dialog>
   </section>;
 }
 
@@ -143,6 +143,6 @@ export function CompiledLibraryAttachments({ testCaseId, className }: { testCase
     <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto gap-1.5 min-h-9 sm:min-h-8" onClick={() => setOpen(true)}>
       <Paperclip className="w-3.5 h-3.5 shrink-0" /> Library attachments
     </Button>
-    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Library reference files</DialogTitle></DialogHeader>{open && <TestCaseAttachments testCaseId={testCaseId} readOnly />}</DialogContent></Dialog>
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="w-[95vw] max-w-3xl max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Library reference files</DialogTitle></DialogHeader>{open && <TestCaseAttachments testCaseId={testCaseId} readOnly />}<DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent></Dialog>
   </div>;
 }

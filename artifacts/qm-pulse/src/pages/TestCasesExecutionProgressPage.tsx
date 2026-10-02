@@ -4035,7 +4035,8 @@ export default function TestCasesExecutionProgressPage() {
               </select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowModuleSelectDialog(false)}>Cancel</Button>
             <Button onClick={handleConfirmImportModule}>Continue Import</Button>
           </DialogFooter>
         </DialogContent>
