@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Link as LinkIcon, Loader2, Lock, Paperclip } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckCircle2, Link as LinkIcon, Loader2, Lock, Paperclip, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getApiUrl, authHeaders } from "@/lib/api";
+import { rephraseSuggestion } from "@/lib/rephrase-suggestion";
 import { mergeThreeWay, type Content, type MergeResult, type ScalarKey } from "@/lib/three-way-merge";
 import { contentFromApi, describeDiff, diffKeys, PRIORITIES, priorityLabel } from "@/lib/requirement-diff";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { ReviewRemarkDialog } from "@/components/execution/ReviewRemarkDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -168,19 +170,69 @@ export function RequirementDialog({
   const [showApproved, setShowApproved] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // CR092 — one-off AI analysis of the text typed so far (nothing is saved).
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [acceptedTexts, setAcceptedTexts] = useState<Set<string>>(new Set());
+  const [acceptingText, setAcceptingText] = useState<string | null>(null);
+  const [analyzeAbort, setAnalyzeAbort] = useState<AbortController | null>(null);
 
   // Reset whenever a different requirement (or create) is opened.
   useEffect(() => {
     setEditing(creating);
     setBase(null); setConflict(null); setLockedBy(null); setRemarkFor(null); setShowApproved(false);
     setRemovedAtt([]); setFiles([]); setLinks([]); setLinkUrl(""); setNewCrit(""); setTriedSave(false);
-    setConfirmDiscard(false); setExpanded(new Set());
+    setConfirmDiscard(false); setExpanded(new Set()); setAnalysis(null); setAcceptedTexts(new Set()); setAcceptingText(null);
     if (creating) {
       setDraft({ title: "", description: "", acceptanceCriteria: [], priority: PRIORITY_FROM_MILESTONE[milestone.priority ?? ""] ?? "normal" });
       setModules(milestone.modules.length === 1 ? [milestone.modules[0].name] : []);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.kind, id]);
+
+  // Accept an AI suggestion: reword it into prose and add it to the Description
+  // being edited (same as the requirement page). Saved only with the dialog's own save.
+  async function acceptSuggestion(text: string) {
+    setAcceptingText(text);
+    try {
+      const { text: prose, rephrased } = await rephraseSuggestion(id, text);
+      setDraft((d) => ({ ...d, description: d.description.trim() ? `${d.description.trim()}\n\n${prose}` : prose }));
+      setAcceptedTexts((prev) => new Set(prev).add(text));
+      toast({ title: rephrased ? "Added to description (reworded by AI)" : "Added to description" });
+    } finally {
+      setAcceptingText(null);
+    }
+  }
+  const suggestionRow = (key: number, text: string, secondary?: string) => (
+    <li key={key} className="flex items-start justify-between gap-3">
+      <span className="min-w-0">{text}{secondary && <span className="block text-xs text-muted-foreground">{secondary}</span>}</span>
+      {acceptedTexts.has(text)
+        ? <span className="text-xs text-green-600 flex items-center gap-1 shrink-0 whitespace-nowrap mt-0.5"><CheckCircle2 className="w-3.5 h-3.5" /> Accepted</span>
+        : <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs gap-1 shrink-0" disabled={acceptingText === text} onClick={() => acceptSuggestion(text)}>
+            {acceptingText === text ? <><Loader2 className="w-3 h-3 animate-spin" /> Adding…</> : <><Plus className="w-3 h-3" /> Accept</>}
+          </Button>}
+    </li>
+  );
+
+  const canAnalyze = draft.title.trim().length > 0 && draft.description.trim().length >= 20;
+  async function analyze() {
+    const ctl = new AbortController();
+    setAnalyzeAbort(ctl); setAnalyzing(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/ai/analyze-requirement`, {
+        method: "POST", signal: ctl.signal,
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ title: draft.title.trim(), description: draft.description, module: modules.join(", ") }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ variant: "destructive", title: data?.error ?? "AI analysis failed" }); return; }
+      setAnalysis(data); setAcceptedTexts(new Set());
+    } catch (e: any) {
+      if (e?.name !== "AbortError") toast({ variant: "destructive", title: "AI analysis failed" });
+    } finally {
+      setAnalyzing(false); setAnalyzeAbort(null);
+    }
+  }
 
   const moduleChoices = useMemo(
     () => (milestone.modules.length > 0 ? milestone.modules.map((m) => m.name) : projectModules.map((m) => m.name)),
@@ -421,6 +473,26 @@ export function RequirementDialog({
       <div className="space-y-1.5">
         <Label htmlFor="rd-desc">Description</Label>
         <Textarea id="rd-desc" rows={5} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Describe the requirement…" />
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={!canAnalyze || analyzing} onClick={analyze}>
+            <Sparkles className="w-4 h-4 mr-1.5" /> {analysis ? "Analyze again" : "Analyze with AI"}
+          </Button>
+          {!canAnalyze && <span className="text-xs text-muted-foreground">Needs a title and at least 20 characters of description.</span>}
+        </div>
+        {analysis && (
+          <div className="rounded-md border bg-muted/40 p-3 space-y-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={Number(analysis.score) >= 60 ? "secondary" : "destructive"}>Score {analysis.score ?? "?"}/100</Badge>
+              {analysis.riskLevel && <Badge variant="outline">Risk {analysis.riskLevel}</Badge>}
+            </div>
+            {analysis.summary && <p>{analysis.summary}</p>}
+            {Number(analysis.score) < 60 && <p className="text-xs text-amber-700 dark:text-amber-300">The score is low. You can still save or submit, but consider fixing the points below first.</p>}
+            {(analysis.missingItems ?? []).length > 0 && <div><b>Missing items</b><ul className="mt-1 space-y-1.5">{analysis.missingItems.map((m: string, n: number) => suggestionRow(n, m))}</ul></div>}
+            {(analysis.issues ?? []).filter((i: any) => i.suggestion).length > 0 && <div><b>Issue suggestions</b><ul className="mt-1 space-y-1.5">{analysis.issues.filter((i: any) => i.suggestion).map((i: any, n: number) => suggestionRow(n, i.suggestion, i.description))}</ul></div>}
+            {(analysis.questions ?? []).length > 0 && <div><b>Questions</b><ul className="list-disc pl-5">{analysis.questions.map((q: string, n: number) => <li key={n}>{q}</li>)}</ul></div>}
+            <p className="text-xs text-muted-foreground">Accept adds the point to the Description above. The analysis itself is a preview and is not saved. Questions can be asked in Discussion once the requirement is saved.</p>
+          </div>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label>Acceptance criteria</Label>
@@ -664,6 +736,13 @@ export function RequirementDialog({
           <DialogFooter className="sticky bottom-0 bg-background gap-2 pt-2 sm:gap-0">{footer}</DialogFooter>
         </DialogContent>
       </Dialog>
+      <ProgressDialog
+        open={analyzing}
+        title="Analyzing requirement"
+        message="Asking the AI to check this requirement for gaps and unclear points."
+        hint="Usually 10 to 30 seconds"
+        onCancel={() => analyzeAbort?.abort()}
+      />
       <ReviewRemarkDialog
         open={remarkFor !== null}
         onOpenChange={(o) => { if (!o) setRemarkFor(null); }}

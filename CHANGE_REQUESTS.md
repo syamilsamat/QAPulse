@@ -75,8 +75,8 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR089](#cr089--execution-test-case-ownership-and-edit-lock) | Execution Test Case Ownership and Edit Lock | 🚧 Built, not deployed | 2026-10-02 |
 | [CR090](#cr090--notify-devs-when-a-returned-requirement-is-re-approved) | Notify Devs When a Returned Requirement Is Re-approved | 🚧 Partly built in CR104 | 2026-10-02 |
 | [CR091](#cr091--requirement-priority-defaults-from-milestone-priority) | Requirement Priority Defaults from Milestone Priority | 📋 Planned | 2026-10-02 |
-| [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 📋 Planned | 2026-10-02 |
-| [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 📋 Planned | 2026-10-02 |
+| [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 🔨 Built, not deployed | 2026-10-02 |
+| [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
 | [CR094](#cr094--milestones-search) | Milestones Search | 📋 Planned | 2026-10-02 |
 | [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
 | [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
@@ -2009,7 +2009,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR092 — AI Analyze Inside the New Requirement Dialog
-**Status: 📋 Planned** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** Analyze with AI button and result panel in the requirement dialog (create and edit), using the typed text; needs a title and 20+ characters of description. A low score (under 60) only warns, it never blocks saving or submitting. The result is a preview and is not saved. Footer buttons were already in place from CR104. No server change.
 
 **Origin:** CTO feedback, second round — "AI analyze should be inside the New Requirement box, with buttons Submit for review, Save as Draft and Cancel."
 
@@ -2024,7 +2026,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR093 — Shared Progress Dialog for Long-Running Actions
-**Status: 📋 Planned** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (stage 1 of several, raised 2026-10-02)
+
+**Built:** shared `components/ProgressDialog.tsx` (message, elapsed seconds, optional real step count, Cancel that aborts the request, modal). Used so far by the Analyze button in the requirement dialog. **Not yet converted:** Redmine import and sync, compile and export, the other AI actions and the remaining spinners.
 
 **Origin:** CTO feedback, second round — "when clicking Analyze, tell the user what the system is currently doing, e.g. a loading popup, so the user knows something is happening in the background. Apply this to every place the system is loading."
 
