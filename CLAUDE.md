@@ -8,10 +8,10 @@ reporting, with Redmine integration throughout.
 - Project Code: qmpulse
 - Repository Root: `C:\rndsoftware\QAPulse`
 - Current Version: v1.0.0
-  <!-- TODO(human): confirm. No semver exists in the repo (package.json is 0.0.0);
-       change history is tracked as CR numbers in CHANGE_REQUESTS.md, currently up
-       to CR049. co2 sequences work by semver, so a version boundary must be
-       agreed before any conductor-feature-* run. -->
+  - Agreed 2026-10-02: the entire system as deployed today is v1.0.0, and
+    `qm-pulse/context/PRD.md` tags every existing item `[v1.0.0]`. The first new
+    feature becomes v1.1.0. There is no CR-to-semver mapping; CR numbers in
+    CHANGE_REQUESTS.md remain history only (package.json stays 0.0.0).
 - Environments: local only. There is no staging or production environment under
   our control — production is a Replit deployment (see `.replit`).
 
@@ -62,14 +62,22 @@ for dependency versions.
   - Direct MySQL read at `10.10.4.130:3306`, database `redmine`, user `bestqa`
     (`REDMINE_DB_*`). Reachable only on the corporate network.
 
-## Office 365 SMTP
-- Role: PMO report delivery. `smtp.office365.com:587`, STARTTLS.
+## SMTP (PMO report delivery)
+- `SMTP_HOST` has **two conflicting defaults**: `smtp.office365.com` in
+  `lib/email.ts` and `smtp.gmail.com` in `routes/verdict-report.ts`. Whichever
+  sends depends on the code path, so set `SMTP_HOST` explicitly rather than relying
+  on a default. Port 587, STARTTLS.
 
-## OpenAI-compatible AI endpoint
-- Role: AI-assisted test case generation.
-- `AI_INTEGRATIONS_OPENAI_BASE_URL` = `https://api.openai.com/v1`.
-- Note: `@google/genai` is also a dependency and the README cites Google GenAI —
-  both paths exist in the tree.
+## Google Gemini (with OpenRouter fallback)
+- Role: AI-assisted test case generation, risk assessment and Excel/CAPA drafting.
+- **Primary: Google Gemini** via `@google/genai`, model `gemini-2.5-flash`
+  (`routes/ai.ts:34`, `routes/excel-builder.ts:64`). **Fallback: OpenRouter**
+  (`OPENROUTER_API_KEY`, `https://openrouter.ai/api/v1/chat/completions`) — tried
+  only when Gemini throws. `milestone_risk_assessments.model` records which
+  pipeline produced a row (`gemini` or `openrouter`).
+- `AI_INTEGRATIONS_OPENAI_BASE_URL` / `AI_INTEGRATIONS_OPENAI_API_KEY` are read ONLY
+  by the unused audio and image clients in `lib/integrations*`. **No api-server route
+  calls the OpenAI endpoint** — do not treat it as the AI provider.
 
 # Custom Applications
 ## qm-pulse
@@ -107,7 +115,11 @@ for dependency versions.
 
 ## Role
 - Route: `/roles`.
-- **15 roles**, verified against both `App.tsx` and the `users` table — they agree:
+- **15 roles currently exist**, verified against both `App.tsx` and the `users` table
+  — they agree. These are **defaults, not a fixed enum**: `roles` is a table, and
+  `routes/roles.ts` exposes create, rename and delete, so an admin can add roles the
+  hardcoded `permKey` checks will not know about. Enumerate the table, not this list,
+  when the count matters:
   `admin`, `cto`, `hod_qa`, `hod_pm`, `hod_fa`, `hod_dev`, `qa_manager`,
   `qa_lead`, `qa_member`, `fa_lead`, `fa_member`, `dev_lead`, `dev_member`,
   `pm_lead`, `pm_member`.
@@ -182,7 +194,10 @@ for dependency versions.
 - Route: `/resources`.
 
 ## Reporting
-- Routes: `/report`, `/verdict-report`. PMO report emails HTML + PDF via SMTP.
+- Routes: `/report`, `/verdict-report`. The PMO report email is **HTML with an inline
+  PNG** of the report (embedded by `cid`, `verdict-report.ts:1502`) plus an **optional
+  `.xlsx`** of open defects. **No PDF is generated anywhere** — the string "pdf" does
+  not appear in `verdict-report.ts`.
 
 ## AI Features
 - Route: `/ai-features`.
@@ -228,6 +243,64 @@ above or in `.env`.
 - Node: 24   ·   Package manager: pnpm 12.3.4   ·   Shell: **Git Bash**
 - Local env file: `.env` at the repo root (gitignored).
 - Postgres CLI: `docker exec qmpulse-db psql -U postgres -d qmpulse -c "<sql>"`
+
+# Pending Decisions (from Step 5, 2026-10-02)
+Claude: raise the items below with the user before running util-ustagger,
+util-updprd or any conductor-* skill. Remove an item once it is resolved. Full
+detail, with IDs D1-D10, B1-B18 and C1-C60, is in
+[STEP5-FINDINGS.md](STEP5-FINDINGS.md).
+
+1. **Folder prefix blocks util-ustagger (D10) — user chose to DELAY this, do not
+   act on it unprompted.** Its folder resolution (and modelgen-relational's) only
+   matches root folders with a numeric prefix, e.g. `1_hub_middleware`; `qm-pulse`
+   and `api-server` have none, so the tagger stops with no match. Confirmed in
+   Step 5. When it is taken up, the two options are: rename to `1_qm-pulse` /
+   `2_api-server` and update the two `Context:` paths above (these folders hold
+   only co2 artifacts; nothing imports them), or treat the unprefixed folder as a
+   match for this run only (util-usanalyzer and the conductors already allow
+   that). The Step 6 conductor run will hit the same problem.
+2. **`qm-pulse/context/PRD.md` is still UNTAGGED** (note: `CHANGELOG.md` now exists, hand-written — ustagger will append to it rather than create it), blocked by item 1. Once that is
+   settled, run `util-ustagger qm-pulse`. It must tag **both** `[v1.0.0]` (81
+   blocks, the existing system) and `[v1.1.0]` (2 blocks, the Configuration change
+   recorded under D3 below). It will append a row to the existing root `CHANGELOG.md`.
+
+3. **`CHANGELOG.md` was hand-written, not generated** (2026-10-02). Its `## v1.0.0`
+   row names `conductor-feature-develop` as the skill even though that skill has
+   never run here, because its Redo/Redevelop Guard looks for exactly that entry to
+   decide v1.0.0 is already built. The file explains itself in full — read the note
+   above its `---` before adding to it. Two rules it imposes: do NOT add a
+   `## v1.1.0` section until the 12 defects in `api-server/context/BUG.md` are
+   resolved (that would make v1.1.0 the highest version and conductor-defect would
+   then refuse the `[v1.0.0]` bug run), and `api-server` needs its own baseline row
+   when it gets a PRD, since the guard matches per application.
+
+## Resolved 2026-10-02
+- **D1 — version.** v1.0.0 for the system as deployed; see `Current Version` above.
+- **D2 — UI/server disagreement.** The PRD states the **intended** rule. Where the
+  server actually behaves differently, that is recorded in STEP5-FINDINGS.md, and
+  the security-relevant cases are filed as bugs (D5).
+- **D3 — Configuration / Team Members.** Applied by hand to
+  `qm-pulse/context/PRD.md` as `[v1.1.0]`, rather than waiting for util-updprd,
+  because item 1 blocks the tagging it was meant to follow: the tab shows a
+  read-only member list, `qa_lead` views only, and the create-user form is limited
+  to tier 3 (Manager) and above plus `admin`. Needs tagging per item 2.
+- **D4 — CR058-CR077 are missing from CHANGE_REQUESTS.md** and will not be
+  backfilled. 17 of them are cited in shipped code comments, which are now the only
+  record of them; the register is incomplete history by design. The PRD describes
+  current behaviour from the code, so nothing depends on the gap.
+- **D5 — defects.** The 12 security and data-integrity defects are filed in
+  `api-server/context/BUG.md` (all are missing server-side authorization in
+  `artifacts/api-server/src/routes/`, so none belong in the qm-pulse file). The
+  other ~48 findings stay in STEP5-FINDINGS.md only.
+- **D6 — CR links stay out of PRD References.** CHANGE_REQUESTS.md is
+  implementation history that later CRs revise, so a generator following a CR link
+  could reintroduce something deleted — the `pmo` role is the worked example.
+- **D7 / D8 — module structure unchanged.** Dashboard keeps all three pages (My
+  Work Today, Dashboard, PM Dashboard) and the team calendar stays under it, with
+  reminders under Notification. 28 modules, matching the BUG.md skeletons and the
+  `# Domains` list above.
+- **D9 — this file's four wrong claims** (AI provider, PMO attachments, role
+  extensibility, SMTP default) are corrected above.
 
 # Rules
 ## Shell
