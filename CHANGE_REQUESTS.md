@@ -78,7 +78,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 🔨 Built, not deployed | 2026-10-02 |
 | [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
 | [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
-| [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
+| [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
 | [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
 | [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | ⏸️ On hold | 2026-10-02 |
 | [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | ⏸️ On hold | 2026-10-02 |
@@ -2064,7 +2064,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR095 — AI Test Case Generation Dialog Rearrangement
-**Status: ⏸️ On hold** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02).
+
+**Built:** order is Milestone (optional, pre-filled from the Test Cases page filter), Requirements (mandatory, one or more parents and children, a parent brings its children, all from one project), then read-only Project, Tracker and Module derived from them (several modules as chips; mixed trackers shown as Mixed and each saved test case keeps its own requirement's tracker and module), the scope tick-list, title, notes and targets. **Assign Author removed:** saved test cases are authored by whoever generates them (the server already defaulted to the logged-in user). Generate no longer needs a module, since a requirement with none set would otherwise be stuck. Frontend only; uses GET /milestones?projectId=all from CR094. **Decided 2026-10-02:** requirement-first as proposed below; several modules show as read-only chips; Requirement is mandatory for everyone (admin included).
 
 **Origin:** CTO feedback, second round — "rearrange the AI Test Case generation fields: Project, Milestone, Module (auto-populated from the requirement, not changeable), Tracker (auto-populated from the requirement, not changeable), Requirement (mandatory), etc."
 

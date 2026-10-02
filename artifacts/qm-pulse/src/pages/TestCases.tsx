@@ -102,6 +102,7 @@ function AIGenerateDialog({
   modules,
   users,
   trackers,
+  defaultMilestoneId,
   onSuccess,
 }: any) {
   const { user: currentUser } = useAuth();
@@ -113,9 +114,82 @@ function AIGenerateDialog({
     generateEdgeCases: false,
     tracker: "",
   });
-  const [aiFormModules, setAiFormModules] = useState<string[]>([]);
-  const [availableReqs, setAvailableReqs] = useState<any[]>([]);
+  // CR095 — milestone narrows the list; one or more requirements (a parent
+  // brings its children) decide project, module and tracker, which are read-only.
+  const [milestoneId, setMilestoneId] = useState<string>("");
+  const [pickedIds, setPickedIds] = useState<number[]>([]);
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
+  const { data: milestoneOptions = [] } = useQuery<{ id: number; name: string; projectId: number; projectName?: string | null }[]>({
+    queryKey: ["milestones", "all-accessible"],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=all`, { headers: authHeaders() });
+      return res.ok ? res.json() : [];
+    },
+    enabled: open,
+  });
+  useEffect(() => {
+    if (open && defaultMilestoneId) setMilestoneId(String(defaultMilestoneId));
+  }, [open, defaultMilestoneId]);
+
+  const pickedReqs = pickedIds.map((id) => requirements.find((r: any) => r.id === id)).filter(Boolean) as any[];
+  // Each picked requirement with its descendants, de-duplicated (a child picked
+  // together with its parent appears once, under the parent).
+  const availableReqs = useMemo(() => {
+    const seen = new Set<number>();
+    const out: any[] = [];
+    for (const r of pickedReqs) {
+      if (seen.has(r.id)) continue;
+      for (const x of [{ ...r, depth: 0 }, ...getAllDescendants(r.id, requirements)]) {
+        if (seen.has(x.id)) continue;
+        seen.add(x.id);
+        out.push(x);
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedIds, requirements]);
+  const projectId: number | undefined = pickedReqs[0]?.projectId ?? undefined;
+  const projectName = projects.find((p: any) => p.id === projectId)?.name;
+  const aiFormModules = useMemo(() => {
+    const out: string[] = [];
+    for (const r of pickedReqs) for (const m of String(r.module ?? "").split(",").map((x) => x.trim()).filter(Boolean)) if (!out.includes(m)) out.push(m);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedIds, requirements]);
+  const pickedTrackers = [...new Set(pickedReqs.map((r) => r.tracker).filter(Boolean))] as string[];
+  const trackerValue = pickedTrackers.length === 1 ? pickedTrackers[0] : "";
+  // Several requirements can differ: each saved test case keeps its own requirement's tracker and module.
+  const trackerByReq: Record<number, string> = {};
+  const moduleByReq: Record<number, string> = {};
+  for (const r of availableReqs) { if (r.tracker) trackerByReq[r.id] = r.tracker; if (r.module) moduleByReq[r.id] = r.module; }
+  const requirementChoices = requirements
+    .filter((r: any) => !pickedIds.includes(r.id))
+    .filter((r: any) => !milestoneId || String(r.milestoneId) === milestoneId)
+    .filter((r: any) => projectId == null || r.projectId === projectId);
+
+  const addRequirement = (id: number) => {
+    const req = requirements.find((r: any) => r.id === id);
+    if (!req || pickedIds.includes(id)) return;
+    setPickedIds((prev) => [...prev, id]);
+    setSelectedReqIds((prev) => new Set([...prev, id, ...getAllDescendants(id, requirements).map((d: any) => d.id)]));
+    if (!milestoneId && req.milestoneId) setMilestoneId(String(req.milestoneId));
+    setForm((f: any) => (f.requirementTitle ? f : { ...f, requirementTitle: req.title }));
+  };
+  const removeRequirement = (id: number) => {
+    setPickedIds((prev) => prev.filter((x) => x !== id));
+    setSelectedReqIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      for (const d of getAllDescendants(id, requirements)) next.delete(d.id);
+      return next;
+    });
+  };
+  const changeMilestone = (v: string) => {
+    const next = v === "all" ? "" : v;
+    setMilestoneId(next);
+    if (next) for (const r of pickedReqs) if (String(r.milestoneId) !== next) removeRequirement(r.id);
+  };
+
   const [preview, setPreview] = useState<{ requirementId: number; requirementTitle: string; testCases: any[]; error?: string }[]>([]);
   // Which generated cases get saved — keyed by `${requirementId}-${index in group}`,
   // stable for the lifetime of one generation (the array itself is only replaced,
@@ -124,22 +198,6 @@ function AIGenerateDialog({
   const [step, setStep] = useState<"form" | "preview">("form");
   const [isSavingGenerated, setIsSavingGenerated] = useState(false);
   const generateMutation = useGenerateTestCasesWithAI();
-
-  // DEF-0021 — "Assign Author" used to list every org user (the unscoped
-  // `users` prop, from listUsers() with no params). Scope it to this
-  // project's members instead, same endpoint the Milestones Team picker
-  // uses, and narrow it to QA-department roles since this dropdown is
-  // specifically about who authors a QA test case.
-  const QA_ROLES = ["qa_member", "qa_lead", "qa_manager", "hod_qa"];
-  const { data: projectAssignableUsers = [] } = useQuery<{ id: number; name: string; role: string }[]>({
-    queryKey: ["milestones-assignable-users", form.projectId],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/milestones/assignable-users?projectId=${form.projectId}`, { headers: authHeaders() });
-      return res.ok ? res.json() : [];
-    },
-    enabled: !!form.projectId,
-  });
-  const authorOptions = projectAssignableUsers.filter((u) => QA_ROLES.includes(u.role));
 
   const handleGenerate = () => {
     if (selectedReqIds.size === 0 && availableReqs.length === 0) return;
@@ -154,6 +212,8 @@ function AIGenerateDialog({
       {
         data: {
           ...form,
+          projectId,
+          tracker: trackerValue,
           requirements: selectedRequirements,
         } as any,
       },
@@ -183,9 +243,9 @@ function AIGenerateDialog({
     setStep("form");
     setPreview([]);
     setSelectedPreviewKeys(new Set());
-    setAvailableReqs([]);
+    setPickedIds([]);
     setSelectedReqIds(new Set());
-    setAiFormModules([]);
+    setMilestoneId("");
     setIsSavingGenerated(false);
     setForm({
       generatePositive: true,
@@ -210,44 +270,75 @@ function AIGenerateDialog({
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Base Requirement (optional)</Label>
+                <Label>Milestone</Label>
                 <SearchableSelect
-                  value={form.requirementId ? String(form.requirementId) : ""}
-                  onValueChange={(v) => {
-                    const reqId = Number(v);
-                    const req = requirements.find((r: any) => r.id === reqId);
-                    if (req) {
-                      const descendants = getAllDescendants(req.id, requirements);
-                      const combined = [{ ...req, depth: 0 }, ...descendants];
-                      setAvailableReqs(combined);
-                      setSelectedReqIds(new Set(combined.map((c) => c.id)));
-                      setForm({
-                        ...form,
-                        requirementId: reqId,
-                        requirementTitle: req.title,
-                        projectId: req.projectId ?? form.projectId,
-                        tracker: req.tracker ?? form.tracker,
-                      });
-                      if (req.module) {
-                        setAiFormModules(req.module.split(",").map((s: string) => s.trim()).filter(Boolean));
-                      }
-                    }
-                  }}
-                  options={requirements.map((r: any) => ({ value: String(r.id), label: r.title, keywords: r.redmineTicketId }))}
-                  placeholder="Select a requirement..."
-                  searchPlaceholder="Search by title or Redmine ID..."
+                  value={milestoneId || "all"}
+                  onValueChange={changeMilestone}
+                  options={[
+                    { value: "all", label: "All milestones" },
+                    ...milestoneOptions.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
+                  ]}
+                  placeholder="All milestones"
+                  searchPlaceholder="Search milestones..."
                 />
+                <p className="text-xs text-muted-foreground">Narrows the requirement list. Optional.</p>
               </div>
 
               <div className="space-y-1.5">
-                <Label>Project <span className="text-destructive">*</span></Label>
+                <Label>Requirements <span className="text-destructive">*</span></Label>
+                {pickedReqs.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {pickedReqs.map((r) => (
+                      <Badge key={r.id} variant="secondary" className="gap-1.5 pr-1 max-w-full">
+                        <span className="truncate">{r.title}</span>
+                        <button type="button" aria-label={`Remove ${r.title}`} className="rounded hover:bg-background/60 p-0.5" onClick={() => removeRequirement(r.id)}>
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 <SearchableSelect
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v) })}
-                  options={projects.map((p: any) => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select a project..."
-                  searchPlaceholder="Search project..."
+                  value=""
+                  onValueChange={(v) => addRequirement(Number(v))}
+                  options={requirementChoices.map((r: any) => ({
+                    value: String(r.id),
+                    label: `${r.parentId ? "↳ " : ""}${r.title}`,
+                    keywords: r.redmineTicketId,
+                    badge: r.parentId ? "Child" : "Parent",
+                  }))}
+                  placeholder={pickedReqs.length ? "Add another requirement..." : "Search by title or Redmine ID..."}
+                  searchPlaceholder="Search by title or Redmine ID..."
                 />
+                <p className="text-xs text-muted-foreground">
+                  {pickedReqs.length ? "Choosing a parent includes its children. All must be in one project." : "Required. Shows the milestone's requirements, or all if none is chosen."}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">From the requirements (read-only)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Project</Label>
+                  <p className="text-sm min-h-[1.5rem]">{projectName ?? <span className="text-muted-foreground">Filled from the requirements</span>}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Tracker</Label>
+                  <p className="text-sm min-h-[1.5rem]">
+                    {pickedReqs.length === 0 ? <span className="text-muted-foreground">Filled from the requirements</span>
+                      : pickedTrackers.length === 0 ? <span className="text-muted-foreground">None set</span>
+                      : pickedTrackers.length === 1 ? pickedTrackers[0] : `Mixed: ${pickedTrackers.join(", ")}`}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Module</Label>
+                <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
+                  {aiFormModules.length > 0
+                    ? aiFormModules.map((m) => <Badge key={m} variant="outline">{m}</Badge>)
+                    : <span className="text-sm text-muted-foreground">{pickedReqs.length ? "No module set on these requirements" : "Filled from the requirements"}</span>}
+                </div>
               </div>
             </div>
 
@@ -342,7 +433,7 @@ function AIGenerateDialog({
                                 }`}
                               >
                                 {depth === 0
-                                  ? "Parent"
+                                  ? (r.parentId ? "Child" : "Parent")
                                   : depth === 1
                                     ? "Child"
                                     : `Sub-child ${depth}`}
@@ -384,51 +475,6 @@ function AIGenerateDialog({
                 onChange={(e) =>
                   setForm({ ...form, requirementTitle: e.target.value })
                 }
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Module <span className="text-destructive">*</span></Label>
-                <div className="border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5">
-                  {(modules ?? []).map((m: any) => (
-                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
-                      <Checkbox
-                        checked={aiFormModules.includes(m.name)}
-                        onCheckedChange={(checked) => setAiFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
-                      />
-                      <span className="text-sm">{m.name}</span>
-                    </label>
-                  ))}
-                </div>
-                {aiFormModules.length > 0 && <p className="text-xs text-muted-foreground">{aiFormModules.length} selected</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Assign Author</Label>
-                <SearchableSelect
-                  value={form.authorId ? String(form.authorId) : ""}
-                  onValueChange={(v) => setForm({ ...form, authorId: Number(v) })}
-                  options={authorOptions.map((u) => ({ value: String(u.id), label: u.name }))}
-                  placeholder="Current User"
-                  searchPlaceholder="Search user..."
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Tracker</Label>
-              <SearchableSelect
-                value={form.tracker ?? ""}
-                onValueChange={(v) => setForm({ ...form, tracker: v })}
-                options={[
-                  { value: "", label: "None" },
-                  ...(trackers ?? []).map((t: any) => ({ value: t.name, label: t.name })),
-                  ...(form.tracker && !(trackers ?? []).some((t: any) => t.name === form.tracker)
-                    ? [{ value: form.tracker, label: form.tracker }]
-                    : []),
-                ]}
-                placeholder="Select tracker..."
-                searchPlaceholder="Search tracker..."
               />
             </div>
 
@@ -602,7 +648,7 @@ function AIGenerateDialog({
           {step === "form" ? (
             <Button
               onClick={handleGenerate}
-              disabled={selectedReqIds.size === 0 || !form.projectId || aiFormModules.length === 0 || generateMutation.isPending}
+              disabled={selectedReqIds.size === 0 || !projectId || generateMutation.isPending}
               className="gap-2 w-full sm:w-auto"
             >
               {generateMutation.isPending ? (
@@ -624,7 +670,7 @@ function AIGenerateDialog({
                   .map((g) => ({ ...g, testCases: g.testCases.filter((_tc, i) => selectedPreviewKeys.has(`${g.requirementId}-${i}`)) }))
                   .filter((g) => g.testCases.length > 0);
                 setIsSavingGenerated(true);
-                const saved = await onSuccess(toSave, { ...form, module: aiFormModules.join(",") });
+                const saved = await onSuccess(toSave, { ...form, projectId, tracker: trackerValue, module: aiFormModules.join(","), trackerByReq, moduleByReq });
                 setIsSavingGenerated(false);
                 if (saved) handleClose();
               }}
@@ -1410,7 +1456,7 @@ export default function TestCases() {
       group.testCases.map((tc) => cleanPayload({
         title: tc.title,
         redmineUserStory: tc.redmineUserStory,
-        tracker: formData?.tracker || tc.tracker,
+        tracker: formData?.trackerByReq?.[group.requirementId] || formData?.tracker || tc.tracker,
         scenario: tc.scenario,
         preconditions: tc.preconditions,
         testSteps: tc.testSteps,
@@ -1423,8 +1469,8 @@ export default function TestCases() {
         aiAssisted: true,
         requirementId: group.requirementId,
         projectId: formData?.projectId,
-        module: formData?.module,
-        authorId: formData?.authorId || user?.id,
+        module: formData?.moduleByReq?.[group.requirementId] ?? formData?.module,
+        authorId: user?.id, // the person who generates them is the author (CR095)
       })),
     );
 
@@ -2204,6 +2250,7 @@ export default function TestCases() {
         modules={modules}
         users={users}
         trackers={trackers}
+        defaultMilestoneId={filterMilestone !== "all" ? Number(filterMilestone) : null}
         onSuccess={handleAISuccess}
       />
 
