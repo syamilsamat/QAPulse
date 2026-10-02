@@ -24,13 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge"; 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -765,7 +759,7 @@ function ExecutionRunsDialog({ tc, onClose }: { tc: any | null; onClose: () => v
             ))}
           </div>
         )}
-      </DialogContent>
+      <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent>
     </Dialog>
   );
 }

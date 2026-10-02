@@ -1766,6 +1766,7 @@ export default function TestCasesExecution() {
             ))}
           </div>
           <DialogFooter className="gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setTcCopyDialog(d => ({ ...d, open: false }))}>Cancel</Button>
             <Button variant="outline" onClick={async () => {
               setTcCopyDialog(d => ({ ...d, open: false }));
               await doCreateFile(null);
