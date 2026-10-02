@@ -1,5 +1,5 @@
 import { Link, useSearch } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -16,6 +16,7 @@ import {
   XCircle,
   Loader2,
   Flag,
+  Search,
   Users,
   X,
   FileDown,
@@ -50,6 +51,7 @@ import { MilestoneModulePicker, EMPTY_MODULE_SELECTION, selectionFromMilestone, 
 interface Milestone {
   id: number;
   projectId: number;
+  projectName?: string | null;
   name: string;
   type: string;
   status: string;
@@ -175,7 +177,10 @@ export default function Milestones() {
 
   const activitySearch = useSearch();
   const linkedProject = new URLSearchParams(activitySearch).get("projectId");
+  // "all" = nothing chosen yet; "everywhere" = every project the user can access (CR094).
   const [filterProject, setFilterProject] = useState<string>(linkedProject ?? "all");
+  const [search, setSearch] = useState("");
+  const projectChosen = filterProject !== "all" && filterProject !== "everywhere";
   useEffect(() => {
     if (linkedProject && /^[1-9]\d*$/.test(linkedProject)) setFilterProject(linkedProject);
   }, [linkedProject]);
@@ -184,7 +189,7 @@ export default function Milestones() {
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
   const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
-  const { data: projectModules = [] } = useProjectModules(filterProject, token);
+  const { data: projectModules = [] } = useProjectModules(projectChosen ? filterProject : null, token);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -200,11 +205,21 @@ export default function Milestones() {
     queryKey: ["milestones", filterProject],
     queryFn: async () => {
       if (filterProject === "all" || !filterProject) return [];
-      const res = await api(`/milestones?projectId=${filterProject}`, token);
+      const res = await api(`/milestones?projectId=${filterProject === "everywhere" ? "all" : filterProject}`, token);
       return res.ok ? res.json() : [];
     },
     enabled: filterProject !== "all",
   });
+
+  const visibleMilestones = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return milestones;
+    return milestones.filter((m) => {
+      const typeLabel = TYPE_OPTIONS.find((t) => t.value === m.type)?.label ?? m.type;
+      const statusLabel = (m.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).find((x) => x.value === m.status)?.label ?? m.status;
+      return [m.name, typeLabel, statusLabel, m.projectName ?? ""].some((v) => v.toLowerCase().includes(q));
+    });
+  }, [milestones, search]);
 
   // The milestone page links here with ?edit=<id>; open that milestone's form
   // once, if the person is allowed to edit it.
@@ -226,7 +241,7 @@ export default function Milestones() {
 
   const [exportingLessons, setExportingLessons] = useState(false);
   const handleExportLessonsLearned = async () => {
-    if (!filterProject || filterProject === "all") return;
+    if (!projectChosen) return;
     setExportingLessons(true);
     try {
       const res = await api(`/milestones/lessons-learned/export?projectId=${filterProject}`, token);
@@ -295,7 +310,7 @@ export default function Milestones() {
       const res = await api(`/milestones/assignable-users?projectId=${filterProject}`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !editing && filterProject !== "all",
+    enabled: dialogOpen && !editing && projectChosen,
   });
   const addPendingAssignee = (userId: string) => {
     setPendingAssigneePick("");
@@ -313,6 +328,8 @@ export default function Milestones() {
   };
 
   const openEdit = (m: Milestone) => {
+    // Editing needs that milestone's project (module list, team), so leave the all-projects view.
+    if (filterProject === "everywhere") setFilterProject(String(m.projectId));
     setEditing(m);
     setForm({
       name: m.name,
@@ -354,7 +371,7 @@ export default function Milestones() {
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast({ variant: "destructive", title: "Name is required" }); return; }
-    if (!filterProject || filterProject === "all") { toast({ variant: "destructive", title: "Select a project first" }); return; }
+    if (!projectChosen) { toast({ variant: "destructive", title: "Select a project first" }); return; }
     if (!isModuleSelectionValid(moduleSel, projectModules.length, form.type)) { toast({ variant: "destructive", title: "Select at least one module, or choose All modules" }); return; }
     setSaving(true);
     try {
@@ -386,7 +403,7 @@ export default function Milestones() {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
       toast({ title: editing ? "Milestone updated" : "Milestone created" });
       setDialogOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["milestones", filterProject] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message ?? "Failed to save milestone" });
     } finally {
@@ -400,7 +417,7 @@ export default function Milestones() {
       if (!res.ok) throw new Error("Failed");
       toast({ title: "Milestone deleted" });
       setDeleteId(null);
-      queryClient.invalidateQueries({ queryKey: ["milestones", filterProject] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
     } catch {
       toast({ variant: "destructive", title: "Failed to delete milestone" });
     }
@@ -414,12 +431,12 @@ export default function Milestones() {
           <p className="text-muted-foreground text-sm mt-1">Manage project milestones, CRs, and sprints</p>
         </div>
         <div className="flex gap-2">
-          {filterProject !== "all" && (
+          {projectChosen && (
             <Button variant="outline" onClick={handleExportLessonsLearned} disabled={exportingLessons} className="gap-2">
               <FileDown className="w-4 h-4" /> {exportingLessons ? "Exporting…" : "Export Lessons Learnt"}
             </Button>
           )}
-          {canWrite && filterProject !== "all" && (
+          {canWrite && projectChosen && (
             <Button onClick={openCreate} className="gap-2">
               <Plus className="w-4 h-4" /> New Milestone
             </Button>
@@ -432,11 +449,17 @@ export default function Milestones() {
         <SearchableSelect
           value={filterProject}
           onValueChange={setFilterProject}
-          options={[{ value: "all", label: "Select a project…" }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
+          options={[{ value: "all", label: "Select a project…" }, { value: "everywhere", label: "All projects" }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
           placeholder="Select project"
           searchPlaceholder="Search projects…"
           className="w-64"
         />
+        {filterProject !== "all" && (
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, type or status…" className="pl-8" aria-label="Search milestones" />
+          </div>
+        )}
       </div>
 
       {filterProject === "all" && (
@@ -452,11 +475,18 @@ export default function Milestones() {
         </div>
       )}
 
+      {filterProject !== "all" && !isLoading && milestones.length > 0 && visibleMilestones.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground">
+          <Flag className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p>No milestones match "{search}".</p>
+        </div>
+      )}
+
       {filterProject !== "all" && !isLoading && milestones.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Flag className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p>No milestones yet for this project.</p>
-          {canWrite && (
+          <p>{filterProject === "everywhere" ? "No milestones yet in the projects you can access." : "No milestones yet for this project."}</p>
+          {canWrite && projectChosen && (
             <Button onClick={openCreate} variant="outline" className="mt-4 gap-2">
               <Plus className="w-4 h-4" /> Create first milestone
             </Button>
@@ -464,14 +494,15 @@ export default function Milestones() {
         </div>
       )}
 
-      {milestones.length > 0 && (
+      {visibleMilestones.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {milestones.map((m) => (
+          {visibleMilestones.map((m) => (
             <Card key={m.id} id={highlightRowId(m.id)} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <CardTitle className="text-base font-semibold">{m.name}</CardTitle>
+                    {filterProject === "everywhere" && m.projectName && <p className="text-xs text-muted-foreground mt-0.5">{m.projectName}</p>}
                     <p className="text-xs text-muted-foreground capitalize mt-0.5">
                       {TYPE_OPTIONS.find(t => t.value === m.type)?.label ?? m.type}
                     </p>
