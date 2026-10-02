@@ -59,6 +59,15 @@ export const requirementsTable = pgTable("requirements", {
   // reviewStatus value, so unblocking resumes exactly wherever the
   // requirement already was (in development, in testing, etc.) with no
   // extra step to "restore" a phase.
+  // CR104 — revision control. `version` goes up on every change to the content
+  // or review state, so a save made from an older copy can be recognised as
+  // stale. `draftOwnerId` is who owns the current draft / in-review revision
+  // (null while approved and untouched); only they may edit it. `lastEditedBy`
+  // is the last person to change the content, who may not approve it.
+  version: integer("version").notNull().default(1),
+  draftOwnerId: integer("draft_owner_id"),
+  lastEditedBy: integer("last_edited_by"),
+  lastEditedAt: timestamp("last_edited_at", { withTimezone: true }),
   isBlocked: boolean("is_blocked").notNull().default(false),
   blockedReason: text("blocked_reason"),
   blockedAt: timestamp("blocked_at", { withTimezone: true }),
@@ -148,3 +157,30 @@ export const requirementEventsTable = pgTable("requirement_events", {
 ]);
 
 export type RequirementEvent = typeof requirementEventsTable.$inferSelect;
+// CR104 — the content a requirement had when it was last approved. Kept so a
+// draft can be discarded back to it, so a reviewer (and the developers told on
+// re-approval) can see exactly what changed, and so people can still read the
+// approved version while a revision is in draft.
+export const requirementApprovedSnapshotsTable = pgTable("requirement_approved_snapshots", {
+  requirementId: integer("requirement_id").primaryKey(),
+  content: text("content").notNull(), // JSON: { title, description, acceptanceCriteria, priority }
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// CR104 — the authorship log: who created the first draft and every edit,
+// submit, approval, return and take-over after it, with the field-by-field
+// before/after so the entry can be expanded.
+export const requirementRevisionLogTable = pgTable("requirement_revision_log", {
+  id: serial("id").primaryKey(),
+  requirementId: integer("requirement_id").notNull(),
+  action: text("action").notNull(), // create | edit | submit | approve | return | discard | takeover
+  actorId: integer("actor_id"),
+  actorName: text("actor_name"),
+  remark: text("remark"),
+  changes: text("changes"), // JSON: { field: { from, to } }
+  version: integer("version"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("req_revision_log_req_idx").on(t.requirementId, t.createdAt),
+]);

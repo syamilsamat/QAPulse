@@ -463,7 +463,25 @@ export default function Requirements() {
     openCreateChild(parentReq);
   }, [searchString, requirements]);
 
+  // CR099 — the milestone page's "Create requirement" lands here with
+  // ?new=1&projectId=&milestoneId= and the form opens already pointed at it.
+  const hasAppliedNewDeepLink = useRef(false);
+  useEffect(() => {
+    if (hasAppliedNewDeepLink.current) return;
+    const params = new URLSearchParams(searchString);
+    if (params.get("new") !== "1") return;
+    hasAppliedNewDeepLink.current = true;
+    const pid = Number(params.get("projectId"));
+    const mid = Number(params.get("milestoneId"));
+    openCreate();
+    setForm((f: any) => ({ ...f, ...(pid ? { projectId: pid } : {}), ...(mid ? { milestoneId: mid } : {}) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchString]);
+
   const { canReviewFa: canReview } = useReviewEligibility();
+  // CR101 — only FA Leads and FA Members author requirements (and admin). The
+  // server decides per milestone; this just hides buttons that cannot succeed.
+  const canAuthorRequirements = ["fa_lead", "fa_member", "admin"].includes(user?.role ?? "");
 
   // Edit permission mirrors the backend check in PATCH /requirements/:id:
   // author/assignee always can; a Redmine-imported requirement can also be
@@ -1287,9 +1305,11 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
           <Button variant="outline" onClick={() => setRedmineDialogOpen(true)} className="gap-2 w-full sm:w-auto">
             <Download className="w-4 h-4" /> From Redmine
           </Button>
-          <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
-            <Plus className="w-4 h-4" /> New Requirement
-          </Button>
+          {canAuthorRequirements && (
+            <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
+              <Plus className="w-4 h-4" /> New Requirement
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1631,9 +1651,11 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                               <DropdownMenuItem onClick={() => navigate(`/requirements/${r.id}`)}>
                                 <DetailIcon className="w-4 h-4 mr-2" /> View Detail
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => openCreateChild(r)}>
-                                <Plus className="w-4 h-4 mr-2" /> Add Child
-                              </DropdownMenuItem>
+                              {canAuthorRequirements && (
+                                <DropdownMenuItem onClick={() => openCreateChild(r)}>
+                                  <Plus className="w-4 h-4 mr-2" /> Add Child
+                                </DropdownMenuItem>
+                              )}
                               {r.redmineTicketId && (
                                 <DropdownMenuItem onClick={() => handleSingleSync(r)}>
                                   <Download className="w-4 h-4 mr-2" /> Sync from Redmine

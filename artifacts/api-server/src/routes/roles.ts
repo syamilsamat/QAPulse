@@ -56,14 +56,14 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
   hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:resources"],
-  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
+  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources", "nav:milestones"],
   qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
   qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:qa-pipeline", "nav:milestones", "nav:defects"],
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
-  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
-  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:defects"],
+  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources", "nav:milestones"],
+  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:defects", "nav:milestones"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   pm_member:  ["nav:milestones", "nav:pm-dashboard", "nav:risk-register", "nav:report", "nav:inbox", "nav:uat-signoffs"],
 };
@@ -379,6 +379,33 @@ export async function bootstrap() {
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`),
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`),
+    // CR104 — revision control on requirements
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS draft_owner_id INTEGER`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS last_edited_by INTEGER`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS last_edited_at TIMESTAMPTZ`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_approved_snapshots (
+        requirement_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL,
+        approved_by INTEGER,
+        approved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_revision_log (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        actor_id INTEGER,
+        actor_name TEXT,
+        remark TEXT,
+        changes TEXT,
+        version INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS req_revision_log_req_idx ON requirement_revision_log (requirement_id, created_at)`),
     // CR030 — native dev assignment on defects (defects table itself predates
     // bootstrap coverage — created via drizzle-kit push in CR019 — so these are
     // the first bootstrap-owned columns on it)
@@ -911,6 +938,9 @@ export async function bootstrap() {
     // backfill so existing installs pick it up without touching their other
     // customized keys.
     backfillNavKey(["dev_member", "pm_member"], "nav:inbox"),
+    // CR099 — the milestone page is open to Dev roles, so they get the menu
+    // entry too; existing installs pick it up here.
+    backfillNavKey(["hod_dev", "dev_lead", "dev_member"], "nav:milestones"),
   ]);
 
   bootstrapped = true;

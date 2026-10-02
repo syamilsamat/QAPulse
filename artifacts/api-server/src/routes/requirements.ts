@@ -17,6 +17,7 @@ import {
   usersTable,
   projectsTable,
   milestonesTable,
+  milestoneAssigneesTable,
   activityTable,
   insertRequirementSchema,
   testCasesTable,
@@ -33,6 +34,9 @@ import {
 } from "@workspace/db";
 import { moduleScopeWarning } from "../lib/milestone-modules";
 import { loadTypeTrackerMap } from "../lib/milestone-trackers";
+import { canCreateRequirementFor } from "../lib/milestone-permissions";
+import { canApprove, contentOf, decideRevisionLock, diffContent } from "../lib/requirement-revision-rules";
+import { ensureSnapshot, getSnapshot, saveSnapshot, logRevision, notifyReapproval } from "../lib/requirement-revisions";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -100,6 +104,14 @@ async function formatRequirement(req: typeof requirementsTable.$inferSelect) {
     // CR014p4
     reviewStatus: (req as any).reviewStatus ?? "draft",
     createdBy: (req as any).createdBy ?? null,
+    authorName: names.userName((req as any).createdBy),
+    // CR104 — revision control
+    version: (req as any).version ?? 1,
+    draftOwnerId: (req as any).draftOwnerId ?? null,
+    draftOwnerName: names.userName((req as any).draftOwnerId),
+    lastEditedBy: (req as any).lastEditedBy ?? null,
+    lastEditedByName: names.userName((req as any).lastEditedBy),
+    lastEditedAt: (req as any).lastEditedAt ? new Date((req as any).lastEditedAt).toISOString() : null,
     approvedBy: (req as any).approvedBy ?? null,
     approvedAt: (req as any).approvedAt ? new Date((req as any).approvedAt).toISOString() : null,
     rejectedBy: (req as any).rejectedBy ?? null,
@@ -276,6 +288,22 @@ router.post("/requirements", async (req, res): Promise<void> => {
     if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
   }
 
+  // CR101 — only FA Leads, and FA Members on the milestone's team, may author a
+  // requirement for a milestone. Requirements that arrive from the Redmine sync
+  // or the QA Pipeline are not authored here and keep working as before.
+  if (!isRedmineSync && parsed.data.source !== "qa_pipeline") {
+    let onTeam = false;
+    if (parsed.data.milestoneId) {
+      const [member] = await db.select({ id: milestoneAssigneesTable.id }).from(milestoneAssigneesTable)
+        .where(and(eq(milestoneAssigneesTable.milestoneId, parsed.data.milestoneId), eq(milestoneAssigneesTable.userId, ctx.userId)));
+      onTeam = !!member;
+    }
+    if (!canCreateRequirementFor(ctx.role, onTeam)) {
+      res.status(403).json({ error: "Only FA Leads, and FA Members assigned to this milestone, can create requirements" });
+      return;
+    }
+  }
+
   const values: any = { ...parsed.data, createdBy: ctx.userId };
   // QA-pipeline-sourced requirements skip the CR014p4 FA review workflow —
   // the pipeline's own Step 2 already scopes what gets pulled in (status/
@@ -287,7 +315,15 @@ router.post("/requirements", async (req, res): Promise<void> => {
     values.reviewStatus = "approved";
     values.approvedAt = new Date();
   }
+  // CR104 — the creator owns the first draft (QA Pipeline requirements are
+  // auto-approved and have no draft).
+  if (values.source !== "qa_pipeline") {
+    values.draftOwnerId = ctx.userId;
+    values.lastEditedBy = ctx.userId;
+    values.lastEditedAt = new Date();
+  }
   const [requirement] = await db.insert(requirementsTable).values(values).returning();
+  await logRevision({ requirementId: requirement.id, action: "create", actorId: ctx.userId, version: 1 });
 
   await logActivity({
     type: "requirement_created",
@@ -640,10 +676,50 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     }
   }
 
-  const [requirement] = await db.update(requirementsTable).set(parsed.data).where(eq(requirementsTable.id, params.data.id)).returning();
+  // CR104 — editing the content of a requirement needs approval, wherever the
+  // edit comes from: an approved or in-review requirement goes back to Draft,
+  // the editor owns the new draft, and nobody else can write over it. Redmine
+  // resyncs and QA Pipeline requirements are not authored edits and are exempt.
+  let revisionExtras: Record<string, unknown> = {};
+  let revisionDiff: ReturnType<typeof diffContent> | null = null;
+  if (before && req.body?.redmineSync !== true && (before as any).source !== "qa_pipeline") {
+    const editor = getAuthContext(req);
+    if (editor) {
+      const nextContent = contentOf({ ...(before as any), ...parsed.data } as any);
+      const contentDiff = diffContent(contentOf(before as any), nextContent);
+      if (Object.keys(contentDiff).length > 0) {
+        const lock = decideRevisionLock({
+          status: (before as any).reviewStatus,
+          draftOwnerId: (before as any).draftOwnerId ?? null,
+          createdBy: (before as any).createdBy ?? null,
+          actorId: editor.userId,
+          actorIsAdmin: editor.role === "admin" || editor.role === "cto",
+        });
+        if (!lock.allowed) {
+          res.status(409).json({ code: "locked", error: lock.reason, ownerId: lock.ownerId });
+          return;
+        }
+        await ensureSnapshot(before);
+        const st = (before as any).reviewStatus ?? "draft";
+        revisionExtras = {
+          reviewStatus: st === "approved" || st === "in_review" ? "draft" : st,
+          draftOwnerId: editor.userId,
+          lastEditedBy: editor.userId,
+          lastEditedAt: new Date(),
+          version: ((before as any).version ?? 1) + 1,
+        };
+        revisionDiff = contentDiff;
+      }
+    }
+  }
+
+  const [requirement] = await db.update(requirementsTable).set({ ...parsed.data, ...revisionExtras } as any).where(eq(requirementsTable.id, params.data.id)).returning();
   if (!requirement) {
     res.status(404).json({ error: "Requirement not found" });
     return;
+  }
+  if (revisionDiff) {
+    await logRevision({ requirementId: requirement.id, action: "edit", actorId: actorFromReq(req), changes: revisionDiff, version: (revisionExtras as any).version });
   }
 
   const diff = before ? diffChanges(before, parsed.data) : null;
@@ -846,33 +922,67 @@ router.patch("/requirements/:id/review", async (req, res): Promise<void> => {
   // isFaOnRedmineSourced above) and admin/cto are exempt, same shape as the
   // equivalent check on execution-file submit.
   const isUnrestrictedReviewer = ctx.role === "admin" || ctx.role === "cto";
-  if (action === "submit" && createdBy != null && createdBy !== ctx.userId && !isUnrestrictedReviewer) {
-    res.status(403).json({ error: "Only the author can submit this requirement for review" }); return;
+  // CR104 — the person who owns the current draft submits it (a second FA who
+  // took over or revised it, not only the original author).
+  const draftOwner = (req_ as any).draftOwnerId ?? createdBy ?? null;
+  if (action === "submit" && draftOwner != null && draftOwner !== ctx.userId && !isUnrestrictedReviewer) {
+    res.status(403).json({ error: "Only the owner of this draft can submit it for review" }); return;
   }
 
-  // Segregation of duties: author cannot review (approve or reject) their own requirement
-  if ((action === "approve" || action === "reject") && createdBy === ctx.userId) {
-    res.status(403).json({ error: `You cannot ${action} a requirement you authored` }); return;
+  // Segregation of duties (CR104): the approver differs from both the author
+  // and the last editor.
+  if ((action === "approve" || action === "reject") &&
+      !canApprove({ actorId: ctx.userId, createdBy: createdBy ?? null, lastEditedBy: (req_ as any).lastEditedBy ?? null })) {
+    res.status(403).json({ error: `You wrote or last edited this requirement, so someone else must ${action === "reject" ? "return" : "approve"} it` }); return;
+  }
+  // A return has to say what to fix.
+  if (action === "reject" && !(typeof comment === "string" && comment.trim())) {
+    res.status(400).json({ error: "Say what needs to change when returning a requirement" }); return;
   }
 
   const now = new Date();
   const update: any = {};
+  // Every review step bumps the version, so a screen holding an older copy can
+  // tell it is out of date.
+  update.version = ((req_ as any).version ?? 1) + 1;
 
   if (action === "submit") {
     update.reviewStatus = "in_review";
+    update.draftOwnerId = draftOwner ?? ctx.userId;
   } else if (action === "approve") {
     update.reviewStatus = "approved";
     update.approvedBy = ctx.userId;
     update.approvedAt = now;
     update.rejectedBy = null;
     update.rejectedAt = null;
+    update.draftOwnerId = null;
   } else {
     update.reviewStatus = "rejected";
     update.rejectedBy = ctx.userId;
     update.rejectedAt = now;
   }
 
+  // What was approved before this approval, for the "changed since" notice.
+  const previousApproved = action === "approve" ? await getSnapshot(id) : null;
+
   const [updated] = await db.update(requirementsTable).set(update).where(eq(requirementsTable.id, id)).returning();
+
+  await logRevision({
+    requirementId: id,
+    action: action === "reject" ? "return" : action,
+    actorId: ctx.userId,
+    remark: typeof comment === "string" ? comment : null,
+    version: update.version,
+  });
+  if (action === "approve") {
+    const approvedContent = contentOf(updated as any);
+    await saveSnapshot(id, approvedContent, ctx.userId);
+    // Approved again after earlier approval, with different content: tell the
+    // developers and leads working from the old text (CR090).
+    if (previousApproved) {
+      await notifyReapproval({ requirement: updated, before: previousApproved, after: approvedContent, actorId: ctx.userId }).catch((err) => console.error("[notifyReapproval]", err));
+    }
+  }
 
   await logActivity({
     type: `requirement_${action}`,
@@ -1733,6 +1843,8 @@ router.patch("/requirements/:id/return-to-fa", async (req, res): Promise<void> =
   // Full reset of the dev handoff — the requirement re-enters review, so it
   // shouldn't linger in the old assignee's dev queue. After re-approval a Lead
   // re-triages it (the content may have changed).
+  // Keep what was approved so FA's revision can be compared against it (CR104).
+  await ensureSnapshot(requirement);
   const [updated] = await db.update(requirementsTable).set({
     reviewStatus: "rejected",
     rejectedBy: ctx.userId,
@@ -1740,7 +1852,10 @@ router.patch("/requirements/:id/return-to-fa", async (req, res): Promise<void> =
     devStatus: null,
     devAssigneeId: null,
     readyForQaAt: null,
+    draftOwnerId: null, // open to whichever FA picks it up
+    version: ((requirement as any).version ?? 1) + 1,
   } as any).where(eq(requirementsTable.id, id)).returning();
+  await logRevision({ requirementId: id, action: "return", actorId: ctx.userId, remark: typeof reason === "string" ? reason : null, version: ((requirement as any).version ?? 1) + 1 });
 
   const reasonSuffix = typeof reason === "string" && reason.trim() ? `: ${reason.trim()}` : "";
   await logActivity({
@@ -1749,7 +1864,7 @@ router.patch("/requirements/:id/return-to-fa", async (req, res): Promise<void> =
     userId: ctx.userId,
     entityId: id,
     entityType: "requirement",
-    oldValue: { reviewStatus: "approved", devStatus: currentDevStatus },
+    oldValue: { reviewStatus: "approved", devStatus: currentDevStatus, devAssigneeId: (requirement as any).devAssigneeId ?? null },
     newValue: { reviewStatus: "rejected", reason: reason ?? null },
   });
 

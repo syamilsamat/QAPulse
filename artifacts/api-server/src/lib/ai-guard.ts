@@ -58,6 +58,7 @@ export const AI_FEATURES = {
   "milestone-risk": { label: "Milestone risk", description: "Assesses risk for a milestone." },
   "execution-risk": { label: "Execution risk", description: "Assesses risk on an execution run." },
   "requirement-chat": { label: "Requirement chat", description: "Chat about one requirement." },
+  "test-case-generation": { label: "Generate test cases", description: "Drafts test cases from requirements (Test Cases page, AI Test Case)." },
   "generate-bdd-test-cases": { label: "Generate BDD test cases", description: "Drafts test cases from Gherkin; saved only when a user confirms." },
   "generate-release-notes": { label: "Release notes", description: "Drafts release notes." },
   "tag-risk-priority": { label: "Suggest risk priorities", description: "Proposes a priority for each test case. Nothing is saved until a QA user applies it." },

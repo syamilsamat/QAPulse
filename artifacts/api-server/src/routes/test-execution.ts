@@ -21,7 +21,8 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { verifyToken, actorFromReq } from "./auth";
-import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
+import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope, getRoleTierRank } from "../middleware/access";
+import { decideContentEdit, changedContentFields } from "../lib/execution-row-lock";
 import { logActivity } from "./_audit";
 import { notifyUser, notifyRolesInProject } from "./_notify";
 import { canReview, canApproveExecutionFile, reviewRoleNames, fileApprovalRoleNames } from "../lib/review-eligibility";
@@ -1992,6 +1993,11 @@ router.post(
         return;
       }
 
+      // Who is saving, for the content-lock rules in lib/execution-row-lock.ts.
+      const actorIsAdmin = ctx.role === "admin" || ctx.role === "cto";
+      const actorIsQa = actorIsAdmin || (await canReview("qa", ctx.role));
+      const actorIsLead = actorIsAdmin || (await getRoleTierRank(ctx.role)) >= 2;
+
       // A file with no milestone can still be built out (add/edit rows,
       // steps, expected results) — it just can't record a real outcome yet.
       // Structural fields never carry a "result", so this only blocks the
@@ -2011,9 +2017,38 @@ router.post(
           result: executionTestCasesTable.result,
           executedAt: executionTestCasesTable.executedAt,
           reviewState: executionTestCasesTable.reviewState,
+          // Content columns and owner, so an edit can be compared and gated.
+          rowType: executionTestCasesTable.rowType,
+          addedBy: executionTestCasesTable.addedBy,
+          moduleName: executionTestCasesTable.moduleName,
+          caseId: executionTestCasesTable.caseId,
+          userStory: executionTestCasesTable.userStory,
+          requirementId: executionTestCasesTable.requirementId,
+          tracker: executionTestCasesTable.tracker,
+          scenario: executionTestCasesTable.scenario,
+          preCondition: executionTestCasesTable.preCondition,
+          caseName: executionTestCasesTable.caseName,
+          testSteps: executionTestCasesTable.testSteps,
+          testData: executionTestCasesTable.testData,
+          expectedResult: executionTestCasesTable.expectedResult,
         })
         .from(executionTestCasesTable)
         .where(eq(executionTestCasesTable.executionFileId, file.id));
+
+      const existingById = new Map(existingRows.map((r) => [r.id, r]));
+      const mayEditRow = (row: (typeof existingRows)[number]) =>
+        decideContentEdit({
+          fileReviewStatus: (file as any).reviewStatus,
+          fileOwnerId: (file as any).qaPicSetBy ?? null,
+          rowOwnerId: row.addedBy ?? null,
+          actorId: ctx.userId,
+          actorIsQa,
+          actorIsLead,
+        });
+      const rowLabel = (row: { testCaseId: string | null; caseName?: string | null; id: number }) =>
+        row.testCaseId || row.caseName || `row ${row.id}`;
+      const contentLockedRows: string[] = [];
+      const rependedRows: { id: number; label: string }[] = [];
 
       type ExistingState = { result: string | null; executedAt: Date | null; reviewState: string };
       const existingMap = new Map<string, ExistingState>(
@@ -2046,9 +2081,19 @@ router.post(
       const pendingInserts: { id: number; caseName: string | null; testCaseId: string | null }[] = [];
 
       // 1. Delete explicitly removed rows (only those belonging to this file)
+      // Removing a test case is a content change, so the same lock applies:
+      // a row the caller may not edit is skipped and reported, not deleted.
+      const mayDelete = (id: number) => {
+        const row = existingById.get(id);
+        if (!row || row.rowType === "group") return true;
+        if (mayEditRow(row).allowed) return true;
+        contentLockedRows.push(rowLabel(row));
+        return false;
+      };
       const safeDeleteIds = (deletedIds as any[])
         .map((id: any) => Number(id))
-        .filter((id: number) => !isNaN(id) && existingDbIdSet.has(id));
+        .filter((id: number) => !isNaN(id) && existingDbIdSet.has(id))
+        .filter(mayDelete);
 
       let removedTCCount = 0;
       if (safeDeleteIds.length > 0) {
@@ -2068,7 +2113,8 @@ router.post(
           .filter((id: number | null): id is number => id !== null && existingDbIdSet.has(id));
         const orphanIds = existingRows
           .map((r) => r.id)
-          .filter((id) => !incomingDbIds.includes(id) && !safeDeleteIds.includes(id));
+          .filter((id) => !incomingDbIds.includes(id) && !safeDeleteIds.includes(id))
+          .filter(mayDelete);
         if (orphanIds.length > 0) {
           removedTCCount += existingRows.filter((r) => orphanIds.includes(r.id) && r.testCaseId).length;
           await db.delete(executionTestCasesTable).where(
@@ -2214,6 +2260,33 @@ router.post(
         }
 
         if (dbId !== null) {
+          // Content lock: a change to what the test case SAYS is only accepted
+          // from someone allowed to make it. Otherwise those fields are put
+          // back to what is stored (the same revert-per-row approach as the
+          // result guards above, so one locked row never costs the rest of
+          // the sheet its edits). Results, defects and comments are untouched.
+          const stored = existingById.get(dbId);
+          if (stored && !isGroupTag) {
+            const changed = changedContentFields(stored as any, rowData);
+            if (changed.length > 0) {
+              const decision = mayEditRow(stored);
+              if (!decision.allowed) {
+                for (const f of changed) rowData[f] = (stored as any)[f] ?? null;
+                contentLockedRows.push(rowLabel(stored));
+              } else if (decision.repend) {
+                // Someone other than the owner changed approved content: it
+                // goes back to pending so a third person accepts the change.
+                rowData.reviewState = "pending";
+                rowData.addedBy = ctx.userId;
+                rowData.acceptedBy = null;
+                rowData.acceptedAt = null;
+                rowData.returnedBy = null;
+                rowData.returnedAt = null;
+                rowData.reviewComment = null;
+                rependedRows.push({ id: dbId, label: rowLabel(stored) });
+              }
+            }
+          }
           const [updated] = await db
             .update(executionTestCasesTable)
             .set(rowData)
@@ -2573,7 +2646,38 @@ router.post(
         // nobody owns the execution, so there is nobody to attribute it to.
         ...(unassignedResultRows.length > 0 ? { unassignedResultRows } : {}),
         ...(pendingInserts.length > 0 ? { pendingAcceptance: pendingInserts.length } : {}),
+        // Content edits (or deletes) refused because the test case is locked to
+        // its owner (draft / in review / returned) or the caller is not QA.
+        ...(contentLockedRows.length > 0 ? { contentLockedRows } : {}),
+        // Approved test cases edited by someone other than the owner; now
+        // pending acceptance by a different person.
+        ...(rependedRows.length > 0 ? { rependedRows: rependedRows.map((r) => r.label) } : {}),
       });
+
+      if (rependedRows.length > 0) {
+        for (const r of rependedRows) {
+          logActivity({
+            type: "execution_tc_edited_after_approval",
+            description: `Approved test case "${r.label}" was edited by someone other than its owner; sent back for acceptance`,
+            userId: ctx.userId,
+            entityId: r.id,
+            entityType: "execution_test_case",
+          }).catch(() => {});
+        }
+        if (file.projectId != null) {
+          notifyRolesInProject({
+            roles: await reviewRoleNames("qa"),
+            projectId: file.projectId,
+            module: file.selectedModules,
+            title: "Approved test case edited",
+            message: `${rependedRows.length === 1 ? `"${rependedRows[0].label}"` : `${rependedRows.length} test cases`} in ${file.title || file.redmineTicketId} ${rependedRows.length === 1 ? "was" : "were"} edited after approval and need${rependedRows.length === 1 ? "s" : ""} your acceptance.`,
+            type: "review_request",
+            entityType: "execution_file",
+            entityId: file.id,
+            actorId: ctx.userId,
+          }).catch(() => {});
+        }
+      }
 
       // Added to a live, already-approved file — tell the peers who can accept
       // them, otherwise the rows sit frozen until someone happens to look.

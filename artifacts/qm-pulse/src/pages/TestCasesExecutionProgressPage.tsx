@@ -2599,6 +2599,17 @@ export default function TestCasesExecutionProgressPage() {
     if (result?.unassignedResultRows?.length) {
       reverted.push(`No QA PIC assigned: ${result.unassignedResultRows.join(", ")}`);
     }
+    if (result?.contentLockedRows?.length) {
+      reverted.push(`Locked to their owner (draft, in review or returned), your edits to the test case itself were not saved: ${result.contentLockedRows.join(", ")}`);
+    }
+    // Not a failure: the edit was saved, but approved content someone else
+    // changed has to be accepted again by a different person.
+    if (result?.rependedRows?.length) {
+      toast({
+        title: "Sent back for acceptance",
+        description: `You edited approved test case${result.rependedRows.length > 1 ? "s" : ""} ${result.rependedRows.join(", ")}. A different QA must accept the change before it can be executed again.`,
+      });
+    }
     if (reverted.length === 0) return;
     toast({
       variant: "destructive",
@@ -4157,10 +4168,10 @@ export default function TestCasesExecutionProgressPage() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-sm">Execution is Locked</p>
+              <p className="font-semibold text-sm">Results are locked until this file is approved</p>
               <p className="text-xs text-amber-700 mt-1">
                 This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status.
-                You cannot execute test cases (Pass/Fail/Block) until it is approved. Sign-off is reserved for a
+                You cannot record results (Pass/Fail/Blocked) until it is approved. Approval is reserved for a
                 QA Lead, QA Manager, or HOD QA other than the person who submitted it.
               </p>
               {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
@@ -4181,6 +4192,22 @@ export default function TestCasesExecutionProgressPage() {
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" &&
+        currentFileQaPicSetBy != null && currentFileQaPicSetBy !== currentUser?.id && (
+        <div className="bg-slate-50 border border-slate-200 text-slate-800 dark:bg-slate-900/40 dark:border-slate-700 dark:text-slate-200 rounded-lg p-3 flex items-start gap-3">
+          <Lock className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm">
+              Editing is locked to the owner{currentFileQaPic ? ` (${currentFileQaPic})` : ""}
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+              While this file is {(currentFileReviewStatus || "").replace("_", " ")}, only its owner can change the test cases in it.
+              You can still read and review them. Once the file is approved, QA roles can edit a test case, and the edit goes back for acceptance.
+            </p>
+          </div>
         </div>
       )}
 
