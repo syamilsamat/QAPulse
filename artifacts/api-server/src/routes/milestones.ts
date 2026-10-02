@@ -255,20 +255,31 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
   };
 }
 
-// GET /milestones?projectId=X
+// GET /milestones?projectId=X  (or projectId=all for every project the caller can access, CR094)
 router.get("/milestones", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
-  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  const allProjects = req.query.projectId === "all";
+  const projectId = !allProjects && req.query.projectId ? Number(req.query.projectId) : null;
+  if (!allProjects && !projectId) { res.status(400).json({ error: "projectId is required" }); return; }
 
-  const ok = await canAccessProject(ctx.userId, ctx.role, projectId);
-  if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
+  let projectIds: number[] = projectId ? [projectId] : [];
+  const projectNames = new Map<number, string>();
+  if (allProjects) {
+    const every = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable);
+    const checks = await Promise.all(every.map(async (p) => ((await canAccessProject(ctx.userId, ctx.role, p.id)) ? p : null)));
+    for (const p of checks) if (p) { projectIds.push(p.id); projectNames.set(p.id, p.name); }
+  } else {
+    const ok = await canAccessProject(ctx.userId, ctx.role, projectId!);
+    if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
+  }
 
-  const rows = await db.select().from(milestonesTable)
-    .where(eq(milestonesTable.projectId, projectId))
-    .orderBy(desc(milestonesTable.createdAt));
+  const rows = projectIds.length
+    ? await db.select().from(milestonesTable)
+        .where(inArray(milestonesTable.projectId, projectIds))
+        .orderBy(desc(milestonesTable.createdAt))
+    : [];
 
   const ids = rows.map(m => m.id);
   const reqs = ids.length
@@ -297,6 +308,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
     const mExecFiles = execFiles.filter(f => f.milestoneId === m.id);
     return {
       ...fmt(m),
+      ...(allProjects ? { projectName: projectNames.get(m.projectId) ?? null } : {}),
       modules: modulesByMilestone.get(m.id) ?? [],
       tracker: trackerByType[m.type] ?? null,
       // What the caller may do with this milestone (the UI shows only these).

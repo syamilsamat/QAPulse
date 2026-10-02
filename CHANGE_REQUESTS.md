@@ -77,7 +77,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR091](#cr091--requirement-priority-defaults-from-milestone-priority) | Requirement Priority Defaults from Milestone Priority | 📋 Planned | 2026-10-02 |
 | [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 🔨 Built, not deployed | 2026-10-02 |
 | [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
-| [CR094](#cr094--milestones-search) | Milestones Search | 📋 Planned | 2026-10-02 |
+| [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
 | [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
 | [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | ⏸️ On hold | 2026-10-02 |
 | [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | ⏸️ On hold | 2026-10-02 |
@@ -2043,7 +2043,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR094 — Milestones Search
-**Status: 📋 Planned** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** a search box on the Milestones page (name, type, status, and project name in the all-projects view) and an **All projects** entry in the project dropdown. The page still opens with no project chosen, and a chosen project stays the default scope. `GET /milestones?projectId=all` lists milestones across the projects the caller can access (each checked with the same access rule as a single project) and adds `projectName`. In the all-projects view New Milestone and Export Lessons Learnt are hidden, and Edit switches to that milestone's project first because the form needs its modules and team.
 
 **Origin:** CTO feedback, second round — "milestones should have a search bar to make finding things easier when there are a lot of projects."
 
