@@ -80,7 +80,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
 | [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
 | [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
-| [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | ⏸️ On hold | 2026-10-02 |
+| [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | 🔨 Built, not deployed | 2026-10-02 |
 | [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | ⏸️ On hold | 2026-10-02 |
 | [CR099](#cr099--milestone-page-read-only-detail-opened-from-notifications) | Milestone Page (Read-Only Detail, Opened from Notifications) | 🚧 Built, not deployed | 2026-10-02 |
 | [CR100](#cr100--milestone-permissions-who-edits-and-who-staffs) | Milestone Permissions: Who Edits and Who Staffs | 🚧 Built, not deployed | 2026-10-02 |
@@ -2098,7 +2098,9 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR097 — Compile and Add-to-Existing Dialog Alignment
-**Status: ⏸️ On hold** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built (Create New):** Milestone (locked in the QA Pipeline), then a checklist of every requirement the selected test cases belong to (all ticked, with test case counts; a test case with no requirement shows as No requirement), a search to add more requirements (an added one brings the test cases linked to it in the library, or is a link only if it has none), read-only Project from the milestone, editable Module and Tracker prefilled from the test cases, Title (milestone name), Redmine Ticket (filled only when exactly one requirement is ticked), Remarks. Unticking a requirement leaves its test cases out. The file is filed under the first ticked requirement; every row keeps its own requirement link. Buttons: Back, Cancel, Save as Draft, Submit to Review (creates, saves the rows, then submits through the file review action; if submission fails the draft stays and the error is shown). Requirement from another milestone is allowed with a tag. Add to Existing is unchanged apart from a note that the file keeps its review state. Frontend only. Both callers (Test Cases library and QA Pipeline Step 3) share the component.
 
 **Origin:** CTO feedback, second round — after Compile / Add to existing in the Test Cases library, the dialog should match the new execution file form: Project, Milestone, Module (from the test case, changeable), Tracker (from the test case, changeable), Requirement (mandatory), Title (already set), Redmine Ticket ID (optional); buttons Cancel, Save as Draft, Submit to Review.
 
