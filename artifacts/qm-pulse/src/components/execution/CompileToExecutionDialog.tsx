@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,8 +13,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { MilestonePicker } from "@/components/MilestonePicker";
-import { PackagePlus, FolderOpen, Plus, Search, Loader2 } from "lucide-react";
+import { PackagePlus, FolderOpen, Plus, Search, Loader2, X } from "lucide-react";
 
 type CompileStep = "mode" | "existing" | "new";
 
@@ -21,7 +21,6 @@ interface CompileNewForm {
   redmineTicketId: string;
   title: string;
   remarks: string;
-  requirementId: string;
   projectId: string;
   milestoneId: string;
   tracker: string;
@@ -32,12 +31,22 @@ const EMPTY_FORM: CompileNewForm = {
   redmineTicketId: "",
   title: "",
   remarks: "",
-  requirementId: "",
   projectId: "",
   milestoneId: "",
   tracker: "",
   selectedModules: [],
 };
+
+// CR097 — the requirements the compiled test cases belong to, each with the
+// test cases it brings. Ticking a requirement off leaves its test cases out;
+// "added" ones were searched for and bring their library test cases.
+interface ReqGroup {
+  key: string;
+  requirementId: number | null;
+  tcs: any[];
+  added: boolean;
+  on: boolean;
+}
 
 export function CompileToExecutionDialog({
   open,
@@ -74,46 +83,87 @@ export function CompileToExecutionDialog({
   const [existingSearch, setExistingSearch] = useState("");
   const [targetTicketId, setTargetTicketId] = useState<string | null>(null);
   const [form, setForm] = useState<CompileNewForm>(EMPTY_FORM);
+  const [groups, setGroups] = useState<ReqGroup[]>([]);
+  const [allMilestones, setAllMilestones] = useState<{ id: number; name: string; projectId: number; projectName?: string | null }[]>([]);
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [ticketTouched, setTicketTouched] = useState(false);
+  const [milestoneTouched, setMilestoneTouched] = useState(false);
+  const [addingReqId, setAddingReqId] = useState<number | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
 
-  const count = selectedTestCases.length;
+  const reqById = (id: number | null) => (id == null ? null : (requirements as any[]).find((r: any) => r.id === id) ?? null);
+  const tickedGroups = groups.filter((g) => g.on);
+  const tickedTcs = tickedGroups.flatMap((g) => g.tcs);
+  const tickedReqIds = tickedGroups.map((g) => g.requirementId).filter((id): id is number => id != null);
+  // Existing-file mode compiles exactly what was selected; a new file compiles what is ticked.
+  const count = step === "new" ? tickedTcs.length : selectedTestCases.length;
 
-  // Prefill from the selection each time the dialog opens: shared module names,
-  // shared Redmine ticket / tracker where the selection agrees, and the first
-  // test case's requirement/project (with milestone resolved through it).
+  // Milestone, modules, tracker and ticket follow the ticked requirements
+  // until the person edits them by hand.
+  const applyGroups = (next: ReqGroup[], flags: { ticket: boolean; milestone: boolean; initial?: boolean }) => {
+    setGroups(next);
+    const on = next.filter((g) => g.on);
+    const reqs = on.map((g) => reqById(g.requirementId)).filter(Boolean) as any[];
+    const tcs = on.flatMap((g) => g.tcs);
+    const moduleNames = [...new Set(tcs.map((tc: any) => tc.module).filter(Boolean))] as string[];
+    const moduleIds = modules.filter((m: any) => moduleNames.includes(m.name)).map((m: any) => m.id);
+    const distinctTrackers = [...new Set(tcs.map((tc: any) => tc.tracker).filter(Boolean))] as string[];
+    const singleTicket = reqs.length === 1 && reqs[0].redmineTicketId ? String(reqs[0].redmineTicketId).replace(/\D/g, "") : "";
+    const sharedStory = [...new Set(tcs.map((tc: any) => tc.redmineUserStory).filter(Boolean))] as string[];
+    setForm((f) => ({
+      ...f,
+      selectedModules: moduleIds,
+      tracker: distinctTrackers.length === 1 ? distinctTrackers[0] : (distinctTrackers[0] ?? reqs[0]?.tracker ?? ""),
+      ...(flags.ticket ? {} : {
+        redmineTicketId: singleTicket || (flags.initial && sharedStory.length === 1 ? sharedStory[0].replace(/\D/g, "") : ""),
+      }),
+      ...(flags.milestone || lockProjectAndMilestone || !reqs[0]?.milestoneId ? {} : { milestoneId: String(reqs[0].milestoneId) }),
+    }));
+  };
+
+  // Prefill from the selection each time the dialog opens: the requirements
+  // the test cases belong to (all ticked), then modules, tracker, ticket and
+  // milestone from them.
   useEffect(() => {
     if (!open) return;
     const first = selectedTestCases[0];
     if (!first) return;
 
-    const distinctModuleNames = [...new Set(selectedTestCases.map((tc: any) => tc.module).filter(Boolean))] as string[];
-    const matchedModuleIds = modules.filter((m: any) => distinctModuleNames.includes(m.name)).map((m: any) => m.id);
-    const distinctRedmineIds = [...new Set(selectedTestCases.map((tc: any) => tc.redmineUserStory).filter(Boolean))] as string[];
-    const distinctTrackers = [...new Set(selectedTestCases.map((tc: any) => tc.tracker).filter(Boolean))] as string[];
-    const matchedRequirement = first.requirementId
-      ? (requirements as any[]).find((r: any) => r.id === first.requirementId)
-      : null;
-
+    const byReq = new Map<string, ReqGroup>();
+    for (const tc of selectedTestCases) {
+      const key = tc.requirementId != null ? String(tc.requirementId) : "none";
+      if (!byReq.has(key)) byReq.set(key, { key, requirementId: tc.requirementId ?? null, tcs: [], added: false, on: true });
+      byReq.get(key)!.tcs.push(tc);
+    }
     setForm({
-      redmineTicketId: (distinctRedmineIds[0] ?? "").replace(/\D/g, ""),
-      title: "",
-      remarks: "",
-      requirementId: first.requirementId ? String(first.requirementId) : "",
-      projectId: defaultProjectId
-        ? String(defaultProjectId)
-        : first.projectId ? String(first.projectId) : "",
-      milestoneId: defaultMilestoneId
-        ? String(defaultMilestoneId)
-        : matchedRequirement?.milestoneId ? String(matchedRequirement.milestoneId) : "",
-      tracker: distinctTrackers.length === 1 ? distinctTrackers[0] : (first.tracker ?? ""),
-      selectedModules: matchedModuleIds,
+      ...EMPTY_FORM,
+      projectId: defaultProjectId ? String(defaultProjectId) : first.projectId ? String(first.projectId) : "",
+      milestoneId: defaultMilestoneId ? String(defaultMilestoneId) : "",
     });
+    setTitleTouched(false);
+    setTicketTouched(false);
+    setMilestoneTouched(false);
+    applyGroups([...byReq.values()], { ticket: false, milestone: !!defaultMilestoneId, initial: true });
     setStep("mode");
     setTargetTicketId(null);
     setExistingSearch("");
     setExistingFiles([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Milestone names for the first field and for the title's starting value.
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${getApiUrl()}/milestones?projectId=all`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setAllMilestones(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
+  }, [open, token]);
+
+  const chosenMilestone = allMilestones.find((m) => String(m.id) === form.milestoneId) ?? null;
+  useEffect(() => {
+    if (!titleTouched && chosenMilestone) setForm((f) => (f.title === chosenMilestone.name ? f : { ...f, title: chosenMilestone.name }));
+  }, [chosenMilestone?.id, chosenMilestone?.name, titleTouched]);
 
   const handleChooseExisting = async () => {
     try {
@@ -125,8 +175,37 @@ export function CompileToExecutionDialog({
     setStep("existing");
   };
 
-  const handleConfirm = async () => {
-    const newRows = selectedTestCases.map((tc: any) => ({
+  const toggleGroup = (key: string, on: boolean) =>
+    applyGroups(groups.map((g) => (g.key === key ? { ...g, on } : g)), { ticket: ticketTouched, milestone: milestoneTouched });
+
+  const removeGroup = (key: string) =>
+    applyGroups(groups.filter((g) => g.key !== key), { ticket: ticketTouched, milestone: milestoneTouched });
+
+  // Search-and-add: the requirement comes with the test cases linked to it in the library.
+  const addRequirement = async (id: number) => {
+    if (groups.some((g) => g.requirementId === id)) return;
+    setAddingReqId(id);
+    let tcs: any[] = [];
+    try {
+      const res = await fetch(`${getApiUrl()}/requirements/${id}/test-cases`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        // The library endpoint names the pre-conditions field differently from the list.
+        tcs = (Array.isArray(rows) ? rows : []).map((tc: any) => ({ ...tc, preconditions: tc.preCondition ?? tc.preconditions, requirementId: id }));
+      }
+    } catch {}
+    applyGroups(
+      [...groups, { key: String(id), requirementId: id, tcs, added: true, on: true }],
+      { ticket: ticketTouched, milestone: milestoneTouched },
+    );
+    setAddingReqId(null);
+  };
+
+  const handleConfirm = async (submitForReview = false) => {
+    const sourceTcs = step === "new" ? tickedTcs : selectedTestCases;
+    const newRows = sourceTcs.map((tc: any) => ({
       moduleName: tc.module ?? "",
       caseId: tc.caseId ?? "",
       caseName: tc.title,
@@ -147,10 +226,12 @@ export function CompileToExecutionDialog({
     setIsCompiling(true);
     try {
       let ticketId = targetTicketId;
+      let createdId: number | null = null;
       if (step === "new") {
         const selectedModuleNames = form.selectedModules
           .map((id) => modules.find((m: any) => m.id === id)?.name)
           .filter(Boolean) as string[];
+        const projectId = chosenMilestone?.projectId ?? (form.projectId ? Number(form.projectId) : undefined);
         const createRes = await fetch(`${getApiUrl()}/execution-files`, {
           method: "POST",
           headers,
@@ -163,8 +244,9 @@ export function CompileToExecutionDialog({
             selectedModules: selectedModuleNames.length ? selectedModuleNames.join(",") : undefined,
             selectedModuleIds: form.selectedModules.length ? form.selectedModules : undefined,
             tracker: form.tracker || undefined,
-            projectId: form.projectId ? Number(form.projectId) : undefined,
-            requirementId: form.requirementId ? Number(form.requirementId) : undefined,
+            projectId,
+            // The file is filed under the first ticked requirement; every row keeps its own.
+            requirementId: tickedReqIds[0] ?? undefined,
             milestoneId: form.milestoneId ? Number(form.milestoneId) : undefined,
           }),
         });
@@ -174,6 +256,7 @@ export function CompileToExecutionDialog({
         }
         const created = await createRes.json();
         ticketId = created.redmineTicketId;
+        createdId = created.id ?? null;
       }
       if (!ticketId) throw new Error("No target execution file");
 
@@ -225,7 +308,25 @@ export function CompileToExecutionDialog({
         const saveBody = await saveRes.json().catch(() => ({}));
         throw new Error(saveBody.error ?? `Server error ${saveRes.status}`);
       }
-      toast({ title: `${count} test case${count !== 1 ? "s" : ""} compiled into #${ticketId}` });
+
+      // Submit to Review: the same action as the file menu. A failure leaves the draft in place.
+      let submitError: string | null = null;
+      if (submitForReview && createdId != null) {
+        const subRes = await fetch(`${getApiUrl()}/execution-files/${createdId}/review`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ action: "submit" }),
+        });
+        if (!subRes.ok) submitError = (await subRes.json().catch(() => ({}))).error ?? `Server error ${subRes.status}`;
+      }
+      if (submitError) {
+        toast({ variant: "destructive", title: "Compiled as a draft, but not submitted", description: submitError });
+      } else {
+        toast({
+          title: `${count} test case${count !== 1 ? "s" : ""} compiled into #${ticketId}`,
+          description: step === "new" ? (submitForReview ? "Submitted for review." : "Saved as a draft.") : undefined,
+        });
+      }
       onOpenChange(false);
       onCompiled(String(ticketId));
     } catch (err: any) {
@@ -235,18 +336,27 @@ export function CompileToExecutionDialog({
     }
   };
 
-  const canCompileNew =
-    !!form.projectId &&
-    !!form.milestoneId &&
-    form.selectedModules.length > 0;
+  const hasRequirement = tickedReqIds.length > 0;
+  const canCompileNew = !!form.milestoneId && hasRequirement && tickedTcs.length > 0;
+  const newWhy = !form.milestoneId ? "Choose a milestone."
+    : !hasRequirement ? "Tick at least one requirement."
+    : tickedTcs.length === 0 ? "The ticked requirements have no test cases to add."
+    : "";
 
-  const lockedProjectName = lockProjectAndMilestone
-    ? projects.find((p: any) => String(p.id) === form.projectId)?.name
-    : null;
+  const projectName = projects.find((p: any) => String(p.id) === String(chosenMilestone?.projectId ?? form.projectId))?.name;
+  const primaryReq = reqById(tickedReqIds[0] ?? null);
+  const addOptions = (requirements as any[])
+    .filter((r: any) => !groups.some((g) => g.requirementId === r.id))
+    .map((r: any) => ({
+      value: String(r.id),
+      label: r.title,
+      keywords: r.redmineTicketId ?? undefined,
+      badge: form.milestoneId && r.milestoneId && String(r.milestoneId) !== form.milestoneId ? "Other milestone" : undefined,
+    }));
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { onOpenChange(false); setStep("mode"); setTargetTicketId(null); } }}>
-      <DialogContent className="sm:max-w-[520px] w-[95vw] flex flex-col max-h-[90vh]">
+      <DialogContent className="sm:max-w-[560px] w-[95vw] flex flex-col max-h-[90vh]">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <PackagePlus className="w-4 h-4 text-primary" />
@@ -262,7 +372,7 @@ export function CompileToExecutionDialog({
           {step === "mode" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Compiling <strong>{count}</strong> test case{count !== 1 ? "s" : ""} into an execution file.
+                Compiling <strong>{selectedTestCases.length}</strong> test case{selectedTestCases.length !== 1 ? "s" : ""} into an execution file.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
@@ -327,7 +437,7 @@ export function CompileToExecutionDialog({
               </div>
               {targetTicketId && (
                 <p className="text-xs text-muted-foreground">
-                  Selected: <span className="font-medium text-foreground">#{targetTicketId}</span>
+                  Selected: <span className="font-medium text-foreground">#{targetTicketId}</span>. The file keeps its review state.
                 </p>
               )}
             </div>
@@ -335,88 +445,87 @@ export function CompileToExecutionDialog({
 
           {step === "new" && (
             <div className="space-y-4">
-              <div className="space-y-1">
-                <Label>Redmine Ticket ID <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                <Input
-                  placeholder="e.g. 38032"
-                  value={form.redmineTicketId}
-                  onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value.replace(/\D/g, "") })}
-                />
-                {!form.redmineTicketId.trim() && (
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank for a run with no Redmine ticket — an internal reference is generated instead.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label>Title</Label>
-                <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <Label>Requirement <span className="text-xs text-muted-foreground">(optional — auto-fills Project &amp; Module)</span></Label>
-                <SearchableSelect
-                  value={form.requirementId}
-                  onValueChange={(v) => {
-                    const req = requirements.find((r: any) => r.id === Number(v)) as any;
-                    const matchedMod = req?.module ? modules.find((m: any) => m.name === req.module) : null;
-                    setForm({
-                      ...form,
-                      requirementId: v,
-                      projectId: lockProjectAndMilestone
-                        ? form.projectId
-                        : req?.projectId ? String(req.projectId) : form.projectId,
-                      milestoneId: lockProjectAndMilestone
-                        ? form.milestoneId
-                        : req?.milestoneId ? String(req.milestoneId) : form.milestoneId,
-                      tracker: req?.tracker ?? form.tracker,
-                      selectedModules: matchedMod ? [matchedMod.id] : form.selectedModules,
-                    });
-                  }}
-                  options={[
-                    { value: "", label: "None" },
-                    ...requirements.map((r: any) => ({ value: String(r.id), label: r.title, keywords: r.redmineTicketId })),
-                  ]}
-                  placeholder="Search requirement..."
-                  searchPlaceholder="Search by title or Redmine ID..."
-                />
-              </div>
-
+              {/* Milestone first (required); locked when compiling from a pipeline */}
               {lockProjectAndMilestone ? (
                 <div className="space-y-1">
-                  <Label>Project</Label>
+                  <Label>Milestone</Label>
                   <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border">
-                    {lockedProjectName ?? "—"}
+                    {chosenMilestone?.name ?? "—"}
                     <span className="text-xs text-muted-foreground ml-2">(from this pipeline)</span>
                   </p>
                 </div>
               ) : (
-                <>
-                  <div className="space-y-1">
-                    <Label>Project <span className="text-destructive">*</span></Label>
-                    <SearchableSelect
-                      value={form.projectId}
-                      onValueChange={(v) => setForm({ ...form, projectId: v, milestoneId: "" })}
-                      options={[
-                        { value: "", label: "Select project..." },
-                        ...projects.map((p: any) => ({ value: String(p.id), label: p.name })),
-                      ]}
-                      placeholder="Search project..."
-                    />
-                  </div>
-                  {form.projectId && (
-                    <MilestonePicker
-                      projectId={form.projectId}
-                      token={token}
-                      value={form.milestoneId}
-                      onChange={(v) => setForm({ ...form, milestoneId: v })}
-                      required
-                    />
-                  )}
-                </>
+                <div className="space-y-1">
+                  <Label>Milestone <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.milestoneId}
+                    onValueChange={(v) => { setMilestoneTouched(true); setForm({ ...form, milestoneId: v }); }}
+                    options={allMilestones.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                    placeholder="Select milestone..."
+                    searchPlaceholder="Search milestones..."
+                  />
+                  <p className="text-xs text-muted-foreground">Starts at the first ticked requirement's milestone.</p>
+                </div>
               )}
 
+              {/* Requirements the selected test cases belong to, all ticked */}
+              <div className="space-y-2">
+                <Label>
+                  Requirements <span className="text-destructive">*</span>{" "}
+                  <span className="text-xs text-muted-foreground font-normal">from the selected test cases</span>
+                </Label>
+                <div className="border rounded-md p-1.5 space-y-0.5">
+                  {groups.map((g) => {
+                    const r = reqById(g.requirementId);
+                    const otherMs = r && form.milestoneId && r.milestoneId && String(r.milestoneId) !== form.milestoneId;
+                    return (
+                      <label key={g.key} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-2 py-1 rounded">
+                        <input type="checkbox" className="rounded border-gray-300" checked={g.on} onChange={(e) => toggleGroup(g.key, e.target.checked)} />
+                        <span className="flex-1 min-w-0 truncate">
+                          {r ? r.title : <em className="text-muted-foreground">No requirement</em>}
+                          {r?.redmineTicketId && <span className="ml-1.5 text-xs text-muted-foreground">#{r.redmineTicketId}</span>}
+                        </span>
+                        {otherMs && <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300">another milestone</Badge>}
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {g.tcs.length} test case{g.tcs.length !== 1 ? "s" : ""}{g.added ? (g.tcs.length ? " from the library" : ", link only") : ""}
+                        </span>
+                        {g.added && (
+                          <button type="button" aria-label="Remove requirement" className="text-muted-foreground hover:text-destructive" onClick={(e) => { e.preventDefault(); removeGroup(g.key); }}>
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <SearchableSelect
+                      value=""
+                      onValueChange={(v) => addRequirement(Number(v))}
+                      options={addOptions}
+                      disabled={addingReqId != null}
+                      placeholder="Add another requirement..."
+                      searchPlaceholder="Search by title or Redmine ID..."
+                    />
+                  </div>
+                  {addingReqId != null && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Untick a requirement to leave its test cases out. An added requirement brings the test cases linked to it in the library.
+                  {primaryReq && tickedReqIds.length > 1 && ` The file is filed under "${primaryReq.title}"; every test case keeps its own requirement.`}
+                </p>
+              </div>
+
               <div className="space-y-1">
-                <Label>Module <span className="text-destructive">*</span></Label>
+                <Label>Project <span className="text-xs text-muted-foreground font-normal">(read-only)</span></Label>
+                <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
+                  {projectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Module</Label>
                 <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1">
                   {modules.length === 0
                     ? <p className="text-sm text-muted-foreground text-center py-2">No modules available.</p>
@@ -439,7 +548,7 @@ export function CompileToExecutionDialog({
                   }
                 </div>
                 {form.selectedModules.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{form.selectedModules.length} module(s) selected</p>
+                  <p className="text-xs text-muted-foreground">{form.selectedModules.length} module(s) selected, from the test cases. You can change them.</p>
                 )}
               </div>
               <div className="space-y-1">
@@ -458,40 +567,65 @@ export function CompileToExecutionDialog({
                   searchPlaceholder="Search tracker..."
                 />
               </div>
+
+              <div className="space-y-1">
+                <Label>Title</Label>
+                <Input value={form.title} onChange={(e) => { setTitleTouched(true); setForm({ ...form, title: e.target.value }); }} />
+                <p className="text-xs text-muted-foreground">Starts as the milestone name. You can change it.</p>
+              </div>
+              <div className="space-y-1">
+                <Label>Redmine Ticket ID <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                <Input
+                  placeholder="e.g. 38032"
+                  value={form.redmineTicketId}
+                  onChange={(e) => { setTicketTouched(true); setForm({ ...form, redmineTicketId: e.target.value.replace(/\D/g, "") }); }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {form.redmineTicketId.trim()
+                    ? "Filled from the requirement. You can clear or change it."
+                    : tickedReqIds.length > 1
+                      ? "Several requirements, so none is filled. Enter the ticket this file belongs to, or leave blank for an internal reference."
+                      : "Left blank, the file gets an internal INT- reference."}
+                </p>
+              </div>
               <div className="space-y-1">
                 <Label>Remarks</Label>
                 <Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
               </div>
-              <div className="pt-1">
-                <Button className="w-full gap-2" onClick={handleConfirm} disabled={!canCompileNew || isCompiling}>
-                  {isCompiling
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating &amp; Compiling...</>
-                    : <><PackagePlus className="w-4 h-4" /> Compile {count} test case{count !== 1 ? "s" : ""}</>
-                  }
-                </Button>
-              </div>
+              <p className="rounded-md bg-primary/5 px-3 py-2 text-sm">
+                {tickedTcs.length} test case{tickedTcs.length !== 1 ? "s" : ""} will be added to the new file.
+              </p>
             </div>
           )}
         </div>
 
-        <DialogFooter className="shrink-0 border-t pt-3 gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (step === "mode") onOpenChange(false);
-              else { setStep("mode"); setTargetTicketId(null); }
-            }}
-            disabled={isCompiling}
-          >
-            {step === "mode" ? "Cancel" : "Back"}
+        <DialogFooter className="shrink-0 border-t pt-3 gap-2 sm:items-center">
+          {step === "new" && newWhy && <span className="mr-auto text-xs text-muted-foreground">{newWhy}</span>}
+          {step !== "mode" && (
+            <Button variant="ghost" onClick={() => { setStep("mode"); setTargetTicketId(null); }} disabled={isCompiling}>
+              Back
+            </Button>
+          )}
+          <Button variant={step === "mode" ? "ghost" : "outline"} onClick={() => onOpenChange(false)} disabled={isCompiling}>
+            Cancel
           </Button>
           {step === "existing" && (
-            <Button onClick={handleConfirm} disabled={!targetTicketId || isCompiling} className="gap-2">
+            <Button onClick={() => handleConfirm(false)} disabled={!targetTicketId || isCompiling} className="gap-2">
               {isCompiling
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Compiling...</>
                 : <><PackagePlus className="w-4 h-4" /> Compile {count} test case{count !== 1 ? "s" : ""}</>
               }
             </Button>
+          )}
+          {step === "new" && (
+            <>
+              <Button variant="outline" onClick={() => handleConfirm(false)} disabled={!canCompileNew || isCompiling}>
+                {isCompiling ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save as Draft"}
+              </Button>
+              <Button onClick={() => handleConfirm(true)} disabled={!canCompileNew || isCompiling}>
+                Submit to Review
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
