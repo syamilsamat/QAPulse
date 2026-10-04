@@ -39,7 +39,7 @@ export const defectsTable = pgTable(
     syncStatus: text("sync_status").notNull().default("pending"), // pending | synced | error
     syncError: text("sync_error"),
     source: text("source").notNull().default("qa"), // qa | production
-    foundIn: text("found_in").notNull().default("SIT"), // SIT | UAT | Production
+    foundIn: text("found_in").notNull().default("System Testing"), // System Testing | SIT | UAT | Production (| Development for requirement defects)
     // Actual Redmine tracker name — "other" trackers land in the QA list for
     // now but keep their real tracker recorded (Sync from Redmine dialog)
     tracker: text("tracker"),
