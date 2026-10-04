@@ -14,6 +14,8 @@ export const milestonesTable = pgTable("milestones", {
   reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
+  // CR106 — SIT sits between QA (System Testing) and UAT, with its own date.
+  sitTargetDate: timestamp("sit_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
   // Planned go-live (deployment) date — the last phase marker, set by the
   // PM. Plan-only: there is no activity-log event stream behind it, so it
@@ -23,6 +25,8 @@ export const milestonesTable = pgTable("milestones", {
   environment: text("environment"),
   // QA Pipeline additions
   requiresUat: boolean("requires_uat").notNull().default(false),
+  // CR106 — like requiresUat: switches the SIT phase (date, sign-off, status) on for this milestone.
+  requiresSit: boolean("requires_sit").notNull().default(false),
   pipelineStep: integer("pipeline_step"),
   pipelineEnabled: boolean("pipeline_enabled").notNull().default(false),
   signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
@@ -95,6 +99,8 @@ export const uatSignoffsTable = pgTable("uat_signoffs", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull(),
   milestoneId: integer("milestone_id").notNull(),
+  // CR106 — which phase this sign-off document belongs to: 'sit' or 'uat' (everything stored before is 'uat').
+  phase: text("phase").notNull().default("uat"),
   fileName: text("file_name").notNull(),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),

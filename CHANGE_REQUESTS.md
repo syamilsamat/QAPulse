@@ -89,7 +89,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR103](#cr103--assigned-milestones-in-my-work) | Assigned Milestones in My Work | 🚧 Built, not deployed | 2026-10-02 |
 | [CR104](#cr104--create-view-and-edit-requirements-without-leaving-the-milestone-page) | Create, View and Edit Requirements Without Leaving the Milestone Page | 🚧 Built, not deployed | 2026-10-02 |
 | [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
-| [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 📋 Planned | 2026-10-04 |
+| [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
 
 ---
 
@@ -2329,7 +2329,11 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR106 — SIT Testing Phase on the Milestone
-**Status: 📋 Planned** (raised 2026-10-04, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-04)
+
+**Built:** (database, created at server start) milestones get a SIT date and a Requires SIT flag, the sign-off table gets a phase column ("uat" for everything stored, "sit" for new SIT documents); a new milestone starts with both SIT and UAT required (data preparation neither), an existing milestone keeps its flags (SIT off), and switching a phase off clears its date on the server and in the forms. **Forms:** the Milestones page, the QA Pipeline create (Step 1) and edit forms show Requires SIT and Requires UAT checkboxes with their dates ("QA done by" is now "System Testing done by", "UAT done by" / "SIT done by"); the milestone page and PM Dashboard date strips list the SIT date. **Status:** a new `sit` status between verified and uat (status lists, badges, ranks); completion waits for every required phase (System Testing always, SIT and UAT only if required). **Pipeline:** the rail step 7 is "SIT & UAT Sign-offs" and is skipped only when neither is required; Step 6 picks the next step and wording from both; Step 7 shows a SIT card and a UAT card, each with its own upload (the UAT BDD panel stays under UAT); the gate checks gain "SIT sign-off document uploaded"; the pipeline step states and the Tasks board's pipeline progress include the SIT gate. **Sign-offs page:** retitled SIT & UAT Sign-offs (menu and role list too), a Phase column and a SIT/UAT choice on upload, and the pipeline links straight to the right phase. **Execution files:** a new file type SIT in the New Test Case File dialog and (outside a pipeline) the Compile dialog; SIT results are kept out of the System Testing and UAT tallies; Found in follows the file type (CR105). Milestone-edit notifications and My Work due dates list the SIT date.
+
+**Not covered (follow-ups):** the PM Dashboard's phase timeline and planned-days chart, and the requirement phase timeline, still show Requirements, Development, Testing and UAT only (SIT is not a separate segment there); the "UAT milestone ready" notification at 80% pass is not repeated for SIT files; SIT execution files are listed on the execution page but have no pipeline step of their own beyond the sign-off. Not run against a database or in a browser.
 
 **Origin:** user clarification — Bestinet runs three testing phases: System Testing, SIT and UAT. SIT is treated like UAT.
 

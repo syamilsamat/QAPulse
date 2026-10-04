@@ -1552,7 +1552,7 @@ export default function TestCasesExecution() {
             <div className="space-y-1">
               <Label>File Type</Label>
               <div className="flex gap-2">
-                {[{ v: "qa", label: "QA Testing" }, { v: "uat", label: "UAT" }].map(opt => (
+                {[{ v: "qa", label: "System Testing" }, { v: "sit", label: "SIT" }, { v: "uat", label: "UAT" }].map(opt => (
                   <button
                     key={opt.v}
                     type="button"

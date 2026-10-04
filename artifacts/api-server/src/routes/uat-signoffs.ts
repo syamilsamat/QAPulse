@@ -37,6 +37,8 @@ router.get("/uat-signoffs", async (req, res): Promise<void> => {
   }
   const milestoneId = req.query.milestoneId ? Number(req.query.milestoneId) : null;
   if (milestoneId != null && Number.isNaN(milestoneId)) { res.status(400).json({ error: "Invalid milestoneId" }); return; }
+  // CR106 — ?phase=sit|uat narrows to one phase's documents
+  const phaseFilter = req.query.phase === "sit" || req.query.phase === "uat" ? String(req.query.phase) : null;
 
   const rows = await db
     .select({
@@ -45,6 +47,7 @@ router.get("/uat-signoffs", async (req, res): Promise<void> => {
       projectName: projectsTable.name,
       milestoneId: uatSignoffsTable.milestoneId,
       milestoneName: milestonesTable.name,
+      phase: uatSignoffsTable.phase,
       fileName: uatSignoffsTable.fileName,
       mimeType: uatSignoffsTable.mimeType,
       sizeBytes: uatSignoffsTable.sizeBytes,
@@ -62,6 +65,7 @@ router.get("/uat-signoffs", async (req, res): Promise<void> => {
   const visible = rows.filter(r =>
     (projectId == null || r.projectId === projectId) &&
     (milestoneId == null || r.milestoneId === milestoneId) &&
+    (phaseFilter == null || r.phase === phaseFilter) &&
     (accessible === null || accessible.includes(r.projectId)),
   );
   res.json(visible.map(r => ({ ...r, createdAt: r.createdAt.toISOString() })));
@@ -74,6 +78,8 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
   if (!UPLOAD_ROLES.includes(ctx.role)) { res.status(403).json({ error: "Lead role or above required" }); return; }
 
   const { milestoneId, fileName, mimeType, dataBase64, note } = req.body ?? {};
+  // CR106 — SIT has its own sign-off document; anything else is UAT, as before.
+  const phase = req.body?.phase === "sit" ? "sit" : "uat";
   if (!milestoneId || !fileName || !dataBase64) {
     res.status(400).json({ error: "milestoneId, fileName and dataBase64 are required" }); return;
   }
@@ -93,6 +99,7 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
   const [row] = await db.insert(uatSignoffsTable).values({
     projectId: m.projectId,
     milestoneId: m.id,
+    phase,
     fileName: String(fileName).replace(/[\r\n]/g, " ").slice(0, 255),
     mimeType: String(mimeType ?? "application/octet-stream").slice(0, 150),
     sizeBytes,
@@ -104,7 +111,7 @@ router.post("/uat-signoffs", async (req, res): Promise<void> => {
 
   await logActivity({
     type: "uat_signoff_uploaded",
-    description: `UAT sign-off "${fileName}" uploaded for milestone "${m.name}"`,
+    description: `${phase.toUpperCase()} sign-off "${fileName}" uploaded for milestone "${m.name}"`,
     userId: ctx.userId,
     entityId: m.id,
     entityType: "milestone",
@@ -154,7 +161,7 @@ router.delete("/uat-signoffs/:id", async (req, res): Promise<void> => {
   await db.delete(uatSignoffsTable).where(eq(uatSignoffsTable.id, id));
   await logActivity({
     type: "uat_signoff_deleted",
-    description: `UAT sign-off "${row.fileName}" deleted`,
+    description: `${(row.phase ?? "uat").toUpperCase()} sign-off "${row.fileName}" deleted`,
     userId: ctx.userId,
     entityId: row.milestoneId,
     entityType: "milestone",

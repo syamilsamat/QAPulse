@@ -539,7 +539,7 @@ async function cascadeRequirementMilestoneMove(
       const sourceFile = sourceFileById.get(rows[0].executionFileId);
       const [created] = await db.insert(executionFilesTable).values({
         redmineTicketId: `MS${newMilestoneId}-${fileType.toUpperCase()}`,
-        title: fileType === "uat" ? `UAT — ${newMilestone.name}` : newMilestone.name,
+        title: fileType === "uat" ? `UAT — ${newMilestone.name}` : fileType === "sit" ? `SIT — ${newMilestone.name}` : newMilestone.name,
         projectId: fallbackProjectId ?? sourceFile?.projectId ?? null,
         milestoneId: newMilestoneId,
         fileType,

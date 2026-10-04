@@ -112,6 +112,17 @@ async function migratePipelineOwnerColumns(): Promise<void> {
   }
 }
 
+// CR106 — the sign-off table predates the SIT phase; existing databases get the
+// phase column here (a brand-new database already has it from its CREATE TABLE).
+async function addSignoffPhaseColumn(): Promise<void> {
+  try {
+    await pool.query(`ALTER TABLE uat_signoffs ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'uat'`);
+  } catch (e) {
+    // No sign-off table yet means a new database, whose CREATE TABLE includes the column.
+    console.warn("[bootstrap] sign-off phase column skipped:", (e as Error)?.message);
+  }
+}
+
 // CR105 — every defect saved as "SIT" so far came from QA execution, which was
 // System Testing. Relabel them once. The guard row is written in the same
 // transaction as the update, so the relabel can never run a second time: after
@@ -266,6 +277,7 @@ export async function bootstrap() {
     migratePipelineOwnerColumns(),
     dedupeAndIndexDefectRedmineIds(),
     relabelOldSitDefectsAsSystemTesting(),
+    addSignoffPhaseColumn(),
     compactExecutionTcNumbering(),
 
     pool.query(`
@@ -611,6 +623,9 @@ export async function bootstrap() {
     // QA Pipeline — sign-off snapshot (Full / Conditional and the counts it
     // was based on), frozen at sign-off time. See PATCH /milestones/:id.
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_type TEXT`),
+    // CR106 — SIT phase: its own date and switch (existing milestones start with SIT off).
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS sit_target_date TIMESTAMPTZ`),
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS requires_sit BOOLEAN NOT NULL DEFAULT FALSE`),
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_failed_count INTEGER`),
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_total_count INTEGER`),
     // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
@@ -751,6 +766,7 @@ export async function bootstrap() {
         id SERIAL PRIMARY KEY,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        phase TEXT NOT NULL DEFAULT 'uat',
         file_name TEXT NOT NULL,
         mime_type TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,

@@ -59,7 +59,7 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
     enabled: !!milestoneId,
   });
 
-  const { data: uatFiles = [], isLoading } = useQuery({
+  const { data: signoffFiles = [], isLoading } = useQuery({
     queryKey: ["uat-signoffs", milestoneId],
     queryFn: async () => {
       const res = await api(`/uat-signoffs?milestoneId=${milestoneId}`, token);
@@ -90,10 +90,13 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
     }
   };
 
-  const hasUatFiles = uatFiles.length > 0;
-  // This milestone was configured without a UAT sign-off phase (Step 1's
-  // "Requires UAT Sign-off?"), so the whole step is not applicable.
-  const uatNotRequired = !!milestone && !milestone.requiresUat;
+  // CR106 — SIT and UAT each have their own sign-off documents; older rows are UAT.
+  const sitFiles = (signoffFiles as any[]).filter((f) => f.phase === "sit");
+  const uatFiles = (signoffFiles as any[]).filter((f) => f.phase !== "sit");
+  const hasUatFiles = signoffFiles.length > 0;
+  // This milestone was configured with neither a SIT nor a UAT sign-off phase
+  // (Step 1's "Requires SIT / UAT Sign-off?"), so the whole step is not applicable.
+  const uatNotRequired = !!milestone && !milestone.requiresUat && !milestone.requiresSit;
 
   // Open the document for review in a new tab. Fetched as a blob rather than
   // linked directly because the endpoint needs the bearer token — PDFs and
@@ -130,9 +133,9 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
           <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-muted flex items-center justify-center">
             <CircleSlash className="w-7 h-7 sm:w-8 sm:h-8 text-muted-foreground" />
           </div>
-          <h3 className="text-xl sm:text-2xl font-semibold text-muted-foreground">UAT Sign-off Not Required</h3>
+          <h3 className="text-xl sm:text-2xl font-semibold text-muted-foreground">SIT and UAT Sign-off Not Required</h3>
           <p className="text-sm sm:text-base text-muted-foreground max-w-md">
-            <span className="font-medium text-foreground">{milestone?.name}</span> was set up without a UAT phase, so
+            <span className="font-medium text-foreground">{milestone?.name}</span> was set up without SIT or UAT phases, so
             there's nothing to upload or sign off here. This step is complete by definition — continue to Step 8 to
             close out the milestone.
           </p>
@@ -140,9 +143,9 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
 
         <Card className="border-dashed">
           <CardContent className="p-4 sm:p-6 text-left space-y-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Need UAT after all?</p>
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Need SIT or UAT after all?</p>
             <p className="text-sm text-muted-foreground">
-              Turn on <span className="font-medium text-foreground">Requires UAT Sign-off?</span> in this milestone's
+              Turn on <span className="font-medium text-foreground">Requires SIT or UAT Sign-off?</span> in this milestone's
               settings and this step will open up for document upload. Step 8 will then also expect a signed document
               before the milestone can be marked as deployed.
             </p>
@@ -154,7 +157,7 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="w-4 h-4 text-muted-foreground" />
-                Documents already on record ({uatFiles.length})
+                Documents already on record ({signoffFiles.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -162,12 +165,12 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
                 Uploaded while UAT was still required. Kept for the audit trail — review only.
               </p>
               <div className="border rounded-md divide-y max-h-56 overflow-y-auto overflow-x-hidden text-left">
-                {(uatFiles as any[]).map((f) => (
+                {(signoffFiles as any[]).map((f) => (
                   <div key={f.id} className="p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2">
                     <div className="min-w-0 flex items-start gap-2">
                       <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium break-all" title={f.fileName}>{stripFileExtension(f.fileName)}</p>
+                        <p className="text-sm font-medium break-all" title={f.fileName}>{stripFileExtension(f.fileName)} <span className="text-xs font-normal text-muted-foreground">({f.phase === "sit" ? "SIT" : "UAT"})</span></p>
                         <p className="text-xs text-muted-foreground">
                           {f.uploaderName ?? "Unknown"} · {new Date(f.createdAt).toLocaleDateString()}
                           {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
@@ -187,73 +190,81 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
     );
   }
 
+  const showSit = !!milestone?.requiresSit;
+  const showUat = !!milestone?.requiresUat;
+  const phaseCard = (phase: "sit" | "uat", label: string, files: any[]) => (
+    <Card key={phase}>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Upload className={`w-5 h-5 ${phase === "sit" ? "text-indigo-500" : "text-blue-500"}`} />
+          {label} Sign-off Documents
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="py-4 text-center"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></div>
+        ) : files.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No {label} sign-off documents uploaded for this milestone yet.
+          </p>
+        ) : (
+          <div className="border rounded-md divide-y max-h-56 overflow-y-auto overflow-x-hidden">
+            {files.map((f) => (
+              <div key={f.id} className="p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2">
+                <div className="min-w-0 flex items-start gap-2">
+                  <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium break-all" title={f.fileName}>{stripFileExtension(f.fileName)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {f.uploaderName ?? "Unknown"} · {new Date(f.createdAt).toLocaleDateString()}
+                      {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" className="shrink-0 self-start sm:self-auto -ml-1 sm:ml-0" onClick={() => handleReview(f)}>
+                  <Eye className="w-3.5 h-3.5 mr-1" /> Review
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => setLocation(`/uat-signoffs?milestoneId=${milestoneId}&phase=${phase}`)}
+          disabled={locked}
+        >
+          <Upload className="w-4 h-4 mr-2" />
+          Upload {label} Documents
+        </Button>
+        <p className="text-xs text-muted-foreground text-center">
+          {locked
+            ? "Uploads are closed — this pipeline is completed."
+            : "Supports PDF, Word, JPEG and PNG (max 15 MB)."}
+        </p>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className={`w-full max-w-4xl mx-auto space-y-6 sm:space-y-8 ${bddEnabled ? "text-left" : "text-center"}`}>
       <div>
         <h3 className="text-lg sm:text-xl font-semibold">
-          {bddEnabled ? "UAT Sign-off & BDD Scenarios" : "UAT Sign-off"}
+          {bddEnabled && showUat ? "SIT & UAT Sign-offs and BDD Scenarios" : "SIT & UAT Sign-offs"}
         </h3>
         <p className="text-sm sm:text-base text-muted-foreground mt-1">
-          {bddEnabled
-            ? "Upload official UAT sign-off documents and optionally convert BDD (Gherkin) scenarios into regression test cases."
-            : "Upload the official UAT sign-off documents for this milestone."}
+          {bddEnabled && showUat
+            ? "Upload the official sign-off for each phase this milestone requires, and optionally convert BDD (Gherkin) scenarios into regression test cases."
+            : "Upload the official sign-off documents for each phase this milestone requires."}
         </p>
       </div>
 
-      <div className={bddEnabled ? "grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6" : "max-w-md mx-auto text-left"}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Upload className="w-5 h-5 text-blue-500" />
-              UAT Sign-off Documents
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isLoading ? (
-              <div className="py-4 text-center"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></div>
-            ) : !hasUatFiles ? (
-              <p className="text-sm text-muted-foreground">
-                No UAT sign-off documents uploaded for this milestone yet.
-              </p>
-            ) : (
-              <div className="border rounded-md divide-y max-h-56 overflow-y-auto overflow-x-hidden">
-                {(uatFiles as any[]).map((f) => (
-                  <div key={f.id} className="p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2">
-                    <div className="min-w-0 flex items-start gap-2">
-                      <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium break-all" title={f.fileName}>{stripFileExtension(f.fileName)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {f.uploaderName ?? "Unknown"} · {new Date(f.createdAt).toLocaleDateString()}
-                          {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <Button size="sm" variant="ghost" className="shrink-0 self-start sm:self-auto -ml-1 sm:ml-0" onClick={() => handleReview(f)}>
-                      <Eye className="w-3.5 h-3.5 mr-1" /> Review
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setLocation(`/uat-signoffs?milestoneId=${milestoneId}`)}
-              disabled={locked}
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload UAT Documents
-            </Button>
-            <p className="text-xs text-muted-foreground text-center">
-              {locked
-                ? "Uploads are closed — this pipeline is completed."
-                : "Supports PDF, Word, JPEG and PNG (max 15 MB)."}
-            </p>
-          </CardContent>
-        </Card>
+      <div className={bddEnabled && showUat ? "grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6" : "max-w-md mx-auto text-left space-y-4 sm:space-y-6"}>
+        {showSit && phaseCard("sit", "SIT", sitFiles)}
+        {showUat && phaseCard("uat", "UAT", uatFiles)}
 
-        {bddEnabled && (
+        {/* BDD scenarios are acceptance work, so they stay with UAT. */}
+        {bddEnabled && showUat && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">

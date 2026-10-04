@@ -12,7 +12,8 @@ const FIELDS: [key: string, label: string, kind: "text" | "date"][] = [
   ["startDate", "start date", "date"],
   ["reqTargetDate", "requirements date", "date"],
   ["devTargetDate", "dev date", "date"],
-  ["qaTargetDate", "QA date", "date"],
+  ["qaTargetDate", "System Testing date", "date"],
+  ["sitTargetDate", "SIT date", "date"],
   ["uatTargetDate", "UAT date", "date"],
   ["goLiveDate", "go-live date", "date"],
 ];
