@@ -38,8 +38,9 @@ const STATUS_RANK: Record<string, number> = {
   planned: 0,
   active: 1,
   verified: 2,
-  uat: 3,
-  completed: 4,
+  sit: 3,
+  uat: 4,
+  completed: 5,
   cancelled: 99, // never auto-touched, but ranked highest so nothing "advances" past it
 };
 
@@ -57,6 +58,9 @@ async function computeTargetStatus(m: typeof milestonesTable.$inferSelect): Prom
     // "Mark Milestone as DEPLOYED" action at Step 8, which is gated on every
     // earlier step. Auto-completing on sign-off used to lock the pipeline
     // before Step 8's checklist and artifacts could ever be used.
+    // After functional sign-off the milestone works through the phases it requires:
+    // SIT until its sign-off document is in, then UAT.
+    if (m.signedOffAt && m.requiresSit && f.sitDocCount === 0) return "sit";
     if (m.signedOffAt && m.requiresUat) return "uat";
     if (m.signedOffAt || (allFilesApproved && allExecuted)) return "verified";
     return "active";
@@ -70,18 +74,25 @@ async function computeTargetStatus(m: typeof milestonesTable.$inferSelect): Prom
     .limit(1);
   if (!approvedReq) return null; // still 'planned' — nothing past FA review yet
 
-  const [qaRollup, uatRollup] = await Promise.all([
+  const [qaRollup, sitRollup, uatRollup] = await Promise.all([
     rollupExecutionByMilestone([m.id], "qa"),
+    rollupExecutionByMilestone([m.id], "sit"),
     rollupExecutionByMilestone([m.id], "uat"),
   ]);
   const qa = qaRollup.get(m.id);
+  const sit = sitRollup.get(m.id);
   const uat = uatRollup.get(m.id);
   const qaAllPassed = !!qa && qa.tcCount > 0 && qa.failed === 0 && qa.blocked === 0 && qa.notRun === 0;
   const uatAllPassed = !!uat && uat.tcCount > 0 && uat.failed === 0 && uat.blocked === 0 && uat.notRun === 0;
   const uatStarted = !!uat && uat.tcCount > 0;
+  const sitAllPassed = !!sit && sit.tcCount > 0 && sit.failed === 0 && sit.blocked === 0 && sit.notRun === 0;
+  const sitStarted = !!sit && sit.tcCount > 0;
 
-  if (qaAllPassed && (!m.requiresUat || uatAllPassed)) return "completed";
-  if (qaAllPassed && m.requiresUat && uatStarted && !uatAllPassed) return "uat";
+  // A milestone completes when every phase it requires has passed: System
+  // Testing always, SIT and UAT only when switched on (CR106).
+  if (qaAllPassed && (!m.requiresSit || sitAllPassed) && (!m.requiresUat || uatAllPassed)) return "completed";
+  if (qaAllPassed && m.requiresUat && uatStarted) return "uat";
+  if (qaAllPassed && m.requiresSit && sitStarted) return "sit";
   if (qaAllPassed) return "verified";
   return "active";
 }

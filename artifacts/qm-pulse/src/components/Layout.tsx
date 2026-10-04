@@ -705,7 +705,7 @@ isPipelineFlow: true,
   },
   {
     href: "/uat-signoffs",
-    label: "UAT Sign-offs",
+    label: "SIT & UAT Sign-offs",
     icon: FileCheck2,
     activeColor: "text-teal-500",
     roles: ["hod_pm", "pm_lead", "pm_member", "qa_manager", "hod_qa", "qa_lead", "admin", "cto"],

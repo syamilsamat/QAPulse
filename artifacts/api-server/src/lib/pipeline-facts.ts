@@ -44,6 +44,7 @@ export interface PipelineFacts {
   executedRows: number;
   failedRows: number;
   uatDocCount: number;
+  sitDocCount: number;
 }
 
 const resultExpr = sql`lower(trim(coalesce(${executionTestCasesTable.result}, '')))`;
@@ -72,8 +73,11 @@ export async function loadPipelineFacts(milestoneId: number): Promise<PipelineFa
         ))
     : [{ total: 0, executed: 0, failed: 0 }];
 
-  const uatDocs = await db.select({ id: uatSignoffsTable.id })
+  const signoffDocs = await db.select({ id: uatSignoffsTable.id, phase: uatSignoffsTable.phase })
     .from(uatSignoffsTable).where(eq(uatSignoffsTable.milestoneId, milestoneId));
+  // CR106 — SIT and UAT each have their own sign-off document (older rows are UAT).
+  const uatDocs = signoffDocs.filter((d) => (d.phase ?? "uat") !== "sit");
+  const sitDocs = signoffDocs.filter((d) => d.phase === "sit");
 
   return {
     reqs,
@@ -85,6 +89,7 @@ export async function loadPipelineFacts(milestoneId: number): Promise<PipelineFa
     executedRows: tally?.executed ?? 0,
     failedRows: tally?.failed ?? 0,
     uatDocCount: uatDocs.length,
+    sitDocCount: sitDocs.length,
   };
 }
 
@@ -161,7 +166,17 @@ export function computeDeployChecks(m: Milestone, f: PipelineFacts, signerName: 
         : "Awaiting formal QA sign-off",
     },
   ];
-  // UAT is only a gate when the milestone was configured to require it.
+  // SIT and UAT are only gates when the milestone was configured to require them.
+  if (m.requiresSit) {
+    checks.push({
+      step: 7,
+      label: "SIT sign-off document uploaded",
+      ok: f.sitDocCount > 0,
+      detail: f.sitDocCount > 0
+        ? `${f.sitDocCount} SIT document(s) on record`
+        : "No SIT sign-off document uploaded",
+    });
+  }
   if (m.requiresUat) {
     checks.push({
       step: 7,

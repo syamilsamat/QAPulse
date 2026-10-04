@@ -26,6 +26,8 @@ interface CompileNewForm {
   milestoneId: string;
   tracker: string;
   selectedModules: number[];
+  /** qa (System Testing), sit or uat. */
+  fileType: string;
 }
 
 const EMPTY_FORM: CompileNewForm = {
@@ -36,6 +38,7 @@ const EMPTY_FORM: CompileNewForm = {
   milestoneId: "",
   tracker: "",
   selectedModules: [],
+  fileType: "qa",
 };
 
 // CR097 — the requirements the compiled test cases belong to, each with the
@@ -249,6 +252,7 @@ export function CompileToExecutionDialog({
             // The file is filed under the first ticked requirement; every row keeps its own.
             requirementId: tickedReqIds[0] ?? undefined,
             milestoneId: form.milestoneId ? Number(form.milestoneId) : undefined,
+            fileType: form.fileType,
           }),
         });
         if (!createRes.ok) {
@@ -568,6 +572,25 @@ export function CompileToExecutionDialog({
                   searchPlaceholder="Search tracker..."
                 />
               </div>
+
+              {/* A pipeline's Step 3 files are always System Testing, so the choice is only offered elsewhere. */}
+              {!lockProjectAndMilestone && (
+                <div className="space-y-1">
+                  <Label>File type</Label>
+                  <div className="flex gap-2">
+                    {[{ v: "qa", label: "System Testing" }, { v: "sit", label: "SIT" }, { v: "uat", label: "UAT" }].map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        onClick={() => setForm({ ...form, fileType: opt.v })}
+                        className={`flex-1 rounded border py-2 text-sm font-medium transition-colors ${form.fileType === opt.v ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted"}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <Label>Title</Label>

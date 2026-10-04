@@ -27,6 +27,7 @@ type Milestone = {
   reqTargetDate: string | null;
   devTargetDate: string | null;
   qaTargetDate: string | null;
+  sitTargetDate?: string | null;
   uatTargetDate: string | null;
   goLiveDate: string | null;
   pipelineEnabled: boolean;
@@ -47,7 +48,7 @@ type Req = {
 type Activity = { id: number; description: string; userName: string | null; createdAt: string };
 
 const TYPE_LABEL: Record<string, string> = { cr: "Change Request", phase: "Phase", sprint: "Sprint", release: "Release", data_prep: "Data Prep" };
-const STATUS_LABEL: Record<string, string> = { planned: "Planned", active: "Active", verified: "Verified", uat: "UAT", completed: "Completed", cancelled: "Cancelled" };
+const STATUS_LABEL: Record<string, string> = { planned: "Planned", active: "Active", verified: "Verified", sit: "SIT", uat: "UAT", completed: "Completed", cancelled: "Cancelled" };
 const REVIEW_LABEL: Record<string, string> = { draft: "Draft", in_review: "In review", approved: "Approved", rejected: "Returned" };
 const REVIEW_CLASS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -160,7 +161,7 @@ export default function MilestoneDetail() {
 
   const phases: [string, string | null][] = [
     ["Start", m.startDate], ["Requirements by", m.reqTargetDate], ["Dev done by", m.devTargetDate],
-    ["QA done by", m.qaTargetDate], ["UAT done by", m.uatTargetDate], ["Go-live", m.goLiveDate],
+    ["System Testing done by", m.qaTargetDate], ...(m.sitTargetDate ? [["SIT done by", m.sitTargetDate] as [string, string | null]] : []), ["UAT done by", m.uatTargetDate], ["Go-live", m.goLiveDate],
   ];
   const depts = ["FA", "Dev", "QA", "PM", "Other"] as const;
   const readOnly = !m.can.edit;

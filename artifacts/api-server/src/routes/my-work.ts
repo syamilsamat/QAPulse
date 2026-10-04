@@ -297,8 +297,8 @@ router.get("/my-work", async (req, res): Promise<void> => {
     const teamRows = await db.select({ milestoneId: milestoneAssigneesTable.milestoneId, userId: milestoneAssigneesTable.userId }).from(milestoneAssigneesTable);
     const teamByMilestone = new Map<number, number[]>();
     for (const row of teamRows) teamByMilestone.set(row.milestoneId, [...(teamByMilestone.get(row.milestoneId) ?? []), row.userId]);
-    const PHASES: [label: string, key: "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "uatTargetDate" | "goLiveDate"][] = [
-      ["Requirements", "reqTargetDate"], ["Dev done", "devTargetDate"], ["QA done", "qaTargetDate"], ["UAT done", "uatTargetDate"], ["Go-live", "goLiveDate"],
+    const PHASES: [label: string, key: "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "sitTargetDate" | "uatTargetDate" | "goLiveDate"][] = [
+      ["Requirements", "reqTargetDate"], ["Dev done", "devTargetDate"], ["System Testing done", "qaTargetDate"], ["SIT done", "sitTargetDate"], ["UAT done", "uatTargetDate"], ["Go-live", "goLiveDate"],
     ];
     for (const milestone of milestones) {
       if (!canSeeProject(milestone.projectId) || ["completed", "cancelled"].includes(milestone.status)) continue;

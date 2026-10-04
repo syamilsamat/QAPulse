@@ -98,7 +98,7 @@ function canWritePipeline(role: string, pipelineEnabled: boolean) {
 }
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
-const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
+const VALID_STATUSES = ["planned", "active", "verified", "sit", "uat", "completed", "cancelled"];
 // Matches the "Lessons Learnt Type" dropdown in Bestinet's export template exactly.
 const VALID_LESSON_TYPES = ["what_went_wrong", "what_went_right", "best_practice"];
 const LESSON_TYPE_LABEL: Record<string, string> = {
@@ -150,11 +150,14 @@ function computePipelineStepStates(input: {
   conditionalSignoff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
+  // CR106 — step 7 now covers SIT and UAT sign-offs
+  requiresSit: boolean;
+  sitDocCount: number;
   deployed: boolean;
 }): Record<number, PipelineStepState> {
   const {
     requirementCount, execFileCount, approvedFileCount,
-    totalExecRows, executedRows, failedRows, signedOff, conditionalSignoff, requiresUat, uatDocCount, deployed,
+    totalExecRows, executedRows, failedRows, signedOff, conditionalSignoff, requiresUat, uatDocCount, requiresSit, sitDocCount, deployed,
   } = input;
 
   // Step 5 is "Conditional Pass" when 100% of test cases were executed but
@@ -185,7 +188,14 @@ function computePipelineStepStates(input: {
     6: signedOff
       ? (conditionalSignoff ? "conditional" : "done")
       : "not_started",
-    7: !requiresUat ? "skipped" : uatDocCount > 0 ? "done" : "not_started",
+    // Step 7 holds a sign-off for each phase the milestone requires.
+    7: !requiresUat && !requiresSit
+      ? "skipped"
+      : (!requiresSit || sitDocCount > 0) && (!requiresUat || uatDocCount > 0)
+        ? "done"
+        : (requiresSit && sitDocCount > 0) || (requiresUat && uatDocCount > 0)
+          ? "in_progress"
+          : "not_started",
     8: deployed
       ? (conditionalSignoff ? "conditional" : "done")
       : "not_started",
@@ -233,6 +243,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     reqTargetDate: m.reqTargetDate?.toISOString() ?? null,
     devTargetDate: m.devTargetDate?.toISOString() ?? null,
     qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
+    sitTargetDate: m.sitTargetDate?.toISOString() ?? null,
     uatTargetDate: m.uatTargetDate?.toISOString() ?? null,
     goLiveDate: m.goLiveDate?.toISOString() ?? null,
     environment: m.environment ?? null,
@@ -245,6 +256,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
     requiresUat: m.requiresUat ?? false,
+    requiresSit: m.requiresSit ?? false,
     pipelineEnabled: m.pipelineEnabled ?? false,
     pipelineStep: m.pipelineStep ?? null,
     signedOffAt: m.signedOffAt?.toISOString() ?? null,
@@ -317,6 +329,7 @@ router.get("/milestones", async (req, res): Promise<void> => {
       requirementCount: mReqs.length,
       approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
       executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
+      sitFileCount: mExecFiles.filter(f => f.fileType === "sit").length,
       uatFileCount: mExecFiles.filter(f => f.fileType === "uat").length,
       dataPrepFileCount: dataFiles.filter(f => f.milestoneId === m.id).length,
     };
@@ -379,7 +392,11 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWritePipeline(ctx.role, Boolean(req.body.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, pipelineEnabled, pipelineStep } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, sitTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, requiresSit, pipelineEnabled, pipelineStep } = req.body;
+  // CR106 — a new milestone starts with SIT and UAT both required unless the caller says otherwise
+  // (data preparation work has neither phase). A phase that is switched off carries no date.
+  const needsUat = type === "data_prep" ? false : requiresUat === undefined ? true : Boolean(requiresUat);
+  const needsSit = type === "data_prep" ? false : requiresSit === undefined ? true : Boolean(requiresSit);
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -420,14 +437,16 @@ router.post("/milestones", async (req, res): Promise<void> => {
     reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
     devTargetDate: devTargetDate ? new Date(devTargetDate) : null,
     qaTargetDate: qaTargetDate ? new Date(qaTargetDate) : null,
-    uatTargetDate: uatTargetDate ? new Date(uatTargetDate) : null,
+    sitTargetDate: needsSit && sitTargetDate ? new Date(sitTargetDate) : null,
+    uatTargetDate: needsUat && uatTargetDate ? new Date(uatTargetDate) : null,
     goLiveDate: goLiveDate ? new Date(goLiveDate) : null,
     environment: environment ?? null,
     description: description ? String(description).trim() || null : null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
-    requiresUat: Boolean(requiresUat),
+    requiresUat: needsUat,
+    requiresSit: needsSit,
     pipelineEnabled: Boolean(pipelineEnabled),
     pipelineStep: pipelineStep ? Number(pipelineStep) : null,
   }).returning();
@@ -552,6 +571,8 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
         conditionalSignoff,
         requiresUat: !!m.requiresUat,
         uatDocCount: facts.uatDocCount,
+        requiresSit: !!m.requiresSit,
+        sitDocCount: facts.sitDocCount,
         deployed: m.status === "completed",
       });
 
@@ -580,7 +601,9 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
     requirementCount: reqs.length,
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
+    sitFileCount: execFiles.filter(f => f.fileType === "sit").length,
     uatFileCount: execFiles.filter(f => f.fileType === "uat").length,
+    sitSignoffCount: facts.sitDocCount,
     uatSignoffCount: facts.uatDocCount,
     dataPrepFileCount: dataFiles.length,
     execRowCount: facts.totalExecRows,
@@ -619,7 +642,8 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     // be rewritten. Milestone details and dates stay editable.
     // requiresUat decides whether Step 7 gated the deployment, so flipping it
     // afterwards would rewrite what the pipeline was closed against.
-    const changesUat = req.body.requiresUat !== undefined && Boolean(req.body.requiresUat) !== !!m.requiresUat;
+    const changesUat = (req.body.requiresUat !== undefined && Boolean(req.body.requiresUat) !== !!m.requiresUat)
+      || (req.body.requiresSit !== undefined && Boolean(req.body.requiresSit) !== !!m.requiresSit);
     if (isDeployed && !reopening && (req.body.pipelineStep !== undefined || touchesSignoff || changesUat)) {
       res.status(409).json({ error: "This pipeline is completed and locked" }); return;
     }
@@ -633,6 +657,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.reqTargetDate !== undefined) update.reqTargetDate = req.body.reqTargetDate ? new Date(req.body.reqTargetDate) : null;
   if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
+  if (req.body.sitTargetDate !== undefined) update.sitTargetDate = req.body.sitTargetDate ? new Date(req.body.sitTargetDate) : null;
   if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
   if (req.body.goLiveDate !== undefined) {
     const newGoLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
@@ -656,6 +681,10 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     update.environment = req.body.environment ?? null;
   }
   if (req.body.requiresUat !== undefined) update.requiresUat = Boolean(req.body.requiresUat);
+  if (req.body.requiresSit !== undefined) update.requiresSit = Boolean(req.body.requiresSit);
+  // CR106 — switching a phase off clears its date, so a stale date never lingers on a hidden field.
+  if (update.requiresUat === false) update.uatTargetDate = null;
+  if (update.requiresSit === false) update.sitTargetDate = null;
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.description !== undefined) update.description = req.body.description ? String(req.body.description).trim() || null : null;
   if (req.body.lessonsLearnedType !== undefined) {

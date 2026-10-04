@@ -37,7 +37,7 @@ function classifyResult(result: string | null): "passed" | "failed" | "blocked" 
 // currently saved on each execution_test_cases row. Good enough for a summary
 // readiness signal; use the traceability matrix's milestone filter for the
 // rigorous per-TC view.
-export async function rollupExecutionByMilestone(milestoneIds: number[], fileType: "qa" | "uat") {
+export async function rollupExecutionByMilestone(milestoneIds: number[], fileType: "qa" | "sit" | "uat") {
   const map = new Map<number, { tcCount: number; passed: number; failed: number; blocked: number; notRun: number; passPct: number }>();
   if (milestoneIds.length === 0) return map;
 
@@ -814,6 +814,7 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
     reqTargetDate: milestone.pipelineEnabled ? null : milestone.reqTargetDate?.toISOString() ?? null,
     devTargetDate: milestone.pipelineEnabled ? null : milestone.devTargetDate?.toISOString() ?? null,
     qaTargetDate: (milestone as any).qaTargetDate?.toISOString() ?? null,
+    sitTargetDate: milestone.pipelineEnabled && !milestone.requiresSit ? null : (milestone as any).sitTargetDate?.toISOString() ?? null,
     uatTargetDate: milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate?.toISOString() ?? null,
     goLiveDate: (milestone as any).goLiveDate?.toISOString() ?? null,
     environment: (milestone as any).environment ?? null,
@@ -1039,6 +1040,8 @@ function computePipelineState(input: {
   signedOff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
+  requiresSit: boolean;
+  sitDocCount: number;
   deployed: boolean;
 }): PipelineState {
   const gates: { done: boolean; label: string; phase: PhaseKey }[] = [
@@ -1047,6 +1050,7 @@ function computePipelineState(input: {
     { done: input.allFilesApproved, label: "Awaiting test case approval", phase: "qa" },
     { done: input.totalExecRows > 0 && input.executedRows >= input.totalExecRows, label: "In execution", phase: "qa" },
     { done: input.signedOff, label: "Awaiting functional sign-off", phase: "qa" },
+    { done: !input.requiresSit || input.sitDocCount > 0, label: "Awaiting SIT sign-off", phase: "uat" },
     { done: !input.requiresUat || input.uatDocCount > 0, label: "Awaiting UAT sign-off", phase: "uat" },
     { done: input.deployed, label: "Ready to deploy", phase: "uat" },
   ];
@@ -1213,7 +1217,8 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
   const allReqIds = [...new Set([...timelinesByMilestone.values()].flat().map((e) => e.id))];
   const pipelineMilestones = milestones.filter((m) => m.pipelineEnabled);
   const pipelineMilestoneIds = pipelineMilestones.map((m) => m.id);
-  const uatMilestoneIds = pipelineMilestones.filter((m) => m.requiresUat).map((m) => m.id);
+  // CR106 — sign-off documents are read for every milestone that requires SIT or UAT.
+  const uatMilestoneIds = pipelineMilestones.filter((m) => m.requiresUat || m.requiresSit).map((m) => m.id);
 
   const [extra, devTaskRows, execRows, pipelineFileRows, uatDocRows] = await Promise.all([
     allReqIds.length
@@ -1285,7 +1290,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       : [],
     uatMilestoneIds.length
       ? db
-          .select({ id: uatSignoffsTable.id, milestoneId: uatSignoffsTable.milestoneId })
+          .select({ id: uatSignoffsTable.id, milestoneId: uatSignoffsTable.milestoneId, phase: uatSignoffsTable.phase })
           .from(uatSignoffsTable)
           .where(inArray(uatSignoffsTable.milestoneId, uatMilestoneIds))
       : [],
@@ -1332,6 +1337,8 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
     }
     if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
     const bucket = resultsByReq.get(r.requirementId)!;
+    // SIT results belong to neither the System Testing nor the UAT tally (CR106).
+    if (r.fileType === "sit") continue;
     (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
   }
 
@@ -1344,8 +1351,10 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
     pipelineFilesByMilestone.get(f.milestoneId)!.push({ id: f.id, reviewStatus: f.reviewStatus });
   }
   const uatDocCountByMilestone = new Map<number, number>();
+  const sitDocCountByMilestone = new Map<number, number>();
   for (const d of uatDocRows) {
-    uatDocCountByMilestone.set(d.milestoneId, (uatDocCountByMilestone.get(d.milestoneId) ?? 0) + 1);
+    const target = d.phase === "sit" ? sitDocCountByMilestone : uatDocCountByMilestone;
+    target.set(d.milestoneId, (target.get(d.milestoneId) ?? 0) + 1);
   }
   // Scoped by execution file, not requirementId, so rows that were never
   // linked back to a requirement still count toward "everything executed".
@@ -1392,6 +1401,8 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
         signedOff: !!m.signedOffAt,
         requiresUat: !!m.requiresUat,
         uatDocCount: m.requiresUat ? uatDocCountByMilestone.get(m.id) ?? 0 : 0,
+        requiresSit: !!m.requiresSit,
+        sitDocCount: m.requiresSit ? sitDocCountByMilestone.get(m.id) ?? 0 : 0,
         deployed: m.status === "completed",
       });
     }

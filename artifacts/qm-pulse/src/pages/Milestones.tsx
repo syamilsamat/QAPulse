@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -62,7 +63,10 @@ interface Milestone {
   reqTargetDate: string | null;
   devTargetDate: string | null;
   qaTargetDate: string | null;
+  sitTargetDate?: string | null;
   uatTargetDate: string | null;
+  requiresSit?: boolean;
+  requiresUat?: boolean;
   goLiveDate: string | null;
   environment: string | null;
   lessonsLearned: string | null;
@@ -118,6 +122,7 @@ const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
+  { value: "sit", label: "SIT" },
   { value: "uat", label: "UAT" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
@@ -162,6 +167,8 @@ function StatusBadge({ status, isDataPrep }: { status: string; isDataPrep?: bool
       return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> {isDataPrep ? "In Progress" : "Active"}</Badge>;
     case "verified":
       return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
+    case "sit":
+      return <Badge className="gap-1 bg-indigo-100 text-indigo-700 border-indigo-200"><Clock className="w-3 h-3" /> SIT</Badge>;
     case "uat":
       return <Badge className="gap-1 bg-violet-100 text-violet-700 border-violet-200"><Clock className="w-3 h-3" /> UAT</Badge>;
     case "cancelled":
@@ -188,7 +195,7 @@ export default function Milestones() {
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", sitTargetDate: "", uatTargetDate: "", requiresSit: true, requiresUat: true, goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
   const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
   const { data: projectModules = [] } = useProjectModules(projectChosen ? filterProject : null, token);
   const [saving, setSaving] = useState(false);
@@ -322,7 +329,7 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", sitTargetDate: "", uatTargetDate: "", requiresSit: true, requiresUat: true, goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
     setPendingAssignees([]);
     setModuleSel(EMPTY_MODULE_SELECTION);
     setDialogOpen(true);
@@ -342,7 +349,11 @@ export default function Milestones() {
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      sitTargetDate: m.sitTargetDate ? m.sitTargetDate.slice(0, 10) : "",
       uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
+      // An existing milestone keeps what it had: UAT counts as used when it has a UAT date, SIT starts off.
+      requiresSit: !!m.requiresSit,
+      requiresUat: !!m.requiresUat || !!m.uatTargetDate,
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       environment: m.environment ?? "none",
       lessonsLearned: m.lessonsLearned ?? "",
@@ -388,7 +399,15 @@ export default function Milestones() {
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
         qaTargetDate: form.qaTargetDate || null,
-        uatTargetDate: form.uatTargetDate || null,
+        sitTargetDate: form.requiresSit ? form.sitTargetDate || null : null,
+        uatTargetDate: form.requiresUat ? form.uatTargetDate || null : null,
+        // CR106 — a new milestone sends both switches; an edit sends one only when it was changed.
+        ...(editing
+          ? {
+              ...(form.requiresSit !== !!editing.requiresSit ? { requiresSit: form.requiresSit } : {}),
+              ...(form.requiresUat !== !!editing.requiresUat ? { requiresUat: form.requiresUat } : {}),
+            }
+          : form.type === "data_prep" ? { requiresSit: false, requiresUat: false } : { requiresSit: form.requiresSit, requiresUat: form.requiresUat }),
         goLiveDate: form.goLiveDate || null,
         environment: form.environment === "none" ? null : form.environment,
         lessonsLearned: form.lessonsLearned.trim() || null,
@@ -669,12 +688,26 @@ export default function Milestones() {
                     <Input type="date" value={form.devTargetDate} onChange={(e) => setForm({ ...form, devTargetDate: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">QA done by</Label>
+                    <Label className="text-xs">System Testing done by</Label>
                     <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">UAT done by</Label>
-                    <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                    <label className="flex items-center gap-2 text-xs font-medium">
+                      <Checkbox checked={form.requiresSit} onCheckedChange={(c) => setForm({ ...form, requiresSit: !!c, ...(c ? {} : { sitTargetDate: "" }) })} />
+                      Requires SIT
+                    </label>
+                    {form.requiresSit
+                      ? <Input type="date" aria-label="SIT done by" value={form.sitTargetDate} onChange={(e) => setForm({ ...form, sitTargetDate: e.target.value })} />
+                      : <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">SIT not required. Its date is cleared.</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 text-xs font-medium">
+                      <Checkbox checked={form.requiresUat} onCheckedChange={(c) => setForm({ ...form, requiresUat: !!c, ...(c ? {} : { uatTargetDate: "" }) })} />
+                      Requires UAT
+                    </label>
+                    {form.requiresUat
+                      ? <Input type="date" aria-label="UAT done by" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                      : <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">UAT not required. Its date is cleared.</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Go-Live</Label>

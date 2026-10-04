@@ -161,6 +161,7 @@ interface PhaseReport {
     reqTargetDate?: string | null;
     devTargetDate?: string | null;
     qaTargetDate?: string | null;
+    sitTargetDate?: string | null;
     uatTargetDate?: string | null;
     goLiveDate?: string | null;
   };
@@ -1491,7 +1492,8 @@ export default function PmDashboard() {
                     { key: "start", label: "Start", target: phaseReport.milestone.startDate },
                     { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
                     { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
-                    { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
+                    { key: "qa", label: "System Testing by", target: phaseReport.milestone.qaTargetDate },
+                    { key: "sit", label: "SIT by", target: phaseReport.milestone.sitTargetDate },
                     { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
                     { key: "end", label: "End", target: phaseReport.milestone.targetDate },
                     { key: "golive", label: "Go-Live", target: phaseReport.milestone.goLiveDate },
