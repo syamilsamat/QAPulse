@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MilestonePicker } from "@/components/MilestonePicker";
+import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import {
   Plus,
   Search,
@@ -407,7 +408,7 @@ export default function TestCasesExecution() {
   });
   // CR096 — milestone and requirement come first; project, module and tracker follow them.
   const [titleTouched, setTitleTouched] = useState(false);
-  const [allMilestones, setAllMilestones] = useState<{ id: number; name: string; projectId: number; projectName?: string | null }[]>([]);
+  const [allMilestones, setAllMilestones] = useState<{ id: number; name: string; projectId: number; projectName?: string | null; status?: string | null }[]>([]);
   const [linkedTcs, setLinkedTcs] = useState<any[]>([]);
   const [copyLinked, setCopyLinked] = useState(true);
   const fileFormRef = useRef(fileForm);
@@ -849,6 +850,17 @@ export default function TestCasesExecution() {
       .then((rows) => setAllMilestones(Array.isArray(rows) ? rows : []))
       .catch(() => {});
   }, [newFileOpen]);
+
+  // CR098 — a new file starts at the last milestone used, once the list has loaded.
+  const milestonePrefilled = useRef(false);
+  useEffect(() => {
+    if (!newFileOpen) { milestonePrefilled.current = false; return; }
+    if (milestonePrefilled.current || allMilestones.length === 0 || fileFormRef.current.milestoneId || fileFormRef.current.requirementId) return;
+    milestonePrefilled.current = true;
+    const id = startingMilestoneId(allMilestones);
+    if (id != null) handleMilestoneChange(String(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newFileOpen, allMilestones]);
 
   // Test cases already linked to the chosen requirement, offered for copying.
   useEffect(() => {
@@ -1482,8 +1494,10 @@ export default function TestCasesExecution() {
               <Label>Milestone <span className="text-destructive">*</span></Label>
               <SearchableSelect
                 value={fileForm.milestoneId}
-                onValueChange={handleMilestoneChange}
-                options={allMilestones.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                onValueChange={(v) => { handleMilestoneChange(v); if (v) rememberMilestone(v); }}
+                options={allMilestones
+                  .filter((m) => isOpenMilestone(m.status) || String(m.id) === fileForm.milestoneId)
+                  .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
                 placeholder="Select milestone..."
                 searchPlaceholder="Search milestones..."
               />

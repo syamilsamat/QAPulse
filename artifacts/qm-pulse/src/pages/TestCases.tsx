@@ -74,6 +74,7 @@ import {
 import { format } from "date-fns";
 import { authHeaders, getApiUrl } from "@/lib/api";
 import { getAllDescendants } from "@/lib/utils";
+import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import { AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
@@ -119,7 +120,7 @@ function AIGenerateDialog({
   const [milestoneId, setMilestoneId] = useState<string>("");
   const [pickedIds, setPickedIds] = useState<number[]>([]);
   const [selectedReqIds, setSelectedReqIds] = useState<Set<number>>(new Set());
-  const { data: milestoneOptions = [] } = useQuery<{ id: number; name: string; projectId: number; projectName?: string | null }[]>({
+  const { data: milestoneOptions = [] } = useQuery<{ id: number; name: string; projectId: number; projectName?: string | null; status?: string | null }[]>({
     queryKey: ["milestones", "all-accessible"],
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/milestones?projectId=all`, { headers: authHeaders() });
@@ -127,9 +128,15 @@ function AIGenerateDialog({
     },
     enabled: open,
   });
+  // CR098 — start at the page's milestone filter, else the last milestone used.
+  const milestonePrefilled = useRef(false);
   useEffect(() => {
-    if (open && defaultMilestoneId) setMilestoneId(String(defaultMilestoneId));
-  }, [open, defaultMilestoneId]);
+    if (!open) { milestonePrefilled.current = false; return; }
+    if (milestonePrefilled.current || milestoneOptions.length === 0) return;
+    milestonePrefilled.current = true;
+    const id = startingMilestoneId(milestoneOptions, defaultMilestoneId);
+    if (id != null) setMilestoneId(String(id));
+  }, [open, milestoneOptions, defaultMilestoneId]);
 
   const pickedReqs = pickedIds.map((id) => requirements.find((r: any) => r.id === id)).filter(Boolean) as any[];
   // Each picked requirement with its descendants, de-duplicated (a child picked
@@ -187,6 +194,7 @@ function AIGenerateDialog({
   const changeMilestone = (v: string) => {
     const next = v === "all" ? "" : v;
     setMilestoneId(next);
+    if (next) rememberMilestone(next);
     if (next) for (const r of pickedReqs) if (String(r.milestoneId) !== next) removeRequirement(r.id);
   };
 
@@ -276,7 +284,9 @@ function AIGenerateDialog({
                   onValueChange={changeMilestone}
                   options={[
                     { value: "all", label: "All milestones" },
-                    ...milestoneOptions.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
+                    ...milestoneOptions
+                      .filter((m) => isOpenMilestone(m.status) || String(m.id) === milestoneId)
+                      .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
                   ]}
                   placeholder="All milestones"
                   searchPlaceholder="Search milestones..."
