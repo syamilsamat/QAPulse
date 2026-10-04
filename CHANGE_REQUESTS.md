@@ -88,6 +88,8 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR102](#cr102--milestone-notifications-creation-edits-and-team-changes) | Milestone Notifications: Creation, Edits and Team Changes | 🚧 Built, not deployed | 2026-10-02 |
 | [CR103](#cr103--assigned-milestones-in-my-work) | Assigned Milestones in My Work | 🚧 Built, not deployed | 2026-10-02 |
 | [CR104](#cr104--create-view-and-edit-requirements-without-leaving-the-milestone-page) | Create, View and Edit Requirements Without Leaving the Milestone Page | 🚧 Built, not deployed | 2026-10-02 |
+| [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 📋 Planned | 2026-10-04 |
+| [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 📋 Planned | 2026-10-04 |
 
 ---
 
@@ -2298,4 +2300,51 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 - Attachments in the dialog (files up to 10 MB, links, removals) are applied right after a successful save; if one fails the rest still apply and a message says so. Downloading an attachment still needs the full page.
 - A new requirement made in the dialog asks for a module only when the milestone has more than one (or none).
 - Locking is by draft owner; there is no timeout, so an absent owner's draft stays locked until a lead takes it over.
+---
+
+---
+
+### CR105 — New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values
+**Status: 📋 Planned** (raised 2026-10-04, not started)
+
+**Origin:** user request on the New Defect dialog (QM Pulse section) and the popup that opens when a test case is failed.
+
+**Agreed:**
+- Rename "QM Pulse Project" to **Project** and order the QM Pulse section: Project, Milestone, Module, Requirement, Severity, Found in, Category. All optional.
+- **Auto-fill:** choosing one field fills the others that are already known (milestone fills its project; requirement fills its milestone, project and module). A field the person set by hand is never overwritten by a later auto-fill; any filled field can be changed. Milestone and Requirement stop saying "Pick a project first": they list everything the person can see, and Project narrows them.
+- **Found in** values come from one shared list instead of three hardcoded copies: **System Testing, SIT, UAT, Production**. New QA execution defects default from the execution file type (QA file: System Testing, SIT file: SIT, UAT file: UAT), replacing today's guess from the file tracker text; the server default "SIT" becomes "System Testing". Requirement defects keep "Development".
+- The **Fail popup** gets the same fields (Project, Milestone, Module, Requirement), already filled from the execution test case and its file, with the same auto-fill.
+- The **Defects page** keeps its tabs as they are (decided: no phase tabs). Each defect row already shows "found in X", which now carries the correct phase, and that is enough.
+
+**Existing data:** every defect saved so far as "SIT" came from QA execution, which was System Testing; they are relabelled **System Testing** once (guarded so it can never run twice, since SIT becomes a real value afterwards).
+
+**Other impacts checked:** the Excel export (Found In is free text, no change); the QA Analytics escape funnel (see CR106); the Document Register "tracker" list (CR, SIT, UAT) is a separate field and stays as is; root-cause and resolution gates use the defect source, not Found in, so they are unaffected.
+
+**Likely files:** `pages/Defects.tsx`, `components/DefectCreationModal.tsx`, a shared Found-in list, `routes/defects.ts`, the bootstrap in `routes/roles.ts` (one-time relabel with a guard).
+
+---
+
+### CR106 — SIT Testing Phase on the Milestone
+**Status: 📋 Planned** (raised 2026-10-04, not started)
+
+**Origin:** user clarification — Bestinet runs three testing phases: System Testing, SIT and UAT. SIT is treated like UAT.
+
+**Agreed:**
+- The milestone gets a **SIT target date** and a **Requires SIT** checkbox, alongside the existing UAT date and Requires UAT checkbox. For **new milestones both boxes start ticked** so both dates show; unticking clears the date and hides the field (as UAT already does in the QA Pipeline forms). Existing milestones keep what they have.
+- **QA Pipeline:** SIT is its own part inside the same pipeline step as UAT (Step 7, "SIT and UAT"), not a new step number.
+- **Execution files:** a new file type **SIT** (alongside QA and UAT) in the new-file dialog and the compile dialog.
+- **QA Analytics escape funnel:** four bars per milestone: System Testing, SIT, UAT, Production.
+
+**Impact (to be built with this CR):** database columns for the SIT date and the flag; milestone create/edit forms (Milestones page and QA Pipeline); milestone completion and status rules (today completion waits for UAT results when UAT is required; the same rule must cover SIT); pipeline steps and skip rules; phase timeline, planned days per phase, My Work due dates and overdue alerts, PM Dashboard and requirement phase timeline (SIT sits between QA and UAT); milestone-edit notification wording; execution file counts per type on the milestone (a SIT file count beside QA and UAT); execution progress rollups by file type; moving test cases between milestones by file type; verdict and traceability reports that split by QA and UAT.
+
+**Decided:** SIT has **its own sign-off document**, separate from UAT's. Proposed build: add a phase column to the existing sign-off table ("uat" for everything already stored, "sit" for new SIT ones) rather than a second table. It touches the UAT Sign-offs page and its menu entry and role permission, Step 7, the pipeline facts and dashboard "awaiting sign-off" checks, the milestone file counts and global search.
+
+**QA Pipeline impact (checked in the code):** Step 1 "Milestone & UAT" (create the milestone and its "Requires UAT" switch with date) gains SIT beside UAT and both start ticked; the pipeline page's rail title and description for step 7 ("UAT Sign-offs") become SIT and UAT, and the rail marks step 7 skipped only when neither SIT nor UAT is required; the pipeline summary panel ("UAT sign-off: Required (Step 7)", the target date list) and the pipeline edit form ("Requires UAT Sign-off?" and date) gain SIT; Step 6 chooses the next step with "UAT required ? 7 : 8", which becomes "SIT or UAT required ? 7 : 8" with matching wording; Step 7 (about 30 UAT references: the not-required screen, the sign-off upload, the BDD panel) gets a SIT section with its own upload, and SIT execution files belong here the way UAT ones do; the pipeline gate checks ("UAT sign-off document uploaded") gain "SIT sign-off document uploaded" when SIT is required; the milestone status rules (planned, active, verified, uat, completed) need a place for SIT. Steps 2, 3, 4, 5, 8 and the data-prep flow are unaffected apart from the Step 3 compile dialog's file types.
+
+**Decided (pipeline):** add a separate **sit** milestone status between verified and uat (shown only when SIT is required), so the Milestones page, dashboards and My Work can tell the two phases apart. The BDD panel in Step 7 stays **UAT-only** (Gherkin acceptance scenarios are business acceptance work).
+
+**Default I chose (not yet confirmed):** a milestone completes when every phase it requires has passed: System Testing always, SIT only if ticked, UAT only if ticked. Unticked phases are not waited for.
+
+**Likely files:** `lib/db/src/schema/milestones.ts`, `routes/milestones.ts`, `lib/milestone-status.ts`, `lib/pipeline-facts.ts`, `routes/dashboard.ts`, `routes/my-work.ts`, `routes/test-execution.ts`, `routes/requirements.ts`, `pages/Milestones.tsx`, `pages/QAPipeline.tsx`, `components/qa-pipeline/*`, `pages/TestCasesExecution.tsx`, `pages/QAAnalytics.tsx`.
+
 ---
