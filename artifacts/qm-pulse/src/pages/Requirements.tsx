@@ -80,6 +80,7 @@ import {
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
 import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
@@ -899,7 +900,8 @@ tracker: parentReq.tracker ?? undefined,
     setNewLinkLabel("");
   };
 
-  const handleSubmit = async () => {
+  // submitForReview applies to a new requirement: it is created as a draft, then submitted.
+  const handleSubmit = async (submitForReview = false) => {
     if (!validate()) {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
       return;
@@ -970,7 +972,25 @@ parentId: finalParentId,
       setErrors({});
       setEditingReq(null);
       resetAttachmentDrafts();
-      toast({ title: editingReq ? "Requirement updated" : "Requirement created" });
+      let submitError: string | null = null;
+      if (!editingReq && submitForReview && savedId) {
+        try {
+          const subRes = await fetch(`${getApiUrl()}/requirements/${savedId}/review`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify({ action: "submit" }),
+          });
+          if (!subRes.ok) submitError = (await subRes.json().catch(() => ({}))).error ?? `Server error ${subRes.status}`;
+        } catch {
+          submitError = "Network error";
+        }
+        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      }
+      if (submitError) {
+        toast({ variant: "destructive", title: "Saved as a draft, but not submitted", description: submitError });
+      } else {
+        toast({ title: editingReq ? "Requirement updated" : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
+      }
       if (moduleWarning) toast({ title: "Saved, but check the module", description: moduleWarning });
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
@@ -1902,6 +1922,14 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
               <div className="space-y-1.5">
                 <Label>Description</Label>
                 <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
+                <RequirementAiAnalyze
+                  title={form.title ?? ""}
+                  description={form.description ?? ""}
+                  module={reqFormModules.join(", ")}
+                  requirementId={editingReq?.id ?? null}
+                  resetKey={dialogOpen ? (editingReq?.id ?? "new") : "closed"}
+                  onAddToDescription={(prose) => setForm((f: any) => ({ ...f, description: (f.description ?? "").trim() ? `${(f.description ?? "").trim()}\n\n${prose}` : prose }))}
+                />
               </div>
             {/* Acceptance Criteria */}
             <div className="space-y-2">
@@ -2174,11 +2202,22 @@ tracker: v })}
           </div>
           <DialogFooter className="sticky bottom-0 z-10 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 mt-2 gap-2 border-t bg-background px-4 py-3 sm:gap-0 sm:px-8">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
-              {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
-               createMutation.isPending || updateMutation.isPending ? "Saving..." :
-               editingReq ? "Save Changes" : "Create"}
-            </Button>
+            {editingReq ? (
+              <Button onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
+                 createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                  {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
+                   createMutation.isPending ? "Saving..." : "Save as Draft"}
+                </Button>
+                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                  Submit for review
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
