@@ -2017,6 +2017,8 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 
 **Built:** Analyze with AI button and result panel in the requirement dialog (create and edit), using the typed text; needs a title and 20+ characters of description. A low score (under 60) only warns, it never blocks saving or submitting. The result is a preview and is not saved. Footer buttons were already in place from CR104. No server change.
 
+**Also built (follow-up):** the Requirements page's New Requirement form now has the same Analyze with AI panel (with Accept) under Description, and creating shows Cancel / Save as Draft / Submit for review (Save as Draft keeps the requirement a draft; Submit for review creates it and then submits it, and if submitting is refused the draft stays and the reason is shown). Editing an existing requirement keeps Cancel / Save Changes. Both screens now share one component, `components/RequirementAiAnalyze.tsx`.
+
 **Origin:** CTO feedback, second round — "AI analyze should be inside the New Requirement box, with buttons Submit for review, Save as Draft and Cancel."
 
 **Current state:** the New Requirement dialog only has Cancel and Create. "Analyze with AI" exists only on a saved requirement's detail page (and for selected requirements in QA Pipeline Step 2), and submitting for review is also a separate step after saving.
