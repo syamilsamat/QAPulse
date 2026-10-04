@@ -88,7 +88,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR102](#cr102--milestone-notifications-creation-edits-and-team-changes) | Milestone Notifications: Creation, Edits and Team Changes | 🚧 Built, not deployed | 2026-10-02 |
 | [CR103](#cr103--assigned-milestones-in-my-work) | Assigned Milestones in My Work | 🚧 Built, not deployed | 2026-10-02 |
 | [CR104](#cr104--create-view-and-edit-requirements-without-leaving-the-milestone-page) | Create, View and Edit Requirements Without Leaving the Milestone Page | 🚧 Built, not deployed | 2026-10-02 |
-| [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 📋 Planned | 2026-10-04 |
+| [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
 | [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 📋 Planned | 2026-10-04 |
 
 ---
@@ -2305,7 +2305,11 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR105 — New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values
-**Status: 📋 Planned** (raised 2026-10-04, not started)
+**Status: 🔨 Built, not deployed** (raised 2026-10-04)
+
+**Built:** both dialogs (New Defect, and the Fail popup) share one `DefectContextFields` block: Project, Milestone, Module, Requirement, then Severity, Found in, Category, all optional, with the cascade in `lib/defect-context.ts` (checked with 6 logic tests): milestone fills project; requirement fills milestone, project and its first module; project narrows the lists and drops a milestone or requirement that no longer fits; a field chosen by hand is never overwritten. Nothing says "Pick a project first". Found in comes from one list (System Testing, SIT, UAT, Production) in the web app and the server. The Fail popup now starts filled from the failed test case (project, milestone, requirement, module) and its Found in follows the execution file type (QA, SIT, UAT). **Server:** new defects default to System Testing; the phase is derived from the execution file type (tracker text only as a fallback); the register route now accepts the Fail popup's Found in and milestone, which it ignored before (the popup's Found in was cosmetic until now); the database default for found_in becomes System Testing; at server start every existing "SIT" defect is relabelled System Testing exactly once (guard row in a new `data_migrations` table, same transaction); the QA Analytics escape funnel gained a System Testing bar (four bars with SIT, UAT, Production).
+
+**Differences from the mockup:** choosing a Module does not fill the project (modules are a shared catalog of names, not tied to one project). A requirement with several modules fills only its first. The auto tag says "auto" in both dialogs. On a New Defect, the chosen requirement only affects the milestone (existing behaviour), as the server has never stored it on QA defects; on a Fail popup the failed test case already carries it.
 
 **Origin:** user request on the New Defect dialog (QM Pulse section) and the popup that opens when a test case is failed.
 

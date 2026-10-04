@@ -1483,6 +1483,7 @@ export default function TestCasesExecutionProgressPage() {
   const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
   const [currentFileId, setCurrentFileId] = useState<number | null>(null);
   const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
+  const [currentFileType, setCurrentFileType] = useState<string | null>(null);
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
   const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
@@ -1824,6 +1825,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
         setCurrentFileId(file?.id ?? null);
         setCurrentFileProjectId(file?.projectId ?? null);
+        setCurrentFileType(file?.fileType ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
         setCurrentFileReviewStatus(file?.reviewStatus ?? null);
@@ -3666,6 +3668,9 @@ export default function TestCasesExecutionProgressPage() {
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={defectParentIssueId}
         executionTcId={typeof defectRow?.id === "number" ? defectRow.id : null}
+        requirementId={defectRow?.requirementId != null ? Number(defectRow.requirementId) : null}
+        milestoneId={currentFileMilestoneId}
+        fileType={currentFileType}
         onSkip={() => {
           setDefectModalOpen(false);
           pendingFailRowIdRef.current = null;

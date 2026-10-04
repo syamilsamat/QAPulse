@@ -112,6 +112,35 @@ async function migratePipelineOwnerColumns(): Promise<void> {
   }
 }
 
+// CR105 — every defect saved as "SIT" so far came from QA execution, which was
+// System Testing. Relabel them once. The guard row is written in the same
+// transaction as the update, so the relabel can never run a second time: after
+// this, "SIT" is a real phase and must not be rewritten on later starts.
+async function relabelOldSitDefectsAsSystemTesting(): Promise<void> {
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`SET lock_timeout = '5s'`);
+      await client.query(`CREATE TABLE IF NOT EXISTS data_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+      await client.query(`ALTER TABLE defects ALTER COLUMN found_in SET DEFAULT 'System Testing'`);
+      await client.query("BEGIN");
+      const guard = await client.query(`INSERT INTO data_migrations (name) VALUES ('cr105_defects_sit_to_system_testing') ON CONFLICT DO NOTHING RETURNING name`);
+      if (guard.rowCount && guard.rowCount > 0) {
+        const res = await client.query(`UPDATE defects SET found_in = 'System Testing' WHERE found_in = 'SIT'`);
+        console.log(`[bootstrap] CR105: relabelled ${res.rowCount ?? 0} SIT defect(s) as System Testing`);
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("[bootstrap] CR105 defect phase relabel skipped:", e);
+  }
+}
+
 // CR051 — partial UNIQUE index on defects.redmine_id backs the idempotent
 // register upsert. Dedupe any pre-existing duplicates first (repoint their
 // links to the surviving lowest-id row — FK cascades on delete, so repoint
@@ -236,6 +265,7 @@ export async function bootstrap() {
   await Promise.all([
     migratePipelineOwnerColumns(),
     dedupeAndIndexDefectRedmineIds(),
+    relabelOldSitDefectsAsSystemTesting(),
     compactExecutionTcNumbering(),
 
     pool.query(`

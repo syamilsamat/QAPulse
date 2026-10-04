@@ -2332,6 +2332,7 @@ router.get("/dashboard/qa-analytics", async (req, res): Promise<void> => {
     return {
       milestoneId: m.id,
       milestoneName: m.name,
+      systemTesting: mDefects.filter(d => d.foundIn === "System Testing").length,
       sit: mDefects.filter(d => d.foundIn === "SIT").length,
       uat: mDefects.filter(d => d.foundIn === "UAT").length,
       production: mDefects.filter(d => d.foundIn === "Production").length,

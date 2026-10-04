@@ -1,3 +1,6 @@
+import { DefectContextFields } from "@/components/DefectContextFields";
+import { useDefectContext } from "@/lib/defect-context";
+import { FOUND_IN_OPTIONS, DEFAULT_FOUND_IN } from "@/lib/defect-found-in";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { openAttachmentResponse } from "@/lib/attachment-download";
 import { useState, useEffect, useRef, Fragment } from "react";
@@ -1962,10 +1965,10 @@ function EditDefectDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Found in</Label>
-                <Select value={form.foundIn ?? "SIT"} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
+                <Select value={form.foundIn ?? DEFAULT_FOUND_IN} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    {[...FOUND_IN_OPTIONS, ...(form.foundIn && !(FOUND_IN_OPTIONS as readonly string[]).includes(form.foundIn) ? [form.foundIn] : [])].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -2174,7 +2177,9 @@ function NewDefectDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // QM Pulse fields
-  const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: "SIT" });
+  const [form, setForm] = useState<Record<string, any>>({ severity: "medium", foundIn: DEFAULT_FOUND_IN });
+  // CR105 — project, milestone, module and requirement fill each other in.
+  const dc = useDefectContext(open);
 
   // Redmine fields
   const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
@@ -2223,25 +2228,6 @@ function NewDefectDialog({
     fetchRedmineProjectConfig(pid).then(setProjectConfig).catch(() => {});
   }, [form.redmineProjectId]);
 
-  // Requirement + milestone — a QA defect should link to both; picking a
-  // requirement suggests its own milestone by default (still overridable).
-  const { data: requirementsForLink = [] } = useQuery<{ id: number; title: string; milestoneId: number | null }[]>({
-    queryKey: ["requirements-for-defect-link", form.projectId],
-    enabled: open && !!form.projectId,
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/requirements?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      return res.ok ? res.json() : [];
-    },
-  });
-  const { data: milestonesForLink = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["milestones", form.projectId],
-    enabled: open && !!form.projectId,
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/milestones?projectId=${form.projectId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      return res.ok ? res.json() : [];
-    },
-  });
-
   // Auto duplicate check
   useEffect(() => {
     if (!form.redmineProjectId || !form.title?.trim()) { setDuplicates([]); return; }
@@ -2268,7 +2254,8 @@ function NewDefectDialog({
   };
 
   const handleClose = () => {
-    setForm({ severity: "medium", foundIn: "SIT" });
+    setForm({ severity: "medium", foundIn: DEFAULT_FOUND_IN });
+    dc.reset();
     setSelectedAssigneeId(null);
     setComplexity("M");
     setTargetedStartDate(new Date().toISOString().slice(0, 10));
@@ -2288,6 +2275,10 @@ function NewDefectDialog({
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           ...form,
+          projectId: dc.state.ctx.projectId ?? undefined,
+          milestoneId: dc.state.ctx.milestoneId ?? undefined,
+          requirementId: dc.state.ctx.requirementId ?? undefined,
+          module: dc.state.ctx.module || undefined,
           assigneeId: selectedAssigneeId,
           assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
           assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
@@ -2372,10 +2363,11 @@ function NewDefectDialog({
 
           <Separator />
 
-          {/* QM Pulse section */}
+          {/* QM Pulse section: Project, Milestone, Module, Requirement, then Severity, Found in, Category. All optional. */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse <span className="font-normal normal-case tracking-normal">(all optional)</span></p>
+            <DefectContextFields dc={dc} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
                 <Select value={form.severity} onValueChange={(v) => setForm({ ...form, severity: v })}>
@@ -2392,54 +2384,9 @@ function NewDefectDialog({
                 <Select value={form.foundIn} onValueChange={(v) => setForm({ ...form, foundIn: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["SIT", "UAT", "Production"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    {FOUND_IN_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Module</Label>
-                <ModuleSelect
-                  value={form.module ?? ""}
-                  onChange={(v) => setForm({ ...form, module: v })}
-                  projectId={form.projectId ?? null}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>QM Pulse Project</Label>
-              <Select
-                value={form.projectId ? String(form.projectId) : ""}
-                onValueChange={(v) => setForm({ ...form, projectId: v ? Number(v) : undefined, requirementId: undefined, milestoneId: undefined })}
-              >
-                <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Requirement</Label>
-                <SearchableSelect
-                  value={form.requirementId ? String(form.requirementId) : ""}
-                  onValueChange={(v) => {
-                    const linked = requirementsForLink.find((r) => String(r.id) === v);
-                    setForm({ ...form, requirementId: v ? Number(v) : undefined, milestoneId: linked?.milestoneId ?? form.milestoneId });
-                  }}
-                  options={requirementsForLink.map((r) => ({ value: String(r.id), label: r.title }))}
-                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
-                  searchPlaceholder="Search requirements..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Milestone</Label>
-                <SearchableSelect
-                  value={form.milestoneId ? String(form.milestoneId) : ""}
-                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : undefined })}
-                  options={milestonesForLink.map((m) => ({ value: String(m.id), label: m.name }))}
-                  placeholder={form.projectId ? "Optional" : "Pick a project first"}
-                  searchPlaceholder="Search milestones..."
-                />
               </div>
             </div>
             <DefectCategoryField
