@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 // CR093 — one shared "something is happening" dialog for long-running actions.
 // Say what the system is doing in plain words, show how long it has been
 // running, and let the user cancel (the caller aborts its request in onCancel).
-// Pass `step`/`total` only when the work is a real loop; otherwise it shows an
+// With no onCancel (work that writes data and is unsafe to stop half way) it
+// asks the person to keep the page open instead. Pass `step`/`total` only when the work is a real loop; otherwise it shows an
 // honest indeterminate bar instead of invented steps.
 export function ProgressDialog({
   open, title, message, hint, step, total, onCancel,
@@ -42,7 +43,9 @@ export function ProgressDialog({
           <span>{determinate ? `${step} of ${total}` : hint ?? ""}</span>
           <span>{seconds}s</span>
         </div>
-        {onCancel && <div className="flex justify-end"><Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button></div>}
+        {onCancel
+          ? <div className="flex justify-end"><Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button></div>
+          : <p className="text-xs text-muted-foreground">Please keep this page open until it finishes.</p>}
       </DialogContent>
     </Dialog>
   );

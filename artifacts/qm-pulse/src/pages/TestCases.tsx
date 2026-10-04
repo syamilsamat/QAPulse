@@ -74,6 +74,7 @@ import {
 import { format } from "date-fns";
 import { authHeaders, getApiUrl } from "@/lib/api";
 import { getAllDescendants } from "@/lib/utils";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import { AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
@@ -692,6 +693,14 @@ function AIGenerateDialog({
             </Button>
           )}
         </DialogFooter>
+        <ProgressDialog
+          open={generateMutation.isPending || isSavingGenerated}
+          title={isSavingGenerated ? "Saving test cases" : "Generating test cases"}
+          message={isSavingGenerated
+            ? `Saving ${selectedPreviewKeys.size} test case${selectedPreviewKeys.size !== 1 ? "s" : ""} to the library.`
+            : `Asking the AI to write test cases for ${selectedReqIds.size} requirement${selectedReqIds.size !== 1 ? "s" : ""}.`}
+          hint={isSavingGenerated ? "This can take a few seconds" : "Usually 10 to 30 seconds per requirement"}
+        />
       </DialogContent>
     </Dialog>
   );

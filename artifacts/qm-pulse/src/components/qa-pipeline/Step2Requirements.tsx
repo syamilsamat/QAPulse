@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -979,6 +980,16 @@ export function Step2Requirements({ milestoneId, projectId, locked = false }: { 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ProgressDialog
+        open={analyzing || syncing}
+        title={analyzing ? "Analyzing requirements" : "Syncing requirements from Redmine"}
+        message={analyzing
+          ? `Analyzing requirement ${Math.min(analyzeProgress.current + 1, analyzeProgress.total)} of ${analyzeProgress.total}.`
+          : "Reading the tickets from Redmine and saving them as requirements."}
+        step={analyzing ? analyzeProgress.current : undefined}
+        total={analyzing ? analyzeProgress.total : undefined}
+        hint={analyzing ? undefined : "Usually a few seconds per module"}
+      />
     </div>
   );
 }

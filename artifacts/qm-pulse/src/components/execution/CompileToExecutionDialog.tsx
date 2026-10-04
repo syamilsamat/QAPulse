@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { PackagePlus, FolderOpen, Plus, Search, Loader2, X } from "lucide-react";
 
 type CompileStep = "mode" | "existing" | "new";
@@ -628,6 +629,12 @@ export function CompileToExecutionDialog({
             </>
           )}
         </DialogFooter>
+        <ProgressDialog
+          open={isCompiling}
+          title={step === "new" ? "Creating the execution file" : "Compiling test cases"}
+          message={`Adding ${count} test case${count !== 1 ? "s" : ""}${step === "new" ? " to the new file" : " to the file"}.`}
+          hint="This can take a few seconds"
+        />
       </DialogContent>
     </Dialog>
   );
