@@ -1011,6 +1011,7 @@ export default function Defects() {
                   {isExporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                   Export to Excel
                 </Button>
+                <ProgressDialog open={isExporting} title="Exporting defects" message="Building the Excel file with the selected defects." hint="Usually a few seconds" />
                 {canDeleteDefects && (
                   <Button
                     size="sm"

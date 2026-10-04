@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -275,6 +276,7 @@ export function Step7UAT({ milestoneId, locked = false }: { milestoneId: number,
                 {generatingBDD ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Wand2 className="w-4 h-4 mr-2" />}
                 Generate AI Test Cases
               </Button>
+              <ProgressDialog open={generatingBDD} title="Generating BDD scenarios" message="Asking the AI to write Gherkin scenarios." hint="Usually 10 to 30 seconds" />
             </CardContent>
           </Card>
         )}

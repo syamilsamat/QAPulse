@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
@@ -168,6 +169,7 @@ export function DataPrepFilesSection({ milestoneId, token, canWrite, userId }: {
                 {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <Upload className="w-3.5 h-3.5 shrink-0" />}
                 {uploading ? "Uploading…" : "Upload"}
               </Button>
+              <ProgressDialog open={uploading} title="Uploading files" message="Saving your files to this milestone." hint="Usually a few seconds" />
             </div>
           )}
         </div>

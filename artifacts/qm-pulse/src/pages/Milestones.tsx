@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { Link, useSearch } from "wouter";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -432,9 +433,12 @@ export default function Milestones() {
         </div>
         <div className="flex gap-2">
           {projectChosen && (
+            <>
             <Button variant="outline" onClick={handleExportLessonsLearned} disabled={exportingLessons} className="gap-2">
               <FileDown className="w-4 h-4" /> {exportingLessons ? "Exporting…" : "Export Lessons Learnt"}
             </Button>
+            <ProgressDialog open={exportingLessons} title="Exporting lessons learnt" message="Building the lessons learnt file for this project." hint="Usually a few seconds" />
+            </>
           )}
           {canWrite && projectChosen && (
             <Button onClick={openCreate} className="gap-2">

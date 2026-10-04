@@ -1668,6 +1668,7 @@ export default function TestCases() {
                 ? `Export ${selectedIds.size}`
                 : "Export"}
           </Button>
+          <ProgressDialog open={isExporting} title="Exporting test cases" message="Building the Excel file with your test cases." hint="Usually a few seconds" />
           <div className="flex gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
