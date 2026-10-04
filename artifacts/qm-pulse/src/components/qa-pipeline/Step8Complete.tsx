@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -224,6 +225,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
               {generatingRtm ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
               {generatingRtm ? "Preparing Excel…" : "Download RTM (Excel)"}
             </Button>
+            <ProgressDialog open={generatingRtm} title="Preparing the RTM" message="Building the requirements traceability Excel file." hint="Usually a few seconds" />
             <p className="text-xs text-muted-foreground">
               {hasRequirements
                 ? "Excel workbook (.xlsx) — one row per requirement/test case pair."
@@ -245,6 +247,7 @@ export function Step8Complete({ milestoneId, onComplete }: { milestoneId: number
               {generatingNotes ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
               {generatingNotes ? "Drafting…" : "Draft Release Notes (AI)"}
             </Button>
+            <ProgressDialog open={generatingNotes} title="Drafting release notes" message="Asking the AI to draft release notes from this milestone." hint="Usually 10 to 30 seconds" />
             <p className="text-xs text-muted-foreground">
               {hasRequirements
                 ? "Downloads as a formatted PDF. Review before sharing externally."

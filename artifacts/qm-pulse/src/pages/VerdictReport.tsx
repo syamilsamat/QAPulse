@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { Link, useLocation } from "wouter";
 import { verdictExecutionUrl, type VerdictResult } from "@/lib/verdict-drilldown";
 import { useState, useRef, useEffect } from "react";
@@ -1009,6 +1010,7 @@ export default function VerdictReport() {
                     )}
                     Download Report
                   </Button>
+                  <ProgressDialog open={isDownloading || isSending || isSendingVerdict} title="Preparing the verdict report" message="Building the report file, or sending it to the recipients you chose." hint="Usually a few seconds" />
                   <Button
                     onClick={() => setSendReportOpen(true)}
                     disabled={isDownloading || isSending}

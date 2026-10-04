@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useEffect, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
@@ -413,6 +414,7 @@ export default function UatSignoffs() {
             <Button onClick={handleUpload} disabled={uploading}>
               {uploading ? "Uploading…" : "Upload"}
             </Button>
+            <ProgressDialog open={uploading} title="Uploading the sign-off" message="Saving your file to this milestone." hint="Usually a few seconds" />
           </DialogFooter>
         </DialogContent>
       </Dialog>

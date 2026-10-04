@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { openAttachmentResponse } from "@/lib/attachment-download";
 import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
 import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
@@ -4502,6 +4503,7 @@ export default function TestCasesExecutionProgressPage() {
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 Import
               </Button>
+              <ProgressDialog open={isImporting} title="Importing test cases" message="Reading the Excel file and saving its test cases into this file." hint="This can take a few seconds" />
               <Button
                 variant="outline"
                 size="sm"
@@ -4512,6 +4514,7 @@ export default function TestCasesExecutionProgressPage() {
                 {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isDownloading ? "Downloading..." : "Download"}
               </Button>
+              <ProgressDialog open={isDownloading} title="Preparing the download" message="Building the execution file for download." hint="Usually a few seconds" />
               <Button
                 variant="outline"
                 size="sm"

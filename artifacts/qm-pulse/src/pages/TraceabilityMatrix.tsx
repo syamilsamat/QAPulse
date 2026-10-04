@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
@@ -506,6 +507,7 @@ export default function TraceabilityMatrix() {
           {exportingBsb ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
           Export RTM
         </Button>
+        <ProgressDialog open={exportingBsb} title="Exporting the matrix" message="Building the traceability Excel file for this milestone." hint="Usually a few seconds" />
       </div>
 
       {/* Summary cards */}
