@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -443,6 +444,12 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
           queryClient.invalidateQueries({ queryKey: ["compiled-library-tc-ids"] });
           setLocation(`/test-cases/execution/${ticketId}`);
         }}
+      />
+      <ProgressDialog
+        open={tagging || applyingRisk}
+        title={tagging ? "Suggesting risk priorities" : "Applying risk priorities"}
+        message={tagging ? "Asking the AI to rate the risk of each test case." : "Saving the priorities you chose."}
+        hint={tagging ? "Usually 10 to 30 seconds" : undefined}
       />
     </div>
   );

@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import {
   Brain,
   Zap,
@@ -380,6 +381,16 @@ export default function AiFeatures() {
         throw err;
       }
     });
+
+  // CR093 — one progress dialog for whichever AI tool is running.
+  const aiBusy = reqAnalyzeLoading ? { title: "Analyzing the requirement", message: "Asking the AI to check the requirement for gaps and unclear points." }
+    : edgeCaseLoading ? { title: "Finding edge cases", message: "Asking the AI for edge cases and negative scenarios." }
+    : dupLoading ? { title: "Checking for duplicates", message: "Asking the AI to compare your test cases and find duplicates." }
+    : coverageLoading ? { title: "Checking coverage", message: "Asking the AI to compare the document against your test cases." }
+    : coverageUploading ? { title: "Uploading the document", message: "Sending your file so the AI can read it." }
+    : weeklySummaryLoading ? { title: "Writing the weekly summary", message: "Asking the AI to summarise the week from your project data." }
+    : testDataLoading ? { title: "Generating test data", message: "Asking the AI to generate the test data you described." }
+    : null;
 
   return (
     <div className="space-y-6">
@@ -1290,6 +1301,12 @@ export default function AiFeatures() {
           </Card>
         </TabsContent>
       </Tabs>
+      <ProgressDialog
+        open={aiBusy !== null}
+        title={aiBusy?.title ?? ""}
+        message={aiBusy?.message ?? ""}
+        hint="Usually 10 to 30 seconds"
+      />
     </div>
   );
 }

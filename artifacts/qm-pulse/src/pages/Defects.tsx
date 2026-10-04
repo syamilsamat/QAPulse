@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { openAttachmentResponse } from "@/lib/attachment-download";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { useLocation, useSearch } from "wouter";
@@ -1782,6 +1783,12 @@ function SyncRedmineDialog({
             {isSyncing ? <><Loader2 className="w-4 h-4 animate-spin" /> Syncing...</> : <><CloudDownload className="w-4 h-4" /> Sync</>}
           </Button>
         </DialogFooter>
+        <ProgressDialog
+          open={isSyncing}
+          title="Syncing from Redmine"
+          message="Reading the defect from Redmine and saving what changed."
+          hint="Usually a few seconds"
+        />
       </DialogContent>
     </Dialog>
   );

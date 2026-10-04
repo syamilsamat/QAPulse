@@ -81,6 +81,7 @@ import {
 import { getApiUrl } from "@/lib/api";
 import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
 import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
@@ -567,6 +568,11 @@ export default function Requirements() {
   // points already invalidate once when they finish, so suppress it while one
   // is running.
   const syncingRef = useRef(false);
+  // CR093 — what the Redmine import or sync is on right now (a real count of
+  // tickets handled; the total is not known until each ticket's children are read).
+  const [singleSyncing, setSingleSyncing] = useState(false);
+  const syncCountRef = useRef(0);
+  const [syncProgress, setSyncProgress] = useState<{ count: number; ticket: string } | null>(null);
   const invalidateRequirements = () => {
     if (syncingRef.current) return;
     queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
@@ -1119,6 +1125,8 @@ parentId: finalParentId,
     includeParent: boolean = true,
     inheritedParent?: { id: string; title: string },
   ) => {
+    syncCountRef.current += 1;
+    setSyncProgress({ count: syncCountRef.current, ticket: ticketIdToSync });
     const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -1267,6 +1275,8 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
 
     setRedmineLoading(true);
     syncingRef.current = true;
+    syncCountRef.current = 0;
+    setSyncProgress(null);
     try {
       await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone), true, redmineIncludeParent);
       syncingRef.current = false;
@@ -1316,11 +1326,9 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       return;
     }
 
-    toast({ 
-      title: "Syncing...", 
-      description: `Fetching updates for #${req.redmineTicketId} and its subtasks.`,
-    });
-
+    syncCountRef.current = 0;
+    setSyncProgress(null);
+    setSingleSyncing(true);
     syncingRef.current = true;
     try {
       await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, (req as any).parentId, (req as any).tracker || undefined, undefined, true);
@@ -1341,6 +1349,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
         syncingRef.current = false;
         queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       }
+      setSingleSyncing(false);
     }
   };
 
@@ -2349,6 +2358,14 @@ tracker: v })}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ProgressDialog
+        open={redmineLoading || singleSyncing}
+        title={redmineLoading ? "Importing from Redmine" : "Syncing from Redmine"}
+        message={syncProgress
+          ? `Reading ticket #${syncProgress.ticket} and saving it. ${syncProgress.count} ticket${syncProgress.count !== 1 ? "s" : ""} handled so far.`
+          : "Connecting to Redmine and reading the ticket."}
+        hint="Tickets with many subtasks take longer"
+      />
     </div>
   );
 }

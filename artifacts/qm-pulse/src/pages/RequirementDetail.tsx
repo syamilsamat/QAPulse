@@ -1,5 +1,5 @@
 import { openAttachmentResponse } from "@/lib/attachment-download";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
@@ -8,6 +8,7 @@ import { getApiUrl } from "@/lib/api";
 import { RedmineChangesBanner } from "@/components/RedmineChangesBanner";
 import { rephraseSuggestion, markDescriptionAiEdited } from "@/lib/rephrase-suggestion";
 import { useToast } from "@/hooks/use-toast";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import {
   ArrowLeft,
@@ -182,6 +183,7 @@ export default function RequirementDetail() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const aiAbort = useRef<AbortController | null>(null);
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
@@ -601,9 +603,12 @@ export default function RequirementDetail() {
   const runAiAnalysis = async () => {
     if (!reqId || !req) return;
     setAiLoading(true);
+    const ctl = new AbortController();
+    aiAbort.current = ctl;
     try {
       const res = await api(`/ai/analyze-requirement`, token, {
         method: "POST",
+        signal: ctl.signal,
         body: JSON.stringify({
           requirementId: reqId,
           title: req.title,
@@ -614,9 +619,10 @@ export default function RequirementDetail() {
       const data = await res.json();
       setAiResult(data);
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
-    } catch {
-      toast({ variant: "destructive", title: "AI analysis failed" });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") toast({ variant: "destructive", title: "AI analysis failed" });
     } finally {
+      aiAbort.current = null;
       setAiLoading(false);
     }
   };
@@ -857,6 +863,13 @@ export default function RequirementDetail() {
             <Brain className="w-3.5 h-3.5" />
             {aiLoading ? "Analyzing…" : "Analyze with AI"}
           </Button>
+          <ProgressDialog
+            open={aiLoading}
+            title="Analyzing requirement"
+            message="Asking the AI to check this requirement for gaps and unclear points."
+            hint="Usually 10 to 30 seconds"
+            onCancel={() => aiAbort.current?.abort()}
+          />
           {canReview && (
             <>
               {req.reviewStatus === "draft" && canSubmitForReview && (

@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MilestonePicker } from "@/components/MilestonePicker";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import {
   Plus,
@@ -1666,6 +1667,12 @@ export default function TestCasesExecution() {
               Submit to Review
             </Button>
           </DialogFooter>
+          <ProgressDialog
+            open={isCreating || isParsingExcel}
+            title={isParsingExcel ? "Reading the Excel file" : "Creating the test case file"}
+            message={isParsingExcel ? "Reading the test cases from your spreadsheet." : "Saving the file and adding its test cases."}
+            hint="This can take a few seconds"
+          />
         </DialogContent>
       </Dialog>
 

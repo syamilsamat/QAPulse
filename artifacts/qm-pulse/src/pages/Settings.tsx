@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -597,6 +598,12 @@ export default function Settings() {
                 <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
                 {isSyncing ? "Syncing..." : "Sync Redmine Projects"}
               </Button>
+              <ProgressDialog
+                open={isSyncing}
+                title="Syncing Redmine projects"
+                message="Reading the project list from Redmine and saving what changed."
+                hint="Usually a few seconds"
+              />
               {redmineProjects.length > 0 && (
                 <span className="text-xs text-muted-foreground">{redmineProjects.length} projects cached</span>
               )}
