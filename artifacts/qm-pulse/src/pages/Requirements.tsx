@@ -79,6 +79,7 @@ import {
   Lock,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
+import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
 import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
@@ -154,6 +155,9 @@ async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
 
 type FormMilestone = {
   id: number;
+  projectId: number;
+  projectName?: string | null;
+  status?: string | null;
   name: string;
   type: string;
   modules?: { id: number; name: string }[];
@@ -288,22 +292,37 @@ export default function Requirements() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const formProjectId = form.projectId;
-  const { data: milestonesForProject = [] } = useQuery<FormMilestone[]>({
-    queryKey: ["milestones", formProjectId],
+  // CR098 — the milestone is the first choice; the project comes from it.
+  const { data: formMilestones = [] } = useQuery<FormMilestone[]>({
+    queryKey: ["milestones", "all-accessible"],
     queryFn: async () => {
-      if (!formProjectId) return [];
-      const res = await fetch(`${getApiUrl()}/milestones?projectId=${formProjectId}`, {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=all`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       return res.ok ? res.json() : [];
     },
-    enabled: !!formProjectId && dialogOpen,
+    enabled: dialogOpen,
   });
 
-  // Project first, then milestone. The milestone decides the module choices
-  // and (via the admin's type -> tracker mapping) the tracker.
-  const selectedMilestone = milestonesForProject.find((m) => m.id === form.milestoneId) ?? null;
+  // The milestone decides the project, the module choices and (via the admin's
+  // type -> tracker mapping) the tracker.
+  const selectedMilestone = formMilestones.find((m) => m.id === form.milestoneId) ?? null;
+  const milestoneChoices = formMilestones.filter((m) => isOpenMilestone(m.status) || m.id === form.milestoneId);
+  const formProjectName = projects.find((p) => p.id === form.projectId)?.name ?? selectedMilestone?.projectName ?? null;
+
+  // A new requirement starts at the page's milestone filter, else the last
+  // milestone used, once the list has loaded. Never touches an existing
+  // requirement, a child (it inherits its parent's) or a deep link.
+  const milestonePrefilled = useRef(false);
+  useEffect(() => {
+    if (!dialogOpen) { milestonePrefilled.current = false; return; }
+    if (editingReq || milestonePrefilled.current || form.milestoneId || formMilestones.length === 0) return;
+    milestonePrefilled.current = true;
+    const id = startingMilestoneId(formMilestones, filterMilestone !== "all" ? filterMilestone : null);
+    const m = id != null ? formMilestones.find((x) => x.id === id) : null;
+    if (m) setForm((f: any) => ({ ...f, milestoneId: m.id, projectId: m.projectId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen, editingReq, formMilestones, form.milestoneId]);
 
   // CR091 — a new requirement starts at the milestone's priority until the user
   // sets one by hand (or a Redmine ticket supplies its own). Never touches an
@@ -797,7 +816,7 @@ tracker: parentReq.tracker ?? undefined,
     const errs: Record<string, string> = {};
     if (!form.title?.trim()) errs.title = "Title is required";
     if (!form.priority) errs.priority = "Priority is required";
-    if (!form.projectId) errs.projectId = "Project is required";
+    if (!form.projectId && form.milestoneId) errs.projectId = "Project is required";
     if (reqFormModules.length === 0) errs.module = "At least one module is required";
     if (!form.milestoneId) errs.milestoneId = "Milestone is required";
     setErrors(errs);
@@ -1767,43 +1786,35 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
           </DialogHeader>
           <div className="space-y-0 py-1">
 
-            {/* 1 · Where it belongs — project first, then the milestone, which decides module and tracker */}
+            {/* 1 · Where it belongs: the milestone first; the project follows it and decides module and tracker */}
             <section className="space-y-3 border-b py-4">
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where it belongs</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label>Project <span className="text-destructive">*</span></Label>
-                  <SearchableSelect
-                    value={form.projectId ? String(form.projectId) : ""}
-                    onValueChange={(v) => {
-                      setForm({ ...form, projectId: Number(v), milestoneId: null });
-                      if (!editingReq) setReqFormModules([]);
-                    }}
-                    options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
-                    placeholder="Select project"
-                    searchPlaceholder="Search project..."
-                    className={errors.projectId ? "border-destructive" : ""}
-                  />
-                  {errors.projectId && <p className="text-xs text-destructive">{errors.projectId}</p>}
-                </div>
-                <div className="space-y-1.5">
                   <Label>Milestone <span className="text-destructive">*</span></Label>
                   <SearchableSelect
                     value={form.milestoneId ? String(form.milestoneId) : ""}
-                    onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
-                    options={[
-                      { value: "", label: form.projectId ? "Select milestone…" : "Select a project first" },
-                      ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name })),
-                    ]}
-                    placeholder={form.projectId ? "Select milestone…" : "Select a project first"}
+                    onValueChange={(v) => {
+                      const m = formMilestones.find((x) => String(x.id) === v);
+                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : form.projectId });
+                      if (!editingReq) setReqFormModules([]);
+                      if (m) rememberMilestone(m.id);
+                    }}
+                    options={milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                    placeholder="Select milestone…"
                     searchPlaceholder="Search milestones…"
-                    disabled={!form.projectId}
                     className={errors.milestoneId ? "border-destructive" : ""}
                   />
                   {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
-                  {form.projectId && milestonesForProject.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
+                  {formMilestones.length === 0 && dialogOpen && (
+                    <p className="text-xs text-muted-foreground">No milestones yet — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
                   )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Project <span className="text-xs font-normal text-muted-foreground">(from the milestone)</span></Label>
+                  <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
+                    {formProjectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
+                  </p>
                 </div>
               </div>
 

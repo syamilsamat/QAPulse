@@ -81,7 +81,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
 | [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
 | [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | 🔨 Built, not deployed | 2026-10-02 |
-| [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | ⏸️ On hold | 2026-10-02 |
+| [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | 🔨 Built, not deployed | 2026-10-02 |
 | [CR099](#cr099--milestone-page-read-only-detail-opened-from-notifications) | Milestone Page (Read-Only Detail, Opened from Notifications) | 🚧 Built, not deployed | 2026-10-02 |
 | [CR100](#cr100--milestone-permissions-who-edits-and-who-staffs) | Milestone Permissions: Who Edits and Who Staffs | 🚧 Built, not deployed | 2026-10-02 |
 | [CR101](#cr101--requirement-creation-limited-to-fa-for-the-milestone) | Requirement Creation Limited to FA for the Milestone | 🚧 Built, not deployed | 2026-10-02 |
@@ -2115,7 +2115,11 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 ---
 
 ### CR098 — Fewer Fields and Clicks Across Creation Dialogs
-**Status: ⏸️ On hold** (raised 2026-10-02, not started)
+**Status: 🔨 Built, not deployed** (two of its points; raised 2026-10-02)
+
+**Built:** (1) the Requirements page form is milestone first: one Milestone list (labelled with its project, completed and cancelled ones left out unless already chosen), Project read-only beneath it, then Module, Tracker and the rest as before; editing an existing requirement works the same way. (2) A new requirement, an AI test case generation and a new test case file start at the milestone last used (kept in this browser), or at the page's milestone filter where there is one (honored whatever its status); a remembered milestone that is completed, cancelled or no longer visible is skipped. Choosing a milestone in any of these three dialogs updates what the others start from. Frontend only; shared helper in `lib/last-milestone.ts`.
+
+**Not built:** the shared "context" block reused by all four dialogs (decided to skip for now, since each dialog already follows the same order), and Save as Draft everywhere.
 
 **Origin:** CTO feedback, second round — "minimal fields to be filled, minimise the user's clicking (user experience enhancement)", together with the earlier remark that the milestone should be selected first when creating requirements.
 
