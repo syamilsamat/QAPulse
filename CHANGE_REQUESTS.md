@@ -90,6 +90,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR104](#cr104--create-view-and-edit-requirements-without-leaving-the-milestone-page) | Create, View and Edit Requirements Without Leaving the Milestone Page | 🚧 Built, not deployed | 2026-10-02 |
 | [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
 | [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
+| [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
 
 ---
 
@@ -2356,3 +2357,58 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Likely files:** `lib/db/src/schema/milestones.ts`, `routes/milestones.ts`, `lib/milestone-status.ts`, `lib/pipeline-facts.ts`, `routes/dashboard.ts`, `routes/my-work.ts`, `routes/test-execution.ts`, `routes/requirements.ts`, `pages/Milestones.tsx`, `pages/QAPipeline.tsx`, `components/qa-pipeline/*`, `pages/TestCasesExecution.tsx`, `pages/QAAnalytics.tsx`.
 
 ---
+
+### CR107 — BA Requirement Template in the Add Requirement Dialog
+**Status:** 📋 Planned (2026-10-01). Mockup reviewed and first decisions recorded (see Decisions below); not yet scoped to tasks or started.
+
+**Origin:** the Add Requirement dialog (`Requirements.tsx`, `<Dialog open={dialogOpen}>`) captures title, description, module, priority, milestone, acceptance criteria and attachments — enough to *track* a requirement, not enough for FA, Dev and QA to *work from* one. A BA has no guided structure, so the problem, scope, business rules, non-functional needs and open questions live in chat or side documents, and QA has to chase them before writing test cases. This is also the "thin input" problem named in CR082: a generated SRS/BRS can only be as good as the requirement data behind it.
+
+**Idea:** turn the dialog into a guided template the BA fills in, using a standard requirement structure for B2B SaaS, with a readiness check before the requirement goes to FA review.
+
+**Sections (7), keeping the existing fields where they already exist:**
+1. **Basics** — title, Redmine ID, project, module, tracker, priority, milestone, parent (all existing).
+2. **Background and objective** — problem statement (replaces the free-text description's role), measurable objective and success measure.
+3. **Scope and stakeholders** — in scope, out of scope, future phase; user roles affected.
+4. **Business rules** — rows with auto IDs (BR-001, BR-002 …) so test cases can reference a rule.
+5. **Acceptance criteria** — Given / When / Then rows, each tagged Happy path / Negative / Edge case.
+6. **Non-functional and data needs** — category ticks, a measurable target per ticked item, data and integrations notes.
+7. **Assumptions, risks and open questions** — assumptions, risk + mitigation, open question with owner and due date.
+
+**Readiness checklist:** a side panel shows "n of 7 sections complete" and what is missing. **Decided 2026-10-01:** completeness is *advisory* — Save as draft and Submit for FA review are never blocked, and no section is mandatory beyond the existing required Basics fields (so small change requests can fill only what they need). Sits on top of the existing review workflow (`reviewStatus`: draft → in_review → approved / rejected); that workflow is unchanged.
+
+**Design decisions (proposed, to confirm):**
+- **Storage:** one JSON column (e.g. `templateData` on `requirementsTable`) rather than a dozen new columns; section completeness is computed, not stored. Existing `description` and `acceptanceCriteria` stay for backward compatibility and for requirements imported from Redmine.
+- **User roles are per project, and separate from QM Pulse's own roles.** The existing `roles` table holds QM Pulse users (admin, qa_lead, qa_member …); the roles in section 3 belong to the *system under test* (e.g. Employer, Agent). New table `project_user_roles` (project, name, optional description), maintained on the Project & Module Config page (same place modules are managed, `project_modules` pattern). The dialog loads the list for the selected project. A "+ Add role" chip lets a BA add a missing role on the spot, marked *pending* until the QA Lead confirms, to avoid duplicates. Requirements store role IDs, not names, so a rename does not break old requirements.
+- **Non-functional categories:** a default list (Performance, Security, Audit trail, Access control, Data retention, Localisation, Browser/device) that is editable, plus a "+ Add" chip for custom ones (e.g. Availability, Scalability, Compliance, Backup and recovery, Accessibility, Integration, Usability). The hint text should say "give a number or a rule" in plain words with an example, e.g. "500 rows in under 60 seconds", so the target is testable.
+- **Acceptance criteria format:** today `acceptanceCriteria` is a JSON array of strings (CR022). Given/When/Then rows need a structured shape; either store them in `templateData` and keep the old column for imports, or migrate. Decision needed.
+
+**Decisions (2026-10-01):**
+1. Submit for FA review is **not** locked by completeness — advisory only (see Readiness checklist).
+2. Sections are **optional** — a small change request can fill only what it needs.
+3. The project user-role list and the non-functional category list are maintained by **FA Lead and QA Lead only** (decided 2026-10-01). Map to the existing lead tiers (`fa_lead`, `qa_lead`); whether higher tiers (`hod_*`, `admin`) inherit it is checked at build time against the CR014 tiers. BAs can still propose a role through the "+ Add role" chip, which stays *Pending lead* until a lead confirms.
+4. **Requirements imported from Redmine** — decided 2026-10-01 (idea from Syamil): keep a separate **Description** field in the dialog (the existing `description` column, no migration) that holds the original text, e.g. what Redmine sent. **Analyze with AI** reads it and suggests which section each part belongs to; the user accepts or ignores each suggestion. Accepting *copies* the part into the section and leaves the Description untouched as the original source. No badge, no bulk migration, nothing blocked; imported and new requirements use the same flow. Optional later: a "Template not filled" filter so leads can see the backlog.
+5. Downloadable blank Word/Markdown template — **not in v1** (explained to the user; revisit with CR082 as an export of a *filled* requirement).
+
+**AI assist inside the dialog (added 2026-10-01):** an "Analyze with AI" button in the dialog, with suggestions that the user accepts into the *correct section*.
+- The existing analyzer (`POST /ai/analyze-requirement`, `ai.ts`) only reads title, description and module and returns issues / missing items / questions with no target field. For the dialog it must read **all filled sections** and return each suggestion with a `section` target (basics, problem, objective, scope, business rule, acceptance criterion, non-functional, assumption, risk, open question) plus a ready-to-insert `proposedValue`.
+- The dialog works **before the requirement exists** (no `requirementId`), so it sends the form content in the request body; triage statuses are held in the dialog and written to `requirement_ai_suggestions` on save (new nullable `section` column, additive).
+- **Accept** inserts the proposed text into the right place: appends to a list section (new BR-00n row, new Given/When/Then row, new open question) or appends to a text box without overwriting what the BA typed. **Ignore** hides it. Nothing is ever filled automatically.
+- Principle from CR082: **ask, don't invent.** The AI proposes only what the existing text supports; unknowns become open questions with no owner, not made-up facts. AI-added text is marked until the BA edits it.
+- Each suggestion that comes from the Description shows the **exact source sentence** ("From description: …") next to the target section, so the BA can verify it. A mixed paragraph can produce several suggestions, one per section. This replaces the earlier "Fill from description with AI" button idea (point 4).
+
+6. Accepted AI suggestions **are recorded in the requirement's History** (a new activity type alongside `requirement_ai_analysis`), including which section each one went into.
+
+**Dialog footer actions (in scope):** today the dialog only has **Cancel** and **Create / Save Changes**; "Submit for Review" exists only on the Requirement Detail page (`PATCH /requirements/:id/review`). This CR adds to the dialog: **Cancel**, **Save as draft** (saves with `reviewStatus = 'draft'`) and **Submit for FA review** (saves, then moves it to `in_review` using the same review endpoint and the same permission check as the detail page, `canSubmitForReview`). Neither button is blocked by template completeness. Editing an existing requirement keeps "Save Changes".
+
+**"Description changed since last analysis" hint (decided 2026-10-01: needed).** Detection is source-agnostic, so it does not depend on how the text changed (manual edit in the dialog, or a Redmine re-import): when Analyze with AI runs, store a hash of the Description (inside the template JSON, no new column). On open, if the current Description no longer matches, show a hint on the requirement and in the dialog — "Description changed since the last AI analysis. Sections may be out of date." — with a one-click **Analyze again**. The hint never edits sections; already-accepted suggestions stay as they are, and re-analysis only offers new suggestions for the changed text. The old text is already journalled in History by the existing description snapshot diff (CR022), so reviewers can see what changed. Note: only the import and attachment-sync routes were seen in `requirements.ts` (no description re-sync yet verified), which is why detection compares the text itself.
+
+**Open questions (remaining):** none at the moment.
+
+**Likely touch points (dialog and schema verified, rest not yet):** `lib/db/src/schema/requirements.ts` (template column) and a new `project-user-roles.ts`; requirement create/update routes in `artifacts/api-server/src/routes/`; `lib/api-spec/openapi.yaml` + codegen for the new fields; `artifacts/qm-pulse/src/pages/Requirements.tsx` (dialog, ~lines 1595–1914), `RequirementDetail.tsx` (show the sections), and `ModuleAndProject.tsx` (role list management).
+
+**Relationship to other CRs:** extends CR022/CR023 (acceptance criteria, review workflow). Feeds CR082 — structured sections give the SRS/BRS generator real input instead of `[TBD]` gaps. Test-case generation (CR015) could later use business rules and Given/When/Then rows as input.
+
+**Not in this CR:** SRS/BRS document generation (CR082); changes to the FA review/approval flow; auto-extracting template sections from Redmine tickets with AI.
+
+---
+
