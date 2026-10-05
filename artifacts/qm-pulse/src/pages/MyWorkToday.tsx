@@ -15,6 +15,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldAlert,
+  CalendarDays,
   Users2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,7 +39,7 @@ type WorkSection = "urgent" | "action" | "waiting";
 
 interface WorkItem {
   id: string;
-  type: "task" | "requirement" | "test_case" | "execution" | "defect" | "risk";
+  type: "task" | "requirement" | "test_case" | "execution" | "defect" | "risk" | "milestone";
   title: string;
   context: string;
   reason: string;
@@ -67,6 +68,7 @@ const TYPE_ICONS = {
   execution: CheckCircle2,
   defect: Bug,
   risk: ShieldAlert,
+  milestone: CalendarDays,
 };
 
 const SECTION_COPY: Record<WorkSection, { title: string; empty: string }> = {

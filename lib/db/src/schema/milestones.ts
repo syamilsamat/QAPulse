@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const milestonesTable = pgTable("milestones", {
   id: serial("id").primaryKey(),
@@ -14,6 +14,8 @@ export const milestonesTable = pgTable("milestones", {
   reqTargetDate: timestamp("req_target_date", { withTimezone: true }),
   devTargetDate: timestamp("dev_target_date", { withTimezone: true }),
   qaTargetDate: timestamp("qa_target_date", { withTimezone: true }),
+  // CR106 — SIT sits between QA (System Testing) and UAT, with its own date.
+  sitTargetDate: timestamp("sit_target_date", { withTimezone: true }),
   uatTargetDate: timestamp("uat_target_date", { withTimezone: true }),
   // Planned go-live (deployment) date — the last phase marker, set by the
   // PM. Plan-only: there is no activity-log event stream behind it, so it
@@ -23,6 +25,8 @@ export const milestonesTable = pgTable("milestones", {
   environment: text("environment"),
   // QA Pipeline additions
   requiresUat: boolean("requires_uat").notNull().default(false),
+  // CR106 — like requiresUat: switches the SIT phase (date, sign-off, status) on for this milestone.
+  requiresSit: boolean("requires_sit").notNull().default(false),
   pipelineStep: integer("pipeline_step"),
   pipelineEnabled: boolean("pipeline_enabled").notNull().default(false),
   signedOffAt: timestamp("signed_off_at", { withTimezone: true }),
@@ -77,6 +81,17 @@ export const milestoneAssigneesTable = pgTable("milestone_assignees", {
   index("milestone_assignees_user_idx").on(t.userId),
 ]);
 
+// Modules a milestone covers (many-to-many, same shape as project_modules).
+// No rows = the milestone covers the whole project, so milestones created
+// before this table existed keep working without a data migration.
+export const milestoneModulesTable = pgTable("milestone_modules", {
+  milestoneId: integer("milestone_id").notNull(),
+  moduleId: integer("module_id").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.milestoneId, t.moduleId] }),
+  index("milestone_modules_module_idx").on(t.moduleId),
+]);
+
 // CR054p3 — UAT sign-off documents. File bytes stored base64 in-row: sign-off
 // packs are small (a few MB) and this keeps backup/restore trivial; revisit
 // only if volume grows.
@@ -84,6 +99,8 @@ export const uatSignoffsTable = pgTable("uat_signoffs", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull(),
   milestoneId: integer("milestone_id").notNull(),
+  // CR106 — which phase this sign-off document belongs to: 'sit' or 'uat' (everything stored before is 'uat').
+  phase: text("phase").notNull().default("uat"),
   fileName: text("file_name").notNull(),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
@@ -114,6 +131,7 @@ export const dataPrepFilesTable = pgTable("data_prep_files", {
   index("data_prep_files_milestone_idx").on(t.milestoneId),
 ]);
 
+export type MilestoneModule = typeof milestoneModulesTable.$inferSelect;
 export type MilestoneAssignee = typeof milestoneAssigneesTable.$inferSelect;
 export type UatSignoff = typeof uatSignoffsTable.$inferSelect;
 export type DataPrepFile = typeof dataPrepFilesTable.$inferSelect;

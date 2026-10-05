@@ -36,12 +36,15 @@ const TestCasesExecution = lazy(() => import("@/pages/TestCasesExecution"));
 const TestCasesExecutionProgressPage = lazy(() => import("@/pages/TestCasesExecutionProgressPage"));
 const ModuleAndProject = lazy(() => import("@/pages/ModuleAndProject"));
 const Roles = lazy(() => import("@/pages/Roles"));
+const AiControls = lazy(() => import("@/pages/AiControls"));
+const RedmineSync = lazy(() => import("@/pages/RedmineSync"));
 const TraceabilityMatrix = lazy(() => import("@/pages/TraceabilityMatrix"));
 const AuditLog = lazy(() => import("@/pages/AuditLog"));
 const Defects = lazy(() => import("@/pages/Defects"));
 const Teams = lazy(() => import("@/pages/Teams"));
 const RequirementDetail = lazy(() => import("@/pages/RequirementDetail"));
 const Milestones = lazy(() => import("@/pages/Milestones"));
+const MilestoneDetail = lazy(() => import("@/pages/MilestoneDetail"));
 const PmDashboard = lazy(() => import("@/pages/PmDashboard"));
 const RiskRegister = lazy(() => import("@/pages/RiskRegister"));
 const UatSignoffs = lazy(() => import("@/pages/UatSignoffs"));
@@ -207,8 +210,14 @@ function Router() {
         <ProtectedRoute
           component={Milestones}
           permKey="nav:milestones"
-          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "pm_lead", "pm_member"]}
+          roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "hod_dev", "qa_manager", "qa_lead", "qa_member", "fa_lead", "fa_member", "dev_lead", "dev_member", "pm_lead", "pm_member"]}
         />
+      </Route>
+
+      {/* A milestone's own page: open to anyone with project access, including
+          Dev roles; what they can do on it is decided by the server. */}
+      <Route path="/milestones/:id">
+        <ProtectedRoute component={MilestoneDetail} />
       </Route>
 
       <Route path="/qa-pipeline">
@@ -282,6 +291,14 @@ function Router() {
           permKey="nav:configurations"
           roles={["admin", "cto", "hod_qa", "hod_pm", "hod_fa", "qa_manager", "qa_lead", "pm_lead"]}
         />
+      </Route>
+
+      <Route path="/redmine-sync">
+        <ProtectedRoute component={RedmineSync} roles={["admin", "cto"]} />
+      </Route>
+
+      <Route path="/ai-controls">
+        <ProtectedRoute component={AiControls} roles={["admin", "cto"]} />
       </Route>
 
       <Route path="/roles">

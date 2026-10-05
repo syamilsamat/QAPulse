@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useEffect, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
@@ -38,6 +39,8 @@ interface Signoff {
   projectName: string;
   milestoneId: number;
   milestoneName: string;
+  /** CR106 — which phase the document signs off: SIT or UAT. */
+  phase?: "sit" | "uat";
   fileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -144,6 +147,7 @@ export default function UatSignoffs() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [upProject, setUpProject] = useState<string>("");
   const [upMilestone, setUpMilestone] = useState<string>("");
+  const [upPhase, setUpPhase] = useState<"sit" | "uat">(new URLSearchParams(searchString).get("phase") === "sit" ? "sit" : "uat");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -205,6 +209,7 @@ export default function UatSignoffs() {
   }, []);
 
   const openUpload = () => {
+    setUpPhase("uat");
     setUpProject(filterProject !== "all" ? filterProject : "");
     setUpMilestone("");
     setNote("");
@@ -228,6 +233,7 @@ export default function UatSignoffs() {
         method: "POST",
         body: JSON.stringify({
           milestoneId: Number(upMilestone),
+          phase: upPhase,
           fileName: file.name,
           mimeType: file.type || "application/octet-stream",
           dataBase64,
@@ -278,7 +284,7 @@ export default function UatSignoffs() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <FileCheck2 className="w-5 h-5 text-teal-500" />
-            UAT Sign-offs
+            SIT &amp; UAT Sign-offs
           </h1>
           <p className="text-sm text-muted-foreground">Signed acceptance documents per milestone — the closing evidence behind every go-live.</p>
         </div>
@@ -317,6 +323,7 @@ export default function UatSignoffs() {
             <thead>
               <tr className="text-xs text-muted-foreground border-b bg-muted/40">
                 <th className="text-left font-medium px-3 py-2">File</th>
+                <th className="text-left font-medium px-3 py-2">Phase</th>
                 <th className="text-left font-medium px-3 py-2">Project</th>
                 <th className="text-left font-medium px-3 py-2">Milestone</th>
                 <th className="text-left font-medium px-3 py-2">Uploaded by</th>
@@ -335,6 +342,7 @@ export default function UatSignoffs() {
                     {/* The note is the file's optional description. */}
                     <p className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">{fmtSize(s.sizeBytes)}{s.note ? ` · ${s.note}` : ""}</p>
                   </td>
+                  <td className="px-3 py-2.5"><Badge variant="secondary">{s.phase === "sit" ? "SIT" : "UAT"}</Badge></td>
                   <td className="px-3 py-2.5">{s.projectName}</td>
                   <td className="px-3 py-2.5"><Badge variant="outline">{s.milestoneName}</Badge></td>
                   <td className="px-3 py-2.5">{s.uploaderName ?? "—"}</td>
@@ -359,9 +367,20 @@ export default function UatSignoffs() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Upload UAT sign-off</DialogTitle>
+            <DialogTitle>Upload {upPhase === "sit" ? "SIT" : "UAT"} sign-off</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 min-w-0">
+            <div className="space-y-1.5 min-w-0">
+              <Label>Phase</Label>
+              <div className="flex gap-2">
+                {(["sit", "uat"] as const).map((ph) => (
+                  <button key={ph} type="button" onClick={() => setUpPhase(ph)}
+                    className={`flex-1 rounded border py-2 text-sm font-medium transition-colors ${upPhase === ph ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted"}`}>
+                    {ph === "sit" ? "SIT" : "UAT"}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-1.5 min-w-0">
               <Label>Project</Label>
               <Select value={upProject} onValueChange={(v) => { setUpProject(v); setUpMilestone(""); }}>
@@ -413,6 +432,7 @@ export default function UatSignoffs() {
             <Button onClick={handleUpload} disabled={uploading}>
               {uploading ? "Uploading…" : "Upload"}
             </Button>
+            <ProgressDialog open={uploading} title="Uploading the sign-off" message="Saving your file to this milestone." hint="Usually a few seconds" />
           </DialogFooter>
         </DialogContent>
       </Dialog>

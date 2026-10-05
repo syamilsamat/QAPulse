@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState, useEffect, useMemo } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -285,6 +286,7 @@ export default function AuditLog() {
           {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
           Export Excel
         </Button>
+        <ProgressDialog open={isExporting} title="Exporting the audit log" message="Building the Excel file with the entries that match your filters." hint="Usually a few seconds" />
       </div>
 
       {/* Filters */}

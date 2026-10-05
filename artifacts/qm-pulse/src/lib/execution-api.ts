@@ -36,6 +36,7 @@ export interface ExecutionFile {
   projectId?: number | null;
   requirementId?: number | null;
   milestoneId?: number | null;
+  fileType?: string | null;
   milestoneName?: string | null;
   milestonePriority?: string | null;
   milestoneStatus?: string | null;
@@ -684,6 +685,9 @@ export const registerLocalDefect = async (payload: {
   description?: string;
   stepsToReproduce?: string;
   projectId?: number | null;
+  milestoneId?: number | null;
+  requirementId?: number | null;
+  foundIn?: string;
   expectedResult?: string;
   actualResult?: string;
   severity?: string;

@@ -1,12 +1,14 @@
 import { openAttachmentResponse } from "@/lib/attachment-download";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listRequirements, getListRequirementsQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
+import { RedmineChangesBanner } from "@/components/RedmineChangesBanner";
 import { rephraseSuggestion, markDescriptionAiEdited } from "@/lib/rephrase-suggestion";
 import { useToast } from "@/hooks/use-toast";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
 import {
   ArrowLeft,
@@ -79,7 +81,7 @@ function ReviewStatusBadge({ status }: { status: string }) {
     case "approved":
       return <Badge className="gap-1 bg-green-100 text-green-700 border-green-200"><CheckCircle2 className="w-3 h-3" /> Approved</Badge>;
     case "rejected":
-      return <Badge className="gap-1 bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3" /> Rejected</Badge>;
+      return <Badge className="gap-1 bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3" /> Returned</Badge>;
     case "in_review":
       return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> In Review</Badge>;
     default:
@@ -181,6 +183,7 @@ export default function RequirementDetail() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const aiAbort = useRef<AbortController | null>(null);
   // CR071 — text of the recommendation currently being written to Acceptance
   // Criteria (drives per-row loading state; null when nothing is in flight)
   const [acceptingText, setAcceptingText] = useState<string | null>(null);
@@ -449,7 +452,7 @@ export default function RequirementDetail() {
       });
       const data = await res.json();
       if (!res.ok) { toast({ variant: "destructive", title: data.error ?? "Review action failed" }); return; }
-      toast({ title: action === "submit" ? "Submitted for review" : action === "approve" ? "Requirement approved" : "Requirement rejected" });
+      toast({ title: action === "submit" ? "Submitted for review" : action === "approve" ? "Requirement approved" : "Requirement returned" });
       if (action === "submit" && aiEditFlagKey) {
         try { sessionStorage.removeItem(aiEditFlagKey); } catch { /* ignore */ }
         setAiEditedDescription(false);
@@ -600,9 +603,12 @@ export default function RequirementDetail() {
   const runAiAnalysis = async () => {
     if (!reqId || !req) return;
     setAiLoading(true);
+    const ctl = new AbortController();
+    aiAbort.current = ctl;
     try {
       const res = await api(`/ai/analyze-requirement`, token, {
         method: "POST",
+        signal: ctl.signal,
         body: JSON.stringify({
           requirementId: reqId,
           title: req.title,
@@ -613,9 +619,10 @@ export default function RequirementDetail() {
       const data = await res.json();
       setAiResult(data);
       queryClient.invalidateQueries({ queryKey: ["requirement-history", reqId] });
-    } catch {
-      toast({ variant: "destructive", title: "AI analysis failed" });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") toast({ variant: "destructive", title: "AI analysis failed" });
     } finally {
+      aiAbort.current = null;
       setAiLoading(false);
     }
   };
@@ -856,6 +863,13 @@ export default function RequirementDetail() {
             <Brain className="w-3.5 h-3.5" />
             {aiLoading ? "Analyzing…" : "Analyze with AI"}
           </Button>
+          <ProgressDialog
+            open={aiLoading}
+            title="Analyzing requirement"
+            message="Asking the AI to check this requirement for gaps and unclear points."
+            hint="Usually 10 to 30 seconds"
+            onCancel={() => aiAbort.current?.abort()}
+          />
           {canReview && (
             <>
               {req.reviewStatus === "draft" && canSubmitForReview && (
@@ -869,7 +883,7 @@ export default function RequirementDetail() {
                     Approve
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => setReviewAction("reject")}>
-                    Reject
+                    Return
                   </Button>
                 </>
               )}
@@ -883,6 +897,13 @@ export default function RequirementDetail() {
         </div>
       </div>
 
+      {req && (
+        <RedmineChangesBanner
+          requirementId={req.id}
+          canResolve={isAuthor || req.assigneeId === user?.id || isLeadTier || ["admin", "cto"].includes(role)}
+        />
+      )}
+
       {/* Review action panel */}
       {reviewAction && (
         <Card className="border-2 border-dashed border-muted">
@@ -890,7 +911,7 @@ export default function RequirementDetail() {
             <p className="text-sm font-medium">
               {reviewAction === "submit" ? "Submit this requirement for FA review?" :
                reviewAction === "approve" ? "Approve this requirement?" :
-               "Reject this requirement?"}
+               "Return this requirement?"}
             </p>
             <Textarea
               placeholder="Add a comment (optional)…"
@@ -1427,7 +1448,7 @@ export default function RequirementDetail() {
               )}
               {req.rejectedAt && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Rejected</span>
+                  <span className="text-muted-foreground">Returned</span>
                   <span className="text-xs text-red-600">{format(new Date(req.rejectedAt), "dd MMM yyyy")}</span>
                 </div>
               )}

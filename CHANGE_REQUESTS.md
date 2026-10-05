@@ -66,7 +66,31 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR080](#cr080--defect-root-cause--resolution) | Defect Root Cause & Resolution | ✅ Deployed | 2026-09-18 |
 | [CR081](#cr081--execution--dev-task-fixes-batch) | Execution & Dev Task Fixes (batch) | ✅ Deployed | 2026-09-24 |
 | [CR082](#cr082--generate-srs--brs-from-requirements) | Generate SRS / BRS from Requirements | 📋 Planned | 2026-09-25 |
-| [CR083](#cr083--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
+| [CR083](#cr083--module-selection-on-milestone-creation) | Module Selection on Milestone Creation | 🚧 Built, not deployed | 2026-10-01 |
+| [CR084](#cr084--review-remarks-and-history-on-execution-file-review) | Review Remarks and History on Execution File Review | 🚧 Built, not deployed | 2026-10-01 |
+| [CR085](#cr085--ai-controls-guard-limits-usage-log-and-draft-only-writes) | AI Controls: Guard, Limits, Usage Log and Draft-Only Writes | 🚧 Built, not deployed | 2026-10-01 |
+| [CR086](#cr086--ai-document-and-result-cache) | AI Document and Result Cache | 🚧 Built, not deployed | 2026-10-01 |
+| [CR087](#cr087--scheduled-redmine-sync) | Scheduled Redmine Sync | 🚧 Built, not deployed | 2026-10-01 |
+| [CR088](#cr088--new-requirement-form-rework-and-milestone-type-tracker-mapping) | New Requirement Form Rework and Milestone-Type Tracker Mapping | 🚧 Built, not deployed | 2026-10-02 |
+| [CR089](#cr089--execution-test-case-ownership-and-edit-lock) | Execution Test Case Ownership and Edit Lock | 🚧 Built, not deployed | 2026-10-02 |
+| [CR090](#cr090--notify-devs-when-a-returned-requirement-is-re-approved) | Notify Devs When a Returned Requirement Is Re-approved | 🔨 Built, not deployed | 2026-10-02 |
+| [CR091](#cr091--requirement-priority-defaults-from-milestone-priority) | Requirement Priority Defaults from Milestone Priority | 🔨 Built, not deployed | 2026-10-02 |
+| [CR092](#cr092--ai-analyze-inside-the-new-requirement-dialog) | AI Analyze Inside the New Requirement Dialog | 🔨 Built, not deployed | 2026-10-02 |
+| [CR093](#cr093--shared-progress-dialog-for-long-running-actions) | Shared Progress Dialog for Long-Running Actions | 🔨 Built, not deployed | 2026-10-02 |
+| [CR094](#cr094--milestones-search) | Milestones Search | 🔨 Built, not deployed | 2026-10-02 |
+| [CR095](#cr095--ai-test-case-generation-dialog-rearrangement) | AI Test Case Generation Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
+| [CR096](#cr096--new-execution-file-dialog-rearrangement) | New Execution File Dialog Rearrangement | 🔨 Built, not deployed | 2026-10-02 |
+| [CR097](#cr097--compile-and-add-to-existing-dialog-alignment) | Compile and Add-to-Existing Dialog Alignment | 🔨 Built, not deployed | 2026-10-02 |
+| [CR098](#cr098--fewer-fields-and-clicks-across-creation-dialogs) | Fewer Fields and Clicks Across Creation Dialogs | 🔨 Built, not deployed | 2026-10-02 |
+| [CR099](#cr099--milestone-page-read-only-detail-opened-from-notifications) | Milestone Page (Read-Only Detail, Opened from Notifications) | 🚧 Built, not deployed | 2026-10-02 |
+| [CR100](#cr100--milestone-permissions-who-edits-and-who-staffs) | Milestone Permissions: Who Edits and Who Staffs | 🚧 Built, not deployed | 2026-10-02 |
+| [CR101](#cr101--requirement-creation-limited-to-fa-for-the-milestone) | Requirement Creation Limited to FA for the Milestone | 🚧 Built, not deployed | 2026-10-02 |
+| [CR102](#cr102--milestone-notifications-creation-edits-and-team-changes) | Milestone Notifications: Creation, Edits and Team Changes | 🚧 Built, not deployed | 2026-10-02 |
+| [CR103](#cr103--assigned-milestones-in-my-work) | Assigned Milestones in My Work | 🚧 Built, not deployed | 2026-10-02 |
+| [CR104](#cr104--create-view-and-edit-requirements-without-leaving-the-milestone-page) | Create, View and Edit Requirements Without Leaving the Milestone Page | 🚧 Built, not deployed | 2026-10-02 |
+| [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
+| [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
+| [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
 
 ---
 
@@ -1761,7 +1785,580 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 
 ---
 
-### CR083 — BA Requirement Template in the Add Requirement Dialog
+### CR083 — Module Selection on Milestone Creation
+**Status: 🚧 Built, not deployed (2026-10-01).** Typechecks clean on api-server and qm-pulse; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "no module selection in milestone creation". A milestone had no module concept at all, even though modules already exist as a per-project catalog (CR035) and every requirement and test case carries one.
+
+**What it does:**
+- **Storage.** New `milestone_modules(milestone_id, module_id)` join table, same shape as `project_modules`. **No rows = the milestone covers the whole project**, so every milestone created before this CR keeps working with no data migration. The table is created idempotently by the startup bootstrap in `roles.ts` (this app creates its tables there) and is also in the drizzle schema.
+- **API.** `POST` and `PATCH /milestones` accept `moduleIds` and `allModules`; list, detail and create/edit responses return `modules: [{id, name}]`. Rejected with 400 if a module is not associated with the milestone's project, or if nothing was chosen and `allModules` is not set.
+- **Required, with exemptions.** Required for new milestones — choose specific modules or explicitly "All modules (whole project)". Exempt: `data_prep` milestones (no requirements to scope) and projects with no modules set up (nothing to choose from).
+- **UI.** Shared `MilestoneModulePicker` in both create forms (Milestones dialog and QA Pipeline Step 1); editable from the Milestones edit dialog. Milestone cards show module chips, or "All modules".
+- **Scoping (warn, don't block).** Pipeline Step 2's Redmine-sync module dialog lists only the milestone's modules, preselected; requirements already outside the set get an "Outside milestone modules" badge. `POST` and `PATCH /requirements` return a non-blocking `moduleWarning` when a requirement's module falls outside its milestone's set. Traceability and the TC Library milestone filter (CR017, CR025) are untouched — they scope through the milestone's requirements, so they pick this up via Step 2.
+
+**Decisions taken (from the CTO-feedback review):** required rather than optional; scope pickers and reports rather than label-only or hard-block.
+
+**Known gaps / follow-ups:**
+- ~~`moduleWarning` not shown on the Requirements page~~ — shown as a toast after save since CR088.
+- The milestone edit dialog on the QA Pipeline page has no module picker; modules are editable from the Milestones page only.
+- Existing milestones show "All modules" and the picker forces a choice the next time one is saved from the Milestones page.
+- Hard-blocking out-of-scope links, if the CTO wants it, is a small change on top of `moduleScopeWarning` in `lib/milestone-modules.ts`.
+
+**Files:** `lib/db/src/schema/milestones.ts`, `artifacts/api-server/src/lib/milestone-modules.ts` (new), `routes/milestones.ts`, `routes/requirements.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/components/MilestoneModulePicker.tsx` (new), `pages/Milestones.tsx`, `components/qa-pipeline/Step1Milestone.tsx`, `components/qa-pipeline/Step2Requirements.tsx`.
+
+
+---
+
+### CR084 — Review Remarks and History on Execution File Review
+**Status: 🚧 Built, not deployed (2026-10-01).** Both packages typecheck clean; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "add remark field during test case review". Peer review happens on the compiled execution file (file-level Submit/Approve/Reject) and per row (Accept/Return/Resubmit). Reject and Return already took a reason, but Approve and Accept took none, and only the *latest* reason was kept: `rejection_reason` / `review_comment` are cleared on resubmit or approve, so the reason a file bounced was lost once it was fixed.
+
+**What it does:**
+- **Remark on approve and accept.** A small dialog (`ReviewRemarkDialog`) now opens on file Approve (Execution page queue + row menu, and the file page) and on per-row Accept. The remark is optional there; confirming with nothing typed still approves.
+- **Reject and Return stay mandatory, now enforced server-side.** The existing dialogs already required a reason, but the API accepted an empty one; it now returns 400 for `reject` without a reason and `return` without "what to fix".
+- **Append-only history.** New `execution_review_log` table (file, optional row + its label, action, reviewer, remark, timestamp). Every submit/approve/reject/accept/return/resubmit writes a row; the existing `rejection_reason` / `review_comment` columns keep their "current value" role. `GET /execution-files/:id/review-log` returns it newest-first, project-access checked.
+- **UI.** Collapsible "Review history" list on the execution file page (`ReviewHistory`), showing badge, row label, reviewer, time and remark; it reloads after each review action.
+- **Notifications.** The approval / acceptance notification to the author now includes the reviewer's remark.
+- The table is created idempotently by the startup bootstrap in `roles.ts` and is also in the drizzle schema.
+- **"Reject" is now "Return" everywhere users see it** (CTO wording): buttons, dialog titles and labels, status badges, toasts, notification titles and messages, activity descriptions, the PM dashboard status and legend. Display text only — the stored values (`reviewStatus = "rejected"`, the `reject` action/decision, `rejection_reason`, `rejected_by/at`, notification type `review_rejected`) are unchanged, so the API and existing data stay compatible. Deliberately left alone: Redmine statuses and messages ("Rejected" defect status, "Redmine rejected the update"), JavaScript `Promise` rejection, and the API validation messages that name the accepted value (`action must be submit, approve, or reject`).
+
+**Decisions taken:** covers both file-level and per-row review; remark optional on approve/accept, required on reject/return; history table rather than overwriting.
+
+**Known gaps / follow-ups:**
+- **Submit has no remark input.** The API accepts and logs a remark on submit, but the only submit UI is the bulk "submit all files" button in QA Pipeline Step 3; a per-file submit dialog would be a follow-up.
+- **"Accept all" records no remark** — one remark across many rows would be misleading.
+- **Not in the Excel export.** The exported Review Log sheet is fed by `execution_file_audit`, which has no remark column; adding remarks there is a separate change.
+- Review history before this CR is not backfilled; it starts from the first review action after deploy.
+
+**Files:** `lib/db/src/schema/execution.ts`, `artifacts/api-server/src/routes/test-execution.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/components/execution/ReviewRemarkDialog.tsx` (new), `components/execution/ReviewHistory.tsx` (new), `pages/TestCasesExecution.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR085 — AI Controls: Guard, Limits, Usage Log and Draft-Only Writes
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; not yet exercised against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "lock AI usage (don't let it go too far by itself)". Reviewing the AI routes found two things beyond the comment itself:
+- **12 of the 25 `/ai` routes had no login check at all** (`analyze-requirement`, `edge-cases`, `duplicate-detection`, `weekly-summary`, `risk-score`, `release-readiness`, `chat`, `test-data`, `regression-selection`, `natural-language-search`, `capa-analysis`, `search-tcs`), and several of the rest did not check project access. Read from the handlers; not yet confirmed against a live server.
+- **Two routes wrote data with no human step:** `/ai/tag-risk-priority` overwrote the priority of every test case in a milestone with the model's output, and `/ai/analyze-milestone-requirements` was a stub that marked requirements "completed" without calling AI (writing a column that may not exist).
+
+**What it does:**
+- **One guard for every AI call** (`lib/ai-guard.ts`, `aiGuard(feature)`): requires a signed-in user; honours the global kill switch and the per-feature switch; checks the caller's role against the feature's allowed roles; resolves the project from `projectId` / `milestoneId` / `requirementId` and checks access; enforces per-user hourly and daily caps; and logs the attempt. Fails closed if the guard itself errors. Admins bypass the off-switches (so a fix can be tested before re-enabling) but not the caps.
+- **Admin controls** (`routes/ai-controls.ts`, page `/ai-controls`, reached from a new AI Controls tab in Settings; admin and CTO only): master on/off, per-user daily and hourly limits (defaults 100/day, 30/hour), and per feature an on/off switch, allowed roles and a daily limit. Changes are written to the audit log and take effect within ~15 seconds.
+- **Usage log** (`ai_usage_log`): every attempt, including blocked ones with the reason (AI off, feature off, role, project access, hourly or daily limit), user, feature, project, input size and duration. The admin page shows usage by feature, by user and the 50 most recent calls.
+- **Draft-only for the one AI write.** `tag-risk-priority` now only returns suggestions; a QA user ticks the ones they agree with in a review dialog and `POST /ai/tag-risk-priority/apply` saves them, restricted to QA roles, to test cases of that milestone, with each change written to the audit log with the old value. The dead `analyze-milestone-requirements` stub was removed.
+- **Autocomplete metered separately.** The inline typing suggestion on the execution sheet was calling `/ai/chat` with no token on every typing pause. It now uses `/ai/autocomplete` (sends the token) with its own 300/day limit that does not count against the shared caps, so it cannot exhaust them.
+- Tables (`ai_global_settings`, `ai_feature_settings`, `ai_usage_log`) are created idempotently by the startup bootstrap in `roles.ts` and are also in the drizzle schema.
+
+**Decisions taken:** full scope including the admin page; per-user caps (not per-project); suggest-then-confirm for risk priorities.
+
+**Known gaps / follow-ups:**
+- **Not covered:** the model fallback list in `ai.ts` (`runOpenRouterCascade`) still tries a long list of third-party models in turn; which models may receive project data is a separate decision. Data sent to external providers is not redacted.
+- Acceptance of AI output (accepted vs ignored) is not tracked per call — only the risk-priority apply is logged as a data change. Requirement suggestions already have their own accepted/ignored status.
+- Caps are per user, not per project; a per-project budget would be a follow-up.
+- The three conversation-history GETs under `/ai/requirement-chat` and the stored-assessment GETs are reads, not AI calls, so they are authenticated but not metered.
+- Behaviour change to expect: calls that previously worked without a token now return 401; the one such client caller found (autocomplete) was fixed, but any external script hitting `/api/ai/*` unauthenticated will break.
+
+**Files:** `lib/db/src/schema/ai-controls.ts` (new), `artifacts/api-server/src/lib/ai-guard.ts` (new), `routes/ai-controls.ts` (new), `routes/ai.ts`, `routes/index.ts`, `routes/roles.ts`, `artifacts/qm-pulse/src/pages/AiControls.tsx` (new), `pages/Settings.tsx`, `App.tsx`, `components/qa-pipeline/RiskPrioritySuggestionsDialog.tsx` (new), `components/qa-pipeline/Step3TestCases.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR086 — AI Document and Result Cache
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; the cache module itself was exercised with a throwaway script (14 checks: parse-once, same-bytes hit, per-user isolation, type and size rejection, fingerprint change on edit/add, eviction). The routes and UI have not been run against a database or in the browser.
+
+**Origin:** CTO feedback after the demo — "add memory to cache any big file used in the AI API on the page". The one large file in the AI flow is the **coverage-gap spec document** (AI Features page, PDF/XLS/XLSX up to 8 MB): every "Analyze Coverage Gaps" click re-read the file, re-encoded it to base64, re-posted it, re-parsed the spreadsheet and called the model again — even when nothing had changed.
+
+**What it does:**
+- **Upload once.** New `POST /ai/documents` stores the file in a bounded in-memory cache keyed by the SHA-256 of its bytes (per user) and returns a `documentId`; a spreadsheet is parsed to text once. `GET /ai/documents/:id` checks whether it is still cached. Later AI calls send only the id. Limits: 20 documents, 64 MB total, 2-hour expiry, least-recently-used eviction.
+- **No re-upload from the browser.** The page hashes the chosen file locally and asks the server whether it already holds those bytes; if so nothing is uploaded. The id is kept in `sessionStorage`, so leaving and returning to the page still shows the file as cached (and quietly drops it if the server has since expired it).
+- **Result cache.** `POST /ai/coverage-gap` returns a saved answer for an identical request, keyed by a hash of the document plus a fingerprint of the requirement and test-case rows it was built from (id + updated-at). Any edit, add or delete changes the fingerprint, so a stale analysis is never served. The page says "Showing a saved result from HH:MM" with a **Run fresh** button (`refresh: true`). Failed or fallback AI responses are never cached.
+- **Cache hits are free.** The AI guard (CR085) records a hit as `cached`, not `ok`, so it does not count against the user's hourly or daily cap; AI Controls → Usage shows a Cached column and a "Cached (free)" badge.
+- Backward compatible: the route still accepts the old inline `attachment` and stores it into the same cache.
+- A flaw found while testing and fixed before shipping: a cache hit skipped the file-type check, so identical bytes under an unsupported file name were accepted.
+
+**Decisions taken:** in-memory (not database or Gemini Files API); cache the coverage document and the coverage-gap result.
+
+**Known gaps / follow-ups:**
+- **Memory-only and per API process.** A restart, or a second server instance, loses the cache; the cost is one re-upload or one fresh AI call, never a wrong answer. If the API is scaled to several instances, requests for the same user may land on different caches.
+- **Only coverage-gap uses it.** Other AI routes send small text built from database rows, not files. The cache module is generic (`lib/ai-cache.ts`) if another document-taking route is added.
+- **Not done: provider-side caching** (Gemini Files API / context caching), which would also avoid re-sending the PDF bytes to the model on a fresh run. It depends on provider limits and pricing and is a separate decision.
+- The route still loads every requirement and test case from the database before filtering to the user's projects; it is correct but not efficient, and out of scope here.
+
+**Files:** `artifacts/api-server/src/lib/ai-cache.ts` (new), `routes/ai.ts`, `lib/ai-guard.ts`, `routes/ai-controls.ts`, `lib/db/src/schema/ai-controls.ts` (comment), `artifacts/qm-pulse/src/pages/AiFeatures.tsx`, `pages/AiControls.tsx`.
+
+---
+
+### CR087 — Scheduled Redmine Sync
+**Status: 🚧 Built, not deployed (2026-10-01).** api-server and qm-pulse typecheck clean; the comparison logic was exercised with a throwaway script (13 checks: line-ending noise is not a change, each field detected, unknown priority, empty remote title never blanks local text, which review states auto-apply). The scheduler, Redmine calls, database writes and screens have **not** been run against a database, a real Redmine or the browser.
+
+**Origin:** CTO feedback after the demo — "something to ensure syncing with Redmine (maybe after a certain time)". Every Redmine sync in QM Pulse was a manual button (defect status refresh, tracker pull, requirement import); there was no scheduler on the server at all. A defect closed in Redmine kept showing open, and an already-imported requirement was never updated again (Step 2 skips existing ones).
+
+**What it does:**
+- **Background job.** A scheduler (`lib/redmine-sync-scheduler.ts`) wakes every minute and runs a sync when one is due. Default **every 15 minutes**, changeable (5 min – 4 h) or switchable off from the admin screen without a redeploy. After failures it backs off (2x, 4x, up to 8x the interval). The first run after a deploy is a full check; a full check re-runs every 24 h, in between runs are incremental (only issues Redmine reports as changed since the last success, with a 5-minute overlap).
+- **One run at a time.** A database lock (`redmine_sync_state.running_since`, treated as dead after 30 min) means several API instances ticking together still produce one sync. The cursor only advances on a run that actually read Redmine, so a failed run is retried over the same window.
+- **Defects:** status and assignee are refreshed with the existing `refreshDefectStatuses`, which already keeps a newer local assignment instead of overwriting it.
+- **Requirements (title, description, priority, tracker):**
+  - a **draft** (or returned) requirement takes Redmine's change automatically — but only if Redmine was edited *after* the last local edit; if someone changed it in QM Pulse more recently it is flagged instead, so their work is not overwritten;
+  - a requirement that is **in review or approved** is never overwritten: the difference is recorded (`requirement_redmine_changes`) and shown as a banner on the requirement with the old and new text; the author, assignee or a lead chooses **Accept Redmine's version** or **Keep this version**;
+  - accepting or auto-applying a description change re-opens review on the requirement's test cases and tasks, as editing the description in QM Pulse does (CR023p4); every change is written to the audit log with old and new values;
+  - the author and assignee are notified once per distinct difference; a difference someone already chose to keep is not raised again, and a flag is withdrawn automatically if Redmine reverts to match.
+- **Service key.** A background job has no signed-in user, so it uses `REDMINE_API_KEY` from the environment, or else the Redmine key saved on an administrator account. With neither, runs fail with a clear message and the admin screen shows a warning.
+- **Visibility.** "Synced with Redmine 4 min ago" on the Requirements and Defects pages (amber when older than two intervals or the last run failed). Admins get a **Redmine Sync** screen (Settings → Admin Tools): on/off, interval, **Sync now**, key source, and the last 30 runs with counts. Admins are notified after 3 consecutive failed runs.
+- Tables (`redmine_sync_state`, `redmine_sync_runs`, `requirement_redmine_changes`) are created idempotently by the startup bootstrap in `roles.ts` and are also in the drizzle schema. `REDMINE_SYNC_DISABLED=1` switches the scheduler off (e.g. for local development).
+
+**Decisions taken:** 15-minute interval; auto-apply for drafts, flag for approved; defects and requirements in phase 1; existing `REDMINE_API_KEY` or the admin's key.
+
+**Known gaps / follow-ups:**
+- **One-way only.** Redmine → QM Pulse. QM Pulse edits are not pushed back by this job (the existing write-through for defect status/assignee is unchanged).
+- **Not synced:** requirement assignee, status, parent/child structure, new child tickets, attachments, and milestones — only the four text fields above. New tickets created in Redmine still need the existing import/pull.
+- **Deletions are not applied.** A ticket deleted or hidden in Redmine is counted as unavailable for defects (existing behaviour) and simply not returned for requirements; nothing is removed or marked.
+- **Defects are re-read in full each run** (in batches of 90 per request), not incrementally; fine for hundreds of defects, worth revisiting if the register grows to many thousands.
+- **Rate limits.** The job makes about one Redmine request per 90 linked issues per run; if the Redmine server rate-limits the service account, runs show as partial/failed on the admin screen.
+- A first deploy performs a full check, so a one-time burst of draft updates and flagged requirements is expected.
+- **Fix after first deploy (2026-10-02).** Live runs showed "Partial — Redmine returned 422" with 0 requirements checked: the incremental "changed since" filter was sent with milliseconds, which Redmine rejects. Now the timestamp is sent in whole seconds, the batch is retried without the filter if Redmine still refuses it, and the real Redmine error text is shown in Recent runs. The requirements cursor also moved to its own column (`requirements_cursor_at`), so a run where defects succeed but requirements fail no longer skips those requirement changes. The Redmine Sync and AI Controls pages gained a "Back to Settings" link.
+
+**Files:** `lib/db/src/schema/redmine-sync.ts` (new), `artifacts/api-server/src/lib/redmine-sync.ts`, `lib/redmine-sync-diff.ts`, `lib/redmine-sync-scheduler.ts` (new), `routes/redmine-sync.ts` (new), `routes/index.ts`, `routes/roles.ts`, `src/index.ts`, `artifacts/qm-pulse/src/pages/RedmineSync.tsx` (new), `components/RedmineSyncBadge.tsx` (new), `components/RedmineChangesBanner.tsx` (new), `pages/Requirements.tsx`, `pages/Defects.tsx`, `pages/RequirementDetail.tsx`, `pages/Settings.tsx`, `App.tsx`.
+
+---
+
+### CR088 — New Requirement Form Rework and Milestone-Type Tracker Mapping
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean. The form, mapping screen and routes have not been run against a database or in the browser. A clickable mock-up of the layout was reviewed first.
+
+**Origin:** CTO/user review of the New Requirement dialog after CR083: the milestone was the last field although it decides the project, module and tracker; the module list showed all 28 modules regardless of the milestone; the tracker was typed by hand; the Create button scrolled out of view.
+
+**What it does:**
+- **Field order, project first.** The dialog is now four sections: *Where it belongs* (Project, then Milestone filtered by that project, then Module), *What it is* (Title, Description, Acceptance criteria), *Redmine link* (Ticket ID with **Fetch**, Parent ID, Tracker) and *Priority* (with Attachments and links collapsed under a disclosure). Footer (Cancel / Create) is sticky.
+- **Module follows the milestone.** No milestone yet: "Choose a milestone first". A milestone with exactly one module: that module is shown locked and set automatically. Several modules: chips limited to those modules. A milestone covering all modules: the project's modules (falling back to the global list if the project has none linked), with a search box once there are more than 8. A module already on an existing requirement but outside the milestone stays visible with a ⚠ mark.
+- **Tracker from the milestone type (admin-defined mapping).** New table `milestone_type_trackers`, edited in **Configuration → Global Settings → "Milestone type to Redmine tracker"**: each milestone type (Change Request, Phase, Sprint, Release; Data Prep is excluded as it has no requirements) is mapped to one of the trackers synced from Redmine, with a button to refresh that list. A mapped type shows the tracker locked on a *new* requirement; an unmapped type leaves it a normal dropdown. Editing an existing requirement never forces the tracker. The server also fills a missing tracker on `POST /requirements` from the mapping (a tracker the caller sends, e.g. from a Redmine import, is never replaced). Milestone list/detail responses now carry the mapped `tracker`.
+- **Fetch from Redmine** (reuses `/verdict-report/redmine/:id`): fills title, description and priority from the ticket. The tracker is taken from the ticket only when the milestone type has no mapping; otherwise the form notes when the ticket's tracker differs from the mapped one.
+- **Module outside the milestone: warn only.** The server still saves and returns `moduleWarning`; the form now shows it as a toast after save (closes the CR083 gap).
+
+**Decisions taken:** project before milestone (not milestone-first); tracker mapped by milestone type, defined by the administrator; module mismatch warns rather than rejects.
+
+**Known gaps / follow-ups:**
+- Until an administrator fills in the mapping, every type is "not mapped" and the tracker behaves as before.
+- A milestone's mapped tracker locks the field even when the Redmine ticket says otherwise (the form shows a note). If that proves too strict, the lock could become a default.
+- Child requirements created from a parent also take the milestone's mapped tracker, replacing the parent's.
+- The existing Redmine import dialog and the Step 2 sync are unchanged and keep each ticket's own tracker.
+
+**Files:** `lib/db/src/schema/milestone-trackers.ts` (new), `artifacts/api-server/src/lib/milestone-trackers.ts` (new), `routes/milestone-trackers.ts` (new), `routes/milestones.ts`, `routes/requirements.ts`, `routes/roles.ts`, `routes/index.ts`, `artifacts/qm-pulse/src/components/MilestoneTrackerMapping.tsx` (new), `pages/ModuleAndProject.tsx`, `pages/Requirements.tsx`.
+
+---
+
+### CR089 — Execution Test Case Ownership and Edit Lock
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the rule logic was exercised with a throwaway script (18 checks). The save route, notifications and sheet banner have not been run against a database or in the browser.
+
+**Origin:** CTO feedback — "reviewers (requirement, task, test cases) cannot edit the test cases, can review only; make sure test cases edited by 'qa1' (not approved yet) cannot be edited by others". Reading the code showed there was no such protection anywhere: the execution sheet's bulk-save route only checked project access, so a reviewer or another tester could rewrite steps and expected results in a file that was in review or in someone else's draft.
+
+**Rules (decided with the user):**
+- **Library test cases stay open** to everyone who can see the project; every change is already recorded in the history (`test_case_updated` with before/after).
+- **Test cases inside an execution file** — "content" means module, case id, user story, requirement, tracker, scenario, pre-condition, case name, steps, test data and expected result. Results, defects, comments and QA PIC are not content and follow their existing rules.
+  - **Draft, in review or returned:** only the owner (the row's author, or the file's QA PIC) can change content. Others are refused. A reviewer reads and approves/returns, not edits. Leads may step in on a draft or returned file (e.g. owner away) but **not while it is in review**. Dev and FA roles never edit.
+  - **Approved:** any QA role (plus admin/CTO) may edit. If the editor is not the owner, the row goes back to **pending acceptance** so a different person accepts the change; the editor becomes the row's owner for that rework, the QA reviewers are notified, and the edit is logged (`execution_tc_edited_after_approval`).
+  - **Deleting** a test case counts as a content change and follows the same rule.
+- **How it is enforced:** per row, the same "revert and report" approach the sheet already uses for results, so one locked row never costs the rest of a save. The response lists `contentLockedRows` and `rependedRows`; the sheet shows a toast for each, and a note on the existing "Execution is Locked" banner tells a non-owner that content is locked to the owner. Rule logic is in `lib/execution-row-lock.ts` (no database imports, so it is testable).
+
+**Related holes closed in the same pass:**
+- `DELETE /test-cases/:id` had no login check at all; it now needs a signed-in user with access to the test case's project. `PATCH` and `POST /test-cases/:id/clone` gained the project-access check (clone also gained the missing login check).
+- `POST /test-cases/ai-generate` called the AI outside the CR085 guard, so it was unlimited and unlogged; it now goes through the guard as a new feature "Generate test cases" (visible in AI Controls).
+
+**Decisions taken:** library test cases open to all; lock only inside execution files; edit-after-approval returns to pending acceptance; "other user" = any QA role.
+
+**Known gaps / follow-ups:**
+- Enforcement is on the server; the sheet does not yet grey out individual cells for a locked row. A non-owner sees the banner and a toast after a save is refused, and their local edits stay on screen until reload.
+- The owner can still edit while the file is **in review**, following the rule as given; freezing it for everyone during review would be a one-line change.
+- Adding new rows to someone else's draft file is still allowed (new rows are owned by whoever adds them); only changing or deleting an existing row is locked.
+- Anyone with project access can still delete a library test case (history records it); restricting delete to the author or a lead was not requested.
+- Other paths that write rows (Excel import, compile into an existing file, clone) were not changed.
+
+**Files:** `artifacts/api-server/src/lib/execution-row-lock.ts` (new), `lib/ai-guard.ts`, `routes/test-execution.ts`, `routes/test-cases.ts`, `artifacts/qm-pulse/src/pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR090 — Notify Devs When a Returned Requirement Is Re-approved
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** the re-approval message (CR104) plus the held edit-time notice: while a requirement has an earlier approved version and is not currently approved, the old edit route no longer sends "Requirement revised"; test cases and tasks are still flagged for re-review at edit time, and the activity entry is still logged. Edits to a never-approved requirement, or one that is still approved, notify as before.
+
+**Origin:** CTO feedback, second round (2026-10-02) — "dev returns requirement to FA, FA edits, submits for review, another FA approves: notify the devs who have tasks under that requirement that it has changes, plus the dev lead."
+
+**What happens today (checked in the code):**
+- Return-to-FA (`PATCH /requirements/:id/return-to-fa`) resets the dev handoff and notifies the FA author and FA team.
+- When FA edits the description, the edit-time rule notifies the author, assignee and every task assignee ("Requirement revised") and flags linked test cases and tasks for re-review. That fires while the text is still a draft and fires again on every further edit.
+- On approval only the author, assignee, QA lead and dev leads are notified; dev leads get the generic "assign a developer in the Dev Queue". **Developers who already have tasks under the requirement are told nothing at approval**, and nobody is told *what* changed.
+
+**Proposed:** when a requirement that was returned to FA is approved again, send one notification each to the assignees of its tasks (not cancelled, done ones included), the previous dev assignee, the dev leads (replacing the generic message) and the QA lead, saying it was approved again with changes and summarising what changed (first old value to last new value per field since the return, from the activity log). Detect a re-approval as: the latest `requirement_return_to_fa` event has no approval after it. Store the previous dev assignee in the return event from now on (the return currently clears it).
+
+**Open decision:** keep the edit-time "Requirement revised" notice as well, or hold it while a requirement is awaiting re-approval and send one message at approval (recommended; test cases and tasks would still be flagged for re-review at edit time).
+
+**Likely files (not yet verified):** `routes/requirements.ts` (review and return-to-fa routes, revision notice).
+
+
+**Update (2026-10-02):** the core of this CR was delivered inside CR104: on a re-approval with changes, task assignees, the previous dev assignee and the dev leads are notified with a summary of what changed since the approved version, and linked test cases and tasks are flagged. **Not done here:** holding back the older edit-time "Requirement revised" notice (the existing edit-time notice still fires on the old edit route), which was the open decision.
+---
+
+### CR091 — Requirement Priority Defaults from Milestone Priority
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** the Requirements page form now starts a new requirement at the milestone's priority (Low→low, Medium→normal, High→high, Critical→urgent) once a milestone is chosen, including milestones reached by a deep link and child requirements. It stops once the user changes priority by hand, a Redmine ticket fetch keeps the ticket's priority, and editing an existing requirement is never touched. The milestone dialog already did this (CR104). No server change.
+
+**Origin:** CTO feedback, second round — "in the New Requirement dialog, Priority should auto-populate based on the milestone's priority, but the user can change it."
+
+**Current state:** the milestone has a PM-set priority (Low / Medium / High / Critical) and a requirement has its own (low / normal / high / urgent), defaulting to normal. The milestone schema note says they are deliberately different things.
+
+**Proposed:** choosing a milestone in the New Requirement form fills priority using Low→low, Medium→normal, High→high, Critical→urgent. It stops filling once the user has changed priority by hand, never overrides an existing requirement when editing, and does not apply to requirements pulled from Redmine (they keep the ticket's priority). No server change needed.
+
+**Open decision:** confirm the four-way mapping (in particular Medium→normal and Critical→urgent).
+
+**Likely files (not yet verified):** `pages/Requirements.tsx` only.
+
+---
+
+### CR092 — AI Analyze Inside the New Requirement Dialog
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** Analyze with AI button and result panel in the requirement dialog (create and edit), using the typed text; needs a title and 20+ characters of description. A low score (under 60) only warns, it never blocks saving or submitting. The result is a preview and is not saved. Footer buttons were already in place from CR104. No server change.
+
+**Also built (follow-up):** the Requirements page's New Requirement form now has the same Analyze with AI panel (with Accept) under Description, and creating shows Cancel / Save as Draft / Submit for review (Save as Draft keeps the requirement a draft; Submit for review creates it and then submits it, and if submitting is refused the draft stays and the reason is shown). Editing an existing requirement keeps Cancel / Save Changes. Both screens now share one component, `components/RequirementAiAnalyze.tsx`.
+
+**Origin:** CTO feedback, second round — "AI analyze should be inside the New Requirement box, with buttons Submit for review, Save as Draft and Cancel."
+
+**Current state:** the New Requirement dialog only has Cancel and Create. "Analyze with AI" exists only on a saved requirement's detail page (and for selected requirements in QA Pipeline Step 2), and submitting for review is also a separate step after saving.
+
+**Proposed:** an **Analyze with AI** button and result panel (score, issues, missing items, questions) inside the dialog, working on the text typed so far, with the AI progress shown (see the shared progress dialog, CR093). Footer buttons **Cancel / Save as Draft / Submit for review**: Save as Draft creates the requirement as today; Submit for review creates it and submits it in one step (author-only, as the review route already enforces). The existing AI limits and usage log (CR085) apply to the analysis.
+
+**Open decisions:** whether Submit for review should be blocked, or only warn, when the analysis score is low; whether a requirement needs a minimum description before it can be analyzed.
+
+**Likely files (not yet verified):** `pages/Requirements.tsx`, reuse of `/ai/analyze-requirement`.
+
+---
+
+### CR093 — Shared Progress Dialog for Long-Running Actions
+**Status: 🔨 Built, not deployed** (stage 1 of several, raised 2026-10-02)
+
+**Built:** shared `components/ProgressDialog.tsx` (message, elapsed seconds, optional real step count, Cancel that aborts the request, modal). Used so far by the Analyze button in the requirement dialog. **Stage 2 (built):** the same dialog now covers (A) AI actions: AI test case generation and saving, Analyze on the requirement page (with Cancel), the AI Features page tools, QA Pipeline Step 2 analysis (real "N of M" count and bar) and Step 3 risk priorities; (B) Redmine: the Requirements page import and sync (a live count of tickets handled), QA Pipeline Step 2 sync, Settings and Module and Project syncs (projects, trackers, contacts), Defects sync; (C) compile and create: the Compile dialog, New Test Case File and Excel reading. Cancel is offered only where stopping is harmless (the AI analysis on the requirement page and the Analyze button in requirement forms); everywhere that writes data it asks the person to keep the page open instead. **Stage 3 (built):** exports and the remaining long actions: Defects, test case, lessons learnt, traceability, audit log and risk register exports; QA Pipeline RTM download, AI release notes and AI BDD scenarios; the verdict report download and send; execution file Excel import and download; UAT sign-off upload and data preparation file upload. All show the dialog without a Cancel button (they write data or build a file). **Not converted:** the ordinary page-load spinners (lists and screens loading), which are not actions the person is waiting on after a click; they keep their spinners.
+
+**Origin:** CTO feedback, second round — "when clicking Analyze, tell the user what the system is currently doing, e.g. a loading popup, so the user knows something is happening in the background. Apply this to every place the system is loading."
+
+**Current state:** loading is shown only as a spinner or changed button label ("Analyzing…"). There are 154 spinner uses across 55 files, with no common pattern and no way to cancel.
+
+**Proposed:** one shared progress dialog component with a plain-language message, an elapsed timer and a Cancel button (aborting the request). Show *real* progress where the work is a loop ("Analyzing requirement 3 of 12", the Step 2 sync, bulk imports) and honest wording for a single AI call ("Asking the AI to analyze this requirement. Usually 10–30 seconds") instead of invented steps. Convert in stages: AI actions, Redmine import and sync, compile and export first, then the rest over time.
+
+**Open decision:** modal (blocks the screen) versus a non-blocking toast-style panel for the quicker actions.
+
+**Likely files (not yet verified):** a new shared component plus the screens converted in each stage.
+
+---
+
+### CR094 — Milestones Search
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** a search box on the Milestones page (name, type, status, and project name in the all-projects view) and an **All projects** entry in the project dropdown. The page still opens with no project chosen, and a chosen project stays the default scope. `GET /milestones?projectId=all` lists milestones across the projects the caller can access (each checked with the same access rule as a single project) and adds `projectName`. In the all-projects view New Milestone and Export Lessons Learnt are hidden, and Edit switches to that milestone's project first because the form needs its modules and team.
+
+**Origin:** CTO feedback, second round — "milestones should have a search bar to make finding things easier when there are a lot of projects."
+
+**Current state:** the Milestones page has a searchable project dropdown, but it can only list one project's milestones at a time (`GET /milestones` requires a project), and there is no text search over milestones.
+
+**Proposed:** a search box over milestone name, type and status, and an **All projects** option so a milestone can be found without knowing its project (a small server change to allow listing across the projects the user can access).
+
+**Open decision:** search within the selected project only, or across all projects by default.
+
+**Likely files (not yet verified):** `pages/Milestones.tsx`, `routes/milestones.ts`.
+
+---
+
+### CR095 — AI Test Case Generation Dialog Rearrangement
+**Status: 🔨 Built, not deployed** (raised 2026-10-02).
+
+**Built:** order is Milestone (optional, pre-filled from the Test Cases page filter), Requirements (mandatory, one or more parents and children, a parent brings its children, all from one project), then read-only Project, Tracker and Module derived from them (several modules as chips; mixed trackers shown as Mixed and each saved test case keeps its own requirement's tracker and module), the scope tick-list, title, notes and targets. **Assign Author removed:** saved test cases are authored by whoever generates them (the server already defaulted to the logged-in user). Generate no longer needs a module, since a requirement with none set would otherwise be stuck. Frontend only; uses GET /milestones?projectId=all from CR094. **Decided 2026-10-02:** requirement-first as proposed below; several modules show as read-only chips; Requirement is mandatory for everyone (admin included).
+
+**Origin:** CTO feedback, second round — "rearrange the AI Test Case generation fields: Project, Milestone, Module (auto-populated from the requirement, not changeable), Tracker (auto-populated from the requirement, not changeable), Requirement (mandatory), etc."
+
+**Current state:** the dialog starts with Base Requirement (optional), then Project, then the requirement scope hierarchy and module.
+
+**Proposed (held until the arrangement decisions are made):** Milestone as a filter (pre-filled from the page the user came from), then **Requirement** (mandatory, searchable), after which Project, Module and Tracker appear read-only because the requirement already holds them. The CTO's listed order has a loop (module and tracker derive from the requirement, yet the requirement comes after them), so Requirement has to be chosen before them.
+
+**Open decision:** requirement-first as above, versus the listed order with Project and Milestone first narrowing the requirement list.
+
+**Likely files (not yet verified):** `pages/TestCases.tsx` (AIGenerateDialog).
+
+---
+
+### CR096 — New Execution File Dialog Rearrangement
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built:** order is Milestone (required), Requirement (required, narrowed by the milestone), read-only Project, Tracker and Module, File type, Title (starts as the milestone name, editable), Redmine Ticket ID (optional, filled from the chosen requirement, blank gets the existing INT- reference), Remarks, a copy-linked-test-cases tick box (replaces the pop-up question), and the Excel import. Typing a ticket that matches a requirement still selects it; one with no local requirement is imported from Redmine on save and counts as the requirement. Buttons: Cancel, Save as Draft, Submit to Review (creates, then submits through the same review action as the file menu; off until the file has at least one test case from the copy or the Excel import). Frontend only; no server change.
+
+**Origin:** CTO feedback, second round — new execution file fields in the order Project, Milestone, Module (from the test case, not changeable), Tracker (from the test case, not changeable), Requirement (mandatory), Title (defaults to the milestone name, editable), Redmine Ticket ID (optional); buttons Cancel, Save as Draft, Submit to Review.
+
+**Current state:** the dialog asks for a required Redmine Ticket ID, an optional Requirement (auto-fills project and module), Project, File Type, Module, Tracker and Remarks. A blank ticket ID is only optional in the compile dialog (CR081), not here.
+
+**Proposed (held):** the order above, Ticket ID optional, with Module and Tracker derived from the requirement (a new empty file has no test case to take them from). **Save as Draft** creates the file in draft status as today; **Submit to Review** is disabled until the file has at least one test case.
+
+**Open decisions:** Module/Tracker source for an empty file (the requirement, as proposed); what a blank Redmine ticket ID is stored as (the generated "INT-" reference used by compile).
+
+**Likely files (not yet verified):** `pages/TestCasesExecution.tsx`.
+
+---
+
+### CR097 — Compile and Add-to-Existing Dialog Alignment
+**Status: 🔨 Built, not deployed** (raised 2026-10-02)
+
+**Built (Create New):** Milestone (locked in the QA Pipeline), then a checklist of every requirement the selected test cases belong to (all ticked, with test case counts; a test case with no requirement shows as No requirement), a search to add more requirements (an added one brings the test cases linked to it in the library, or is a link only if it has none), read-only Project from the milestone, editable Module and Tracker prefilled from the test cases, Title (milestone name), Redmine Ticket (filled only when exactly one requirement is ticked), Remarks. Unticking a requirement leaves its test cases out. The file is filed under the first ticked requirement; every row keeps its own requirement link. Buttons: Back, Cancel, Save as Draft, Submit to Review (creates, saves the rows, then submits through the file review action; if submission fails the draft stays and the error is shown). Requirement from another milestone is allowed with a tag. Add to Existing is unchanged apart from a note that the file keeps its review state. Frontend only. Both callers (Test Cases library and QA Pipeline Step 3) share the component.
+
+**Origin:** CTO feedback, second round — after Compile / Add to existing in the Test Cases library, the dialog should match the new execution file form: Project, Milestone, Module (from the test case, changeable), Tracker (from the test case, changeable), Requirement (mandatory), Title (already set), Redmine Ticket ID (optional); buttons Cancel, Save as Draft, Submit to Review.
+
+**Current state:** the compile dialog has a mode step (existing or new file) and then Redmine Ticket ID (optional since CR081), Title, Requirement (optional), Project, Module, Tracker and Remarks.
+
+**Proposed (held):** the same layout as CR096, but Module and Tracker stay editable here, Requirement becomes mandatory, and Submit to Review is available because the file already contains test cases.
+
+**Open decision:** behaviour when the selected test cases belong to several requirements (one requirement is mandatory on the file).
+
+**Likely files (not yet verified):** `components/execution/CompileToExecutionDialog.tsx`.
+
+---
+
+### CR098 — Fewer Fields and Clicks Across Creation Dialogs
+**Status: 🔨 Built, not deployed** (two of its points; raised 2026-10-02)
+
+**Built:** (1) the Requirements page form is milestone first: one Milestone list (labelled with its project, completed and cancelled ones left out unless already chosen), Project read-only beneath it, then Module, Tracker and the rest as before; editing an existing requirement works the same way. (2) A new requirement, an AI test case generation and a new test case file start at the milestone last used (kept in this browser), or at the page's milestone filter where there is one (honored whatever its status); a remembered milestone that is completed, cancelled or no longer visible is skipped. Choosing a milestone in any of these three dialogs updates what the others start from. Frontend only; shared helper in `lib/last-milestone.ts`.
+
+**Not built:** the shared "context" block reused by all four dialogs (decided to skip for now, since each dialog already follows the same order), and Save as Draft everywhere.
+
+**Origin:** CTO feedback, second round — "minimal fields to be filled, minimise the user's clicking (user experience enhancement)", together with the earlier remark that the milestone should be selected first when creating requirements.
+
+**Proposed (held, applied across CR091, CR095, CR096 and CR097):** one shared "context" block (Milestone, then Requirement, then derived read-only chips for project, module and tracker) reused by the requirement, AI test case, execution file and compile dialogs; remember each user's last milestone and pre-fill from the page filter; derive instead of asking (project, module, tracker, priority and title come from the milestone or requirement); use the Redmine Fetch to fill the rest; Save as Draft everywhere with Submit as a separate step.
+
+**Open decision (raised on the requirement form):** the CTO asked for the milestone on the very top, while the form built in CR088 is project first, then milestone (the user's choice). A single first field "Milestone", grouped by project, would satisfy both; the project would become read-only.
+
+**Likely files (not yet verified):** a new shared component plus each dialog above.
+
+---
+
+### CR099 — Milestone Page (Read-Only Detail, Opened from Notifications)
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the permission and message logic has unit checks, but the routes and screens have not been run against a database or in a browser.
+
+**Origin:** CTO/user discussion on milestone assignees (2026-10-02). Today the only detailed view of a milestone is the Edit dialog, which most roles cannot open, and the Milestones page itself is blocked for Dev roles. A notification about a milestone opens the list with a highlight, not the milestone.
+
+**What exists today (checked in the code):** visibility is by project membership, not by assignment. The Milestones page route allows admin, CTO, the HODs, QA Manager, QA/FA/PM leads and members, and blocks Dev Lead, Dev Member and HOD Dev. The "Assigned to milestone" notification links to `/milestones?highlight=<id>`, which a developer cannot open.
+
+**Proposed (agreed in discussion):** a page at `/milestones/:id` that every assigned person can open, **including developers**, read-only by default.
+- Header: name, project, status, type, priority, environment; breadcrumb back to Milestones.
+- Facts: phase dates and go-live, modules, the tracker that applies to requirements (CR088).
+- Tabs: **Requirements** (list with review status, visible to developers too), **Team** (grouped by department), **Activity** (the milestone's events).
+- Actions shown by role (see CR100 and CR101); read-only viewers see none.
+- Milestone notifications link here instead of to the list. The list's cards also open it.
+- Access still needs project access (and module scope applies to the requirements shown); the page does not grant access.
+
+**Open decisions:** whether the Dev roles also get a "Milestones" entry in the navigation (needed for them to reach the list, not only the notification link); whether read-only viewers see test progress as well as requirements.
+
+**Mock-up:** reviewed in an interactive mock-up of the flow (notification, milestone page, create requirement).
+
+**Likely files (not yet verified):** a new page, `App.tsx` route and role gate, `NotificationDropdown` and `Inbox` links, role navigation defaults.
+
+
+**Built (2026-10-02):** new page `MilestoneDetail.tsx` at `/milestones/:id`, open to anyone with project access (no role gate, so Dev roles can open it) and read-only unless the server says otherwise: header with status, type, priority and environment; phase dates; modules; the tracker that applies; tabs for Requirements (with review status, linking to each requirement), Team (grouped by department) and Activity (the milestone's own changes and team moves plus events on its requirements, via the new `GET /milestones/:id/activity`). The milestone responses now carry `can: { edit, staff, createRequirement }`, `assigned` and, on the detail, `createdByName`. Milestone notifications and My Work cards now open this page; each card on the list has an **Open** button; QA roles also get **Open QA Pipeline** on pipeline milestones. The list route (`/milestones`) now also admits the Dev roles, and **Dev Lead, Dev Member and HOD Dev get a Milestones entry in the side menu** (added to their default permissions and back-filled into existing installs at startup, like earlier nav keys); an administrator can still remove it on the Roles page, but a restart will put it back.
+---
+
+### CR100 — Milestone Permissions: Who Edits and Who Staffs
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the permission and message logic has unit checks, but the routes and screens have not been run against a database or in a browser.
+
+**Origin:** same discussion. The rules asked for: leads (not members) add people to the team, each for their own team; only the PM who authored the milestone and the PM Lead can edit it; QA Manager may assign; the PM grants project access first.
+
+**What exists today (checked in the code):** editing, creating and deleting milestones is open to admin, QA Lead, FA Lead, the HODs, PM Lead, PM Member and CTO (not just the author). Staffing (`POST/DELETE /milestones/:id/assignees`) is open to those roles plus Dev Lead. Department limits: QA/FA/Dev Lead can add only their own department; PM roles may add QA, Dev or FA; HODs, CTO and admin are unrestricted. QA Manager is in neither list. An assignee must already have project access or the server refuses ("grant project membership first"), which already matches the "PM grants project access first" rule.
+
+**Proposed:**
+- **Edit milestone details:** the milestone's author (`createdBy`) and any PM Lead; admin and CTO keep an override. A PM Member who did not create it becomes read-only.
+- **Add or remove team members:** the department leads for their own department (QA Lead, FA Lead, Dev Lead), **plus QA Manager**; the author and PM Lead for any department; admin/CTO unrestricted. Members cannot staff.
+- Enforced on the server, with the UI showing the actions only to those who can use them.
+
+**Open decisions:** whether the HODs keep edit and staffing rights (today they have them); how this interacts with **QA Pipeline** milestones, where QA roles are allowed to drive their own milestone end to end (sync requirements, advance steps, sign off). The proposal is to leave the pipeline actions as they are and apply the new edit rule only to the milestone's details and team.
+
+**Likely files (not yet verified):** `routes/milestones.ts` (`canWrite`, `canManageTeam`, department checks), `pages/Milestones.tsx`.
+
+
+**Built (2026-10-02):** rules in `lib/milestone-permissions.ts` (21 checks pass), enforced on `PATCH`/`DELETE /milestones/:id` and on adding and removing team members.
+- **Edit and delete:** the milestone's author, PM Lead, PM head (`hod_pm`), admin and CTO. Others get a 403. A milestone with no recorded author (older rows) keeps the previous rule so nobody is locked out of it. **QA Pipeline milestones are unchanged:** QA roles still drive them end to end.
+- **Staff the team:** everyone who can edit, plus QA Lead, FA Lead, Dev Lead, **QA Manager (new)** and the three HODs (QA, FA, PM). Department limits are unchanged and now include QA Manager (QA only). Members cannot staff. A PM Member who is not the author can no longer edit or staff.
+- The Milestones list shows Edit and Delete only where `can.edit` is true; the milestone page shows team controls where `can.staff` is true. `assignable-users` now admits anyone who may staff (this also fixes Dev Lead, who could staff in principle but was refused the candidate list).
+- **Defaults I chose where you had not decided:** PM head keeps edit rights; HOD QA and HOD FA keep staffing but lose editing of details; admin and CTO override.
+---
+
+### CR101 — Requirement Creation Limited to FA for the Milestone
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the permission and message logic has unit checks, but the routes and screens have not been run against a database or in a browser.
+
+**Origin:** same discussion. Answers given: only FA members **assigned to the milestone**, and FA Leads (with project access, whether or not on the team), may create a requirement for a milestone. No other role. The restriction applies on the server too, except for requirements coming from the Redmine sync or the QA Pipeline.
+
+**What exists today (checked in the code):** `POST /requirements` only checks project access (and exempts Redmine imports from the project gate). Any user with project access can create one from the Requirements page.
+
+**Proposed:**
+- A **Create requirement** button on the milestone page (CR099) that opens the new-requirement form with project, milestone, module and tracker already filled and locked, priority defaulting from the milestone (CR091), and Cancel / Save as Draft / Submit for review.
+- Server rule on `POST /requirements` when a milestone is given: allowed for an FA Lead with project access, or an FA Member who is on that milestone's team. Everyone else gets a clear 403.
+- Exemptions: requirements created by the Redmine import and sync routes, and by the QA Pipeline (`source = 'qa_pipeline'`), exactly as before.
+- The Requirements page's "New Requirement" button is hidden for roles that could not complete the action.
+
+**Open decisions:** whether admin and CTO keep an override; confirm that creating a *child* requirement follows the same rule; confirm which existing creation paths must stay exempt (the Requirements page's own "Import from Redmine" dialog, Excel import and the `resolve-redmine` route need checking before this is built).
+
+**Likely files (not yet verified):** `routes/requirements.ts`, `pages/Requirements.tsx`, the new milestone page.
+
+
+**Built (2026-10-02):** `POST /requirements` now refuses (403) anyone but an FA Lead, an FA Member who is on the milestone's team, or admin. Exempt, as asked: requests flagged `redmineSync` (the Requirements page's own Redmine import) and `source = 'qa_pipeline'` (QA Pipeline Step 2); the dedicated `import-redmine` and `resolve-redmine` routes are separate and untouched. The Requirements page hides **New Requirement** and **Add Child** for other roles. The milestone page's **Create requirement** button (shown only when `can.createRequirement`) opens the Requirements page with the new-requirement form already pointed at that milestone (`?new=1&projectId=&milestoneId=`): project, milestone, module (when the milestone has one) and the mapped tracker come from the milestone as in CR088.
+- **Differences from the mock-up:** the form opens as the existing dialog on the Requirements page, not on the milestone page; keeping the user on the milestone page is CR104 (built). Priority does not yet default from the milestone's priority (that is CR091).
+- **Defaults I chose:** admin keeps the right to create (so the system can be administered and tested); a milestone-less create is refused for FA Members because there is no team to check.
+---
+
+### CR102 — Milestone Notifications: Creation, Edits and Team Changes
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the permission and message logic has unit checks, but the routes and screens have not been run against a database or in a browser.
+
+**Origin:** same discussion. Asked: all leads with project and/or module access are notified when a milestone is created; a PM's edit notifies the assigned people.
+
+**What exists today (checked in the code):** creating a milestone notifies only FA Leads and FA Members on the project (no module filter). Assigning a person sends them one "Assigned to milestone" notification. **Editing a milestone, or removing someone from the team, notifies nobody.**
+
+**Proposed:**
+- **On creation:** notify every QA Lead, FA Lead, Dev Lead and PM Lead who has project access and, when the milestone has modules (CR083), access to at least one of them; a milestone covering all modules goes to every lead on the project. The creator is excluded. FA Members are no longer notified unless assigned.
+- **On edit:** one notification per save to the people on the team, listing what changed (status, dates, priority, environment, modules, name). The person who made the edit is excluded. Position-only saves in the QA Pipeline stay silent.
+- **On team change:** the person added (as today) or removed is told.
+- Notifications link to the milestone page (CR099).
+
+**Open decisions:** which fields count as worth a notification; whether the automatic status moves the system makes (for example when all requirements are approved) should also notify; whether HODs and managers belong in the "leads" group (the proposal is the four lead roles only).
+
+**Likely files (not yet verified):** `routes/milestones.ts`, `routes/_notify.ts` (module-scoped recipient lookup already exists).
+
+
+**Built (2026-10-02):**
+- **Creation:** QA Lead, FA Lead, Dev Lead and PM Lead with project access (and, when the milestone has modules, access to at least one) are notified; the creator and anyone put on the team at creation are not sent this one. FA Members no longer get "new milestone" unless assigned.
+- **Edits:** one "Milestone updated" notification per save to the team, listing what changed (name, status, priority, type, environment, the five phase dates, modules) in words, capped at four items (`lib/milestone-changes.ts`, 9 checks pass); the editor is excluded; saves that change nothing in that list, and QA Pipeline position-only saves, send nothing.
+- **Team:** being removed now notifies the person (`milestone_team_removed`); being added already did.
+- **Automatic status moves** (the system advancing a milestone from Planned toward Completed as requirements are approved and tests pass) now notify the team and the milestone's author: "X moved from Active to Verified automatically" (decided 2026-10-02: users should be aware).
+- Links go to the milestone page.
+---
+
+### CR103 — Assigned Milestones in My Work
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the permission and message logic has unit checks, but the routes and screens have not been run against a database or in a browser.
+
+**Origin:** same discussion — assignees should see their milestones in My Work and receive its events.
+
+**What exists today (checked in the code):** being on a milestone's team shows the person in the Team section and, on the PM Dashboard, supplies a department's name when no better signal exists. It does not appear in My Work, and gives no other effect.
+
+**Proposed:** My Work gains a section for milestones the user is assigned to, each linking to the milestone page (CR099), with its status, next date and open work. The scope toggles (mine / team / unassigned) behave as they do for tasks. Milestone events reach the assignee as notifications (CR102).
+
+**Open decisions:** how much to show per milestone (status and next date only, or counts of open requirements, tasks and test cases).
+
+**Likely files (not yet verified):** `routes/my-work.ts`, `pages/MyWorkToday.tsx`.
+
+
+**Built (2026-10-02):** My Work gains a "Milestone: name" card for each open milestone the person is on the team of (under **mine**), for their department's people (**team**, leads only) or for milestones with nobody on the team (**unassigned**, leads only, button "Assign a team"). The card shows the status and the next phase date, turns high priority within three days of it and urgent when a phase date has passed, and opens the milestone page. Completed and cancelled milestones drop off. The existing "milestone overdue" card for PMs also opens the new page.
+- **Defaults I chose:** status and next date only, not counts of open work.
+---
+
+### CR104 — Create, View and Edit Requirements Without Leaving the Milestone Page
+**Status: 🚧 Built, not deployed (2026-10-02).** api-server and qm-pulse typecheck clean; the lock rules (20 checks) and the field-level merge (7 checks) have unit tests; the routes and the dialog have not been run against a database or in a browser.
+
+**Origin:** added while building CR099 — a requirement listed on the milestone page should open without leaving the page, and creating or editing one should also happen there. The user's requirement: when someone is on a milestone's page and clicks **New requirement** or edits a requirement, they **stay on the milestone page**; they are not taken to the Requirements page. Other team members see the requirement read-only; an FA can edit it, save as draft and submit for review, and the system checks that something actually changed before allowing either.
+
+**What exists today (checked in the code):** the milestone page's **Create requirement** button (CR099/CR101) currently navigates to the Requirements page and opens the new-requirement dialog there, pre-filled (`/requirements?new=1&projectId=&milestoneId=`), so after saving the user is on the Requirements page and has to come back. This is a stop-gap: the form lives inside `pages/Requirements.tsx`. Separately: a requirement has a full detail page (`/requirements/:id`) and editing happens in the Requirements list dialog. Editing an *approved* requirement saves in place and stays approved (with the CR023p4 notices to test cases and tasks); it does not go back through review. Submitting for review is limited to the requirement's author (or an unrestricted reviewer), and the approver must be someone other than the author.
+
+**Proposed:**
+- **Extract the requirement form into a shared component** (title, description, acceptance criteria, priority, attachments and links, the project/milestone/module/tracker context from CR088, Fetch from Redmine, and the footer buttons), used by both the Requirements page and the milestone page. This is the prerequisite for everything below, and it is the same shared piece CR098 and CR091 call for.
+- **New requirement on the milestone page:** **Create requirement** opens the form as a dialog on the milestone page with project, milestone, module and tracker already filled and locked and priority defaulting from the milestone (CR091). Save as Draft or Submit for Review closes the dialog and the new row appears in the page's Requirements tab; the user never leaves the milestone. The navigation-based stop-gap is then removed.
+- Clicking a requirement on the milestone page opens a **quick-view dialog**: title, description, acceptance criteria, priority, tracker, module, review status, counts of dev tasks, test cases and attachments, and an **Open full page** link for everything else (history, comments, defects, dev tasks).
+- Everyone with access sees it read-only. For FA Leads and FA Members on the team (the CR101 rule) an **Edit** button turns the same dialog into a form for title, description, acceptance criteria and priority; project, milestone, module and tracker stay locked because the milestone owns them.
+- **Change check:** Save as Draft and Submit for Review stay disabled until a field differs from what was loaded, with a short "what changed" summary beside them. The server repeats the check and refuses a save with no changes, and records the before/after for the history and for the CR090 re-approval notice.
+- Editing an Approved or In-review requirement moves it to **Draft** on the first save; Submit for Review sends it to In review; a different FA approves, and CR090 then notifies the developers.
+
+**Decisions taken (2026-10-02):**
+- **Editing needs approval.** Editing an Approved or In-review requirement moves it to Draft on the first save; Save as Draft keeps it there; Submit for Review sends it to In review; a different FA approves, and CR090 then notifies the developers.
+- **Authorship is recorded and visible.** The requirement's detail page (and the quick view) shows who created the first draft (the author) and every later editor with when and what changed, so everyone can see who worked on it. Because two FAs may work in the same milestone, a second FA may edit and may submit their own edit. The approver must differ from both the author and the last editor; the last editor is stored on the requirement (new fields for last editor and time) so the rule can be enforced on the server.
+- **Acceptance criteria and attachments are editable in the dialog**, along with title, description and priority.
+- **Admin keeps the right to create requirements** (CR101), so the system can be tested.
+- **Return asks for a remark**, like other returns (CR084); the remark is shown in the authorship log.
+- **Edit log shows a short summary line per edit** (for example "Priority Normal → High") that **expands to the full before and after** for each changed field.
+- **Locking works like test cases (CR089):** a requirement in Draft or In review can be edited only by the person who owns that draft; others see it read-only with "Draft owned by <name>". An Approved requirement can be edited by any FA, but whoever saves first owns the new draft. How to handle two people editing at the same time (stale drafts) is proposed below and awaits a decision.
+
+**Proposed handling of concurrent edits (awaiting decision):**
+- **No separate parallel drafts.** Save as Draft writes to the requirement itself, and the first person to save claims it. A second FA cannot save over it.
+- **Version check on every save.** Each save carries the version the user started from. If someone saved in between (for example FA1 saved, submitted and had it approved while FA2 was editing), FA2's save is refused with "<name> changed this while you were editing"; FA2's text stays on screen.
+- **Rebase, not blind overwrite.** The dialog offers **Re-apply my changes on the latest version**: fields only FA2 changed are applied automatically; a field both changed is shown side by side for FA2 to choose; or **Discard mine**, or **Copy my changes**.
+- **Approved snapshot.** When a requirement is approved its content is stored; the first edit of an approved requirement keeps that snapshot, so **Discard draft** can restore it, review and the CR090 notification can show exactly what changed since approval, and developers can view the approved version while a revision is in draft.
+- **Take over:** an FA Lead or admin can take over a draft whose owner is away (logged).
+
+**Likely files (not yet verified):** a new shared requirement form component extracted from `pages/Requirements.tsx` (which then uses it too), a quick-view dialog, `pages/MilestoneDetail.tsx` (removing the navigation stop-gap), `routes/requirements.ts` (edit, review and last-editor fields).
+
+
+**Built (2026-10-02):**
+- **Server** (`routes/requirement-revisions.ts`, `lib/requirement-revisions.ts`, `lib/requirement-revision-rules.ts`): new columns on requirements (`version`, `draft_owner_id`, `last_edited_by`, `last_edited_at`) and two tables (`requirement_approved_snapshots`, `requirement_revision_log`), all created at startup.
+  - `POST /requirements/:id/revision` is how the milestone page saves content. It checks the caller may edit (FA Lead, FA Member on the team, admin), enforces the lock (409 `locked` with the owner's name), refuses an out-of-date copy (409 `stale`, with the latest content), refuses a save that changes nothing (409 `no_changes`), keeps the approved snapshot, sends an approved or in-review requirement to Draft (or In review when submitting), makes the editor the draft's owner, bumps the version, and logs before/after.
+  - `POST …/takeover` (FA Lead or admin), `POST …/discard-draft` (restores the approved snapshot), `GET …/revision-log` (summary plus full before/after) and `GET …/approved-version`.
+  - The existing review route now lets the **draft's owner** submit; the approver must differ from the **author and the last editor**; **Return requires a remark**; every step bumps the version and is logged; approving stores a new snapshot.
+  - The existing edit route (`PATCH /requirements/:id`, used by the Requirements page) follows the same rules for content changes, so the approval rule cannot be bypassed there. Redmine resyncs and QA Pipeline requirements are exempt. Creating a requirement records its author and first log entry.
+- **Re-approval notice (CR090 delivered here):** when a requirement that had been approved before is approved again with different content, the assignees of its tasks, the previous dev assignee (now remembered when Dev returns it to FA), and the dev leads are told what changed, and linked test cases and tasks are flagged for another look when the description or acceptance criteria changed.
+- **Dialog** (`components/RequirementDialog.tsx`), opened from the milestone page: create, read-only view, edit; Save as Draft and Submit for Review stay disabled until something differs (a "what changed" list shows what); amber note when editing an approved or in-review requirement; authorship panel with expandable log; Approve and Return (Return needs a remark); Take over for FA Leads; Discard draft; "View the approved version" while a revision is in draft. On a stale save the dialog explains who changed it and offers **Apply my changes on the latest version** (fields only one side changed merge automatically, fields both changed are chosen side by side, acceptance criteria merge as a list), **Copy my changes** or **Discard mine**.
+- The milestone page's **Create requirement** and each requirement row now open this dialog; the user never leaves the milestone page. The temporary link to the Requirements page is gone.
+
+**Differences and gaps:**
+- The Requirements page still has its own create/edit dialog; the shared-form extraction proposed earlier was **not** done. The new dialog is separate, so the two forms exist side by side until they are merged.
+- Attachments in the dialog (files up to 10 MB, links, removals) are applied right after a successful save; if one fails the rest still apply and a message says so. Downloading an attachment still needs the full page.
+- A new requirement made in the dialog asks for a module only when the milestone has more than one (or none).
+- Locking is by draft owner; there is no timeout, so an absent owner's draft stays locked until a lead takes it over.
+---
+
+---
+
+### CR105 — New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values
+**Status: 🔨 Built, not deployed** (raised 2026-10-04)
+
+**Built:** both dialogs (New Defect, and the Fail popup) share one `DefectContextFields` block: Project, Milestone, Module, Requirement, then Severity, Found in, Category, all optional, with the cascade in `lib/defect-context.ts` (checked with 6 logic tests): milestone fills project; requirement fills milestone, project and its first module; project narrows the lists and drops a milestone or requirement that no longer fits; a field chosen by hand is never overwritten. Nothing says "Pick a project first". Found in comes from one list (System Testing, SIT, UAT, Production) in the web app and the server. The Fail popup now starts filled from the failed test case (project, milestone, requirement, module) and its Found in follows the execution file type (QA, SIT, UAT). **Server:** new defects default to System Testing; the phase is derived from the execution file type (tracker text only as a fallback); the register route now accepts the Fail popup's Found in and milestone, which it ignored before (the popup's Found in was cosmetic until now); the database default for found_in becomes System Testing; at server start every existing "SIT" defect is relabelled System Testing exactly once (guard row in a new `data_migrations` table, same transaction); the QA Analytics escape funnel gained a System Testing bar (four bars with SIT, UAT, Production).
+
+**Differences from the mockup:** choosing a Module does not fill the project (modules are a shared catalog of names, not tied to one project). A requirement with several modules fills only its first. The auto tag says "auto" in both dialogs. On a New Defect, the chosen requirement only affects the milestone (existing behaviour), as the server has never stored it on QA defects; on a Fail popup the failed test case already carries it.
+
+**Origin:** user request on the New Defect dialog (QM Pulse section) and the popup that opens when a test case is failed.
+
+**Agreed:**
+- Rename "QM Pulse Project" to **Project** and order the QM Pulse section: Project, Milestone, Module, Requirement, Severity, Found in, Category. All optional.
+- **Auto-fill:** choosing one field fills the others that are already known (milestone fills its project; requirement fills its milestone, project and module). A field the person set by hand is never overwritten by a later auto-fill; any filled field can be changed. Milestone and Requirement stop saying "Pick a project first": they list everything the person can see, and Project narrows them.
+- **Found in** values come from one shared list instead of three hardcoded copies: **System Testing, SIT, UAT, Production**. New QA execution defects default from the execution file type (QA file: System Testing, SIT file: SIT, UAT file: UAT), replacing today's guess from the file tracker text; the server default "SIT" becomes "System Testing". Requirement defects keep "Development".
+- The **Fail popup** gets the same fields (Project, Milestone, Module, Requirement), already filled from the execution test case and its file, with the same auto-fill.
+- The **Defects page** keeps its tabs as they are (decided: no phase tabs). Each defect row already shows "found in X", which now carries the correct phase, and that is enough.
+
+**Existing data:** every defect saved so far as "SIT" came from QA execution, which was System Testing; they are relabelled **System Testing** once (guarded so it can never run twice, since SIT becomes a real value afterwards).
+
+**Other impacts checked:** the Excel export (Found In is free text, no change); the QA Analytics escape funnel (see CR106); the Document Register "tracker" list (CR, SIT, UAT) is a separate field and stays as is; root-cause and resolution gates use the defect source, not Found in, so they are unaffected.
+
+**Likely files:** `pages/Defects.tsx`, `components/DefectCreationModal.tsx`, a shared Found-in list, `routes/defects.ts`, the bootstrap in `routes/roles.ts` (one-time relabel with a guard).
+
+---
+
+### CR106 — SIT Testing Phase on the Milestone
+**Status: 🔨 Built, not deployed** (raised 2026-10-04)
+
+**Built:** (database, created at server start) milestones get a SIT date and a Requires SIT flag, the sign-off table gets a phase column ("uat" for everything stored, "sit" for new SIT documents); a new milestone starts with both SIT and UAT required (data preparation neither), an existing milestone keeps its flags (SIT off), and switching a phase off clears its date on the server and in the forms. **Forms:** the Milestones page, the QA Pipeline create (Step 1) and edit forms show Requires SIT and Requires UAT checkboxes with their dates ("QA done by" is now "System Testing done by", "UAT done by" / "SIT done by"); the milestone page and PM Dashboard date strips list the SIT date. **Status:** a new `sit` status between verified and uat (status lists, badges, ranks); completion waits for every required phase (System Testing always, SIT and UAT only if required). **Pipeline:** the rail step 7 is "SIT & UAT Sign-offs" and is skipped only when neither is required; Step 6 picks the next step and wording from both; Step 7 shows a SIT card and a UAT card, each with its own upload (the UAT BDD panel stays under UAT); the gate checks gain "SIT sign-off document uploaded"; the pipeline step states and the Tasks board's pipeline progress include the SIT gate. **Sign-offs page:** retitled SIT & UAT Sign-offs (menu and role list too), a Phase column and a SIT/UAT choice on upload, and the pipeline links straight to the right phase. **Execution files:** a new file type SIT in the New Test Case File dialog and (outside a pipeline) the Compile dialog; SIT results are kept out of the System Testing and UAT tallies; Found in follows the file type (CR105). Milestone-edit notifications and My Work due dates list the SIT date.
+
+**Not covered (follow-ups):** the PM Dashboard's phase timeline and planned-days chart, and the requirement phase timeline, still show Requirements, Development, Testing and UAT only (SIT is not a separate segment there); the "UAT milestone ready" notification at 80% pass is not repeated for SIT files; SIT execution files are listed on the execution page but have no pipeline step of their own beyond the sign-off. Not run against a database or in a browser.
+
+**Origin:** user clarification — Bestinet runs three testing phases: System Testing, SIT and UAT. SIT is treated like UAT.
+
+**Agreed:**
+- The milestone gets a **SIT target date** and a **Requires SIT** checkbox, alongside the existing UAT date and Requires UAT checkbox. For **new milestones both boxes start ticked** so both dates show; unticking clears the date and hides the field (as UAT already does in the QA Pipeline forms). Existing milestones keep what they have.
+- **QA Pipeline:** SIT is its own part inside the same pipeline step as UAT (Step 7, "SIT and UAT"), not a new step number.
+- **Execution files:** a new file type **SIT** (alongside QA and UAT) in the new-file dialog and the compile dialog.
+- **QA Analytics escape funnel:** four bars per milestone: System Testing, SIT, UAT, Production.
+
+**Impact (to be built with this CR):** database columns for the SIT date and the flag; milestone create/edit forms (Milestones page and QA Pipeline); milestone completion and status rules (today completion waits for UAT results when UAT is required; the same rule must cover SIT); pipeline steps and skip rules; phase timeline, planned days per phase, My Work due dates and overdue alerts, PM Dashboard and requirement phase timeline (SIT sits between QA and UAT); milestone-edit notification wording; execution file counts per type on the milestone (a SIT file count beside QA and UAT); execution progress rollups by file type; moving test cases between milestones by file type; verdict and traceability reports that split by QA and UAT.
+
+**Decided:** SIT has **its own sign-off document**, separate from UAT's. Proposed build: add a phase column to the existing sign-off table ("uat" for everything already stored, "sit" for new SIT ones) rather than a second table. It touches the UAT Sign-offs page and its menu entry and role permission, Step 7, the pipeline facts and dashboard "awaiting sign-off" checks, the milestone file counts and global search.
+
+**QA Pipeline impact (checked in the code):** Step 1 "Milestone & UAT" (create the milestone and its "Requires UAT" switch with date) gains SIT beside UAT and both start ticked; the pipeline page's rail title and description for step 7 ("UAT Sign-offs") become SIT and UAT, and the rail marks step 7 skipped only when neither SIT nor UAT is required; the pipeline summary panel ("UAT sign-off: Required (Step 7)", the target date list) and the pipeline edit form ("Requires UAT Sign-off?" and date) gain SIT; Step 6 chooses the next step with "UAT required ? 7 : 8", which becomes "SIT or UAT required ? 7 : 8" with matching wording; Step 7 (about 30 UAT references: the not-required screen, the sign-off upload, the BDD panel) gets a SIT section with its own upload, and SIT execution files belong here the way UAT ones do; the pipeline gate checks ("UAT sign-off document uploaded") gain "SIT sign-off document uploaded" when SIT is required; the milestone status rules (planned, active, verified, uat, completed) need a place for SIT. Steps 2, 3, 4, 5, 8 and the data-prep flow are unaffected apart from the Step 3 compile dialog's file types.
+
+**Decided (pipeline):** add a separate **sit** milestone status between verified and uat (shown only when SIT is required), so the Milestones page, dashboards and My Work can tell the two phases apart. The BDD panel in Step 7 stays **UAT-only** (Gherkin acceptance scenarios are business acceptance work).
+
+**Default I chose (not yet confirmed):** a milestone completes when every phase it requires has passed: System Testing always, SIT only if ticked, UAT only if ticked. Unticked phases are not waited for.
+
+**Likely files:** `lib/db/src/schema/milestones.ts`, `routes/milestones.ts`, `lib/milestone-status.ts`, `lib/pipeline-facts.ts`, `routes/dashboard.ts`, `routes/my-work.ts`, `routes/test-execution.ts`, `routes/requirements.ts`, `pages/Milestones.tsx`, `pages/QAPipeline.tsx`, `components/qa-pipeline/*`, `pages/TestCasesExecution.tsx`, `pages/QAAnalytics.tsx`.
+
+---
+
+### CR107 — BA Requirement Template in the Add Requirement Dialog
 **Status:** 📋 Planned (2026-10-01). Mockup reviewed and first decisions recorded (see Decisions below); not yet scoped to tasks or started.
 
 **Origin:** the Add Requirement dialog (`Requirements.tsx`, `<Dialog open={dialogOpen}>`) captures title, description, module, priority, milestone, acceptance criteria and attachments — enough to *track* a requirement, not enough for FA, Dev and QA to *work from* one. A BA has no guided structure, so the problem, scope, business rules, non-functional needs and open questions live in chat or side documents, and QA has to chase them before writing test cases. This is also the "thin input" problem named in CR082: a generated SRS/BRS can only be as good as the requirement data behind it.
@@ -1814,3 +2411,4 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR:** SRS/BRS document generation (CR082); changes to the FA review/approval flow; auto-extracting template sections from Redmine tickets with AI.
 
 ---
+

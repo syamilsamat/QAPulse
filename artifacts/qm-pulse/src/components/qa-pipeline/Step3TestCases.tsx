@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, TestTube, Wand2, PackagePlus, X, CheckCircle2, Send, Clock } from "lucide-react";
 import { useMilestoneTestCases } from "./useMilestoneTestCases";
 import { CompileToExecutionDialog } from "@/components/execution/CompileToExecutionDialog";
+import { RiskPrioritySuggestionsDialog, type RiskSuggestion } from "./RiskPrioritySuggestionsDialog";
 
 // Risk-Based Testing order — highest risk first, so the compiled execution
 // file's row order (which the server derives from array index) runs
@@ -35,6 +37,9 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
   const [, setLocation] = useLocation();
 
   const [tagging, setTagging] = useState(false);
+  const [riskDialogOpen, setRiskDialogOpen] = useState(false);
+  const [riskSuggestions, setRiskSuggestions] = useState<RiskSuggestion[]>([]);
+  const [applyingRisk, setApplyingRisk] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [compileOpen, setCompileOpen] = useState(false);
@@ -197,6 +202,8 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
     }
   };
 
+  // AI only suggests; the QA user picks which priorities to apply in the
+  // dialog, and only those are saved.
   const handleRiskBasedTagging = async () => {
     setTagging(true);
     try {
@@ -204,13 +211,33 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
         method: "POST",
         body: JSON.stringify({ milestoneId }),
       });
-      if (!res.ok) throw new Error("Failed to tag risk priority");
-      toast({ title: "Risk Priorities Assigned!" });
-      queryClient.invalidateQueries({ queryKey: ["test-cases", "project", projectId] });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to get risk priority suggestions");
+      setRiskSuggestions(Array.isArray(body.suggestions) ? body.suggestions : []);
+      setRiskDialogOpen(true);
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setTagging(false);
+    }
+  };
+
+  const handleApplyRiskPriorities = async (picked: { id: number; priority: string }[]) => {
+    setApplyingRisk(true);
+    try {
+      const res = await api(`/ai/tag-risk-priority/apply`, token, {
+        method: "POST",
+        body: JSON.stringify({ milestoneId, priorities: picked }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to apply risk priorities");
+      toast({ title: body.message ?? "Risk priorities applied" });
+      setRiskDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["test-cases", "project", projectId] });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: err.message });
+    } finally {
+      setApplyingRisk(false);
     }
   };
 
@@ -389,6 +416,14 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
         </CardContent>
       </Card>
 
+      <RiskPrioritySuggestionsDialog
+        open={riskDialogOpen}
+        onOpenChange={setRiskDialogOpen}
+        suggestions={riskSuggestions}
+        applying={applyingRisk}
+        onApply={handleApplyRiskPriorities}
+      />
+
       <CompileToExecutionDialog
         open={compileOpen}
         onOpenChange={setCompileOpen}
@@ -409,6 +444,12 @@ export function Step3TestCases({ milestoneId, projectId, locked = false }: { mil
           queryClient.invalidateQueries({ queryKey: ["compiled-library-tc-ids"] });
           setLocation(`/test-cases/execution/${ticketId}`);
         }}
+      />
+      <ProgressDialog
+        open={tagging || applyingRisk}
+        title={tagging ? "Suggesting risk priorities" : "Applying risk priorities"}
+        message={tagging ? "Asking the AI to rate the risk of each test case." : "Saving the priorities you chose."}
+        hint={tagging ? "Usually 10 to 30 seconds" : undefined}
       />
     </div>
   );

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import express from "express";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getAuthContext, scopeToUserProjects, canAccessProject, getModuleScope } from "../middleware/access";
+import { aiGuard } from "../lib/ai-guard";
 import { buildTestCaseExcel } from "./excel-builder";
 import {
   db,
@@ -342,7 +343,7 @@ async function generateForRequirement(
   return { testCases };
 }
 
-router.post("/test-cases/ai-generate", async (req, res): Promise<void> => {
+router.post("/test-cases/ai-generate", aiGuard("test-case-generation"), async (req, res): Promise<void> => {
   const parsed = GenerateTestCasesWithAIBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -588,6 +589,11 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.message }) as any;
 
   const [before] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
+  // Library test cases are open to everyone who can see the project (every
+  // change is recorded in the history below), but not to people outside it.
+  if (before?.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, before.projectId))) {
+    return res.status(403).json({ error: "Access denied to this project" }) as any;
+  }
   const [tc] = await db.update(testCasesTable).set(parsed.data).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
 
@@ -607,8 +613,20 @@ router.patch("/test-cases/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/test-cases/:id", async (req, res): Promise<void> => {
+  // This route had no login check at all: anyone who could reach the API could
+  // delete any test case. It now needs a signed-in user with access to the
+  // test case's project.
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const params = DeleteTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
+
+  const [existing] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
+  if (!existing) return res.status(404).json({ error: "Test case not found" }) as any;
+  if (existing.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, existing.projectId))) {
+    return res.status(403).json({ error: "Access denied to this project" }) as any;
+  }
 
   const [tc] = await db.delete(testCasesTable).where(eq(testCasesTable.id, params.data.id)).returning();
   if (!tc) return res.status(404).json({ error: "Test case not found" }) as any;
@@ -632,11 +650,17 @@ router.delete("/test-cases/:id", async (req, res): Promise<void> => {
 });
 
 router.post("/test-cases/:id/clone", express.json(), async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const params = CloneTestCaseParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: params.error.message }) as any;
 
   const [original] = await db.select().from(testCasesTable).where(eq(testCasesTable.id, params.data.id));
   if (!original) return res.status(404).json({ error: "Test case not found" }) as any;
+  if (original.projectId != null && !(await canAccessProject(ctx.userId, ctx.role, original.projectId))) {
+    return res.status(403).json({ error: "Access denied to this project" }) as any;
+  }
 
   const { id, createdAt, updatedAt, ...rest } = original;
   const overrides: Record<string, any> = {};

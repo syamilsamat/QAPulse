@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
@@ -400,9 +401,12 @@ export function RisksCard({ projectId, token, milestones, canWrite }: {
           </div>
           <div className="flex items-center gap-1.5">
             {risks.length > 0 && (
+              <>
               <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={handleExport} disabled={exporting}>
                 <FileDown className="w-3 h-3" /> {exporting ? "Exporting…" : "Export"}
               </Button>
+              <ProgressDialog open={exporting} title="Exporting the risk register" message="Building the Excel file with the risks." hint="Usually a few seconds" />
+              </>
             )}
             {canWrite && (
               <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={() => { setEditing(null); setDialogOpen(true); }}>

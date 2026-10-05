@@ -76,8 +76,14 @@ import {
   XCircle as XCircleIcon,
   Paperclip,
   Link2 as LinkIcon,
+  Lock,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
+import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
+import { ProgressDialog } from "@/components/ProgressDialog";
+import { useProjectModules } from "@/components/MilestoneModulePicker";
+import { RedmineSyncBadge } from "@/components/RedmineSyncBadge";
 
 function capitalize(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
@@ -148,6 +154,31 @@ async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
   });
   await Promise.all(workers);
 }
+
+type FormMilestone = {
+  id: number;
+  projectId: number;
+  projectName?: string | null;
+  status?: string | null;
+  name: string;
+  type: string;
+  modules?: { id: number; name: string }[];
+  priority?: string | null;
+  tracker?: string | null;
+  environment?: string | null;
+  goLiveDate?: string | null;
+};
+
+// CR091 — milestone priority (Low/Medium/High/Critical) to requirement priority.
+const MILESTONE_PRIORITY_TO_REQUIREMENT: Record<string, string> = { Low: "low", Medium: "normal", High: "high", Critical: "urgent" };
+
+const MILESTONE_TYPE_LABEL: Record<string, string> = {
+  cr: "Change Request",
+  phase: "Phase",
+  sprint: "Sprint",
+  release: "Release",
+  data_prep: "Data Prep",
+};
 
 export default function Requirements() {
   const { user, token } = useAuth();
@@ -263,18 +294,137 @@ export default function Requirements() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const formProjectId = form.projectId;
-  const { data: milestonesForProject = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["milestones", formProjectId],
+  // CR098 — the milestone is the first choice; the project comes from it.
+  const { data: formMilestones = [] } = useQuery<FormMilestone[]>({
+    queryKey: ["milestones", "all-accessible"],
     queryFn: async () => {
-      if (!formProjectId) return [];
-      const res = await fetch(`${getApiUrl()}/milestones?projectId=${formProjectId}`, {
+      const res = await fetch(`${getApiUrl()}/milestones?projectId=all`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       return res.ok ? res.json() : [];
     },
-    enabled: !!formProjectId && dialogOpen,
+    enabled: dialogOpen,
   });
+
+  // The milestone decides the project, the module choices and (via the admin's
+  // type -> tracker mapping) the tracker.
+  const selectedMilestone = formMilestones.find((m) => m.id === form.milestoneId) ?? null;
+  const milestoneChoices = formMilestones.filter((m) => isOpenMilestone(m.status) || m.id === form.milestoneId);
+  const formProjectName = projects.find((p) => p.id === form.projectId)?.name ?? selectedMilestone?.projectName ?? null;
+
+  // A new requirement starts at the page's milestone filter, else the last
+  // milestone used, once the list has loaded. Never touches an existing
+  // requirement, a child (it inherits its parent's) or a deep link.
+  const milestonePrefilled = useRef(false);
+  useEffect(() => {
+    if (!dialogOpen) { milestonePrefilled.current = false; return; }
+    if (editingReq || milestonePrefilled.current || form.milestoneId || formMilestones.length === 0) return;
+    milestonePrefilled.current = true;
+    const id = startingMilestoneId(formMilestones, filterMilestone !== "all" ? filterMilestone : null);
+    const m = id != null ? formMilestones.find((x) => x.id === id) : null;
+    if (m) setForm((f: any) => ({ ...f, milestoneId: m.id, projectId: m.projectId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogOpen, editingReq, formMilestones, form.milestoneId]);
+
+  // CR091 — a new requirement starts at the milestone's priority until the user
+  // sets one by hand (or a Redmine ticket supplies its own). Never touches an
+  // existing requirement being edited.
+  const priorityTouched = useRef(false);
+  useEffect(() => {
+    if (!dialogOpen) { priorityTouched.current = false; return; }
+    if (editingReq || priorityTouched.current || !selectedMilestone) return;
+    const mapped = MILESTONE_PRIORITY_TO_REQUIREMENT[selectedMilestone.priority ?? ""];
+    if (mapped) setForm((f: any) => (f.priority === mapped ? f : { ...f, priority: mapped }));
+  }, [dialogOpen, editingReq, selectedMilestone?.id, selectedMilestone?.priority]);
+  const { data: formProjectModules = [] } = useProjectModules(form.projectId ?? null, token);
+  const msModuleNames = (selectedMilestone?.modules ?? []).map((m) => m.name);
+  const formModuleOptions: string[] = !selectedMilestone
+    ? []
+    : msModuleNames.length > 0
+      ? msModuleNames
+      : formProjectModules.length > 0
+        ? formProjectModules.map((m) => m.name)
+        : (executionModules as any[]).map((m: any) => m.name);
+  // A module already on the requirement but not in the milestone's set (an
+  // older requirement, or a milestone whose modules changed): shown, flagged.
+  const extraSelected = reqFormModules.filter((n) => !formModuleOptions.includes(n));
+  const moduleChoices = [...formModuleOptions, ...extraSelected];
+  const moduleLocked = !!selectedMilestone && formModuleOptions.length === 1 && extraSelected.length === 0;
+  // Editing keeps the tracker the requirement already has; only a new
+  // requirement takes the mapped one.
+  const lockedTracker = !editingReq && selectedMilestone?.tracker ? selectedMilestone.tracker : null;
+  const [moduleQuery, setModuleQuery] = useState("");
+  const [fetchingTicket, setFetchingTicket] = useState(false);
+  const [fetchNote, setFetchNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // Choosing a milestone narrows the module selection to what it allows.
+  useEffect(() => {
+    if (!dialogOpen || !selectedMilestone) return;
+    if (msModuleNames.length === 1 && (!editingReq || reqFormModules.length === 0)) {
+      setReqFormModules([msModuleNames[0]]);
+    } else if (msModuleNames.length > 1 && !editingReq) {
+      setReqFormModules((prev) => prev.filter((n) => msModuleNames.includes(n)));
+    }
+    setModuleQuery("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMilestone?.id, dialogOpen]);
+
+  useEffect(() => { if (!dialogOpen) setFetchNote(null); }, [dialogOpen]);
+
+  const lockedField = (label: string, value: string, why: string) => (
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1.5">
+        {label}
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">locked</span>
+      </Label>
+      <div className="flex min-h-9 items-center gap-2 rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm">
+        <Lock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+        <span className="font-medium break-words">{value}</span>
+        <span className="ml-auto text-right text-xs text-muted-foreground">{why}</span>
+      </div>
+    </div>
+  );
+
+  // Pulls title, description and priority from the Redmine ticket. The tracker
+  // is only taken from the ticket when the milestone type has no mapped one.
+  const fetchTicketIntoForm = async () => {
+    const id = (form.redmineTicketId ?? "").trim().replace(/^#/, "");
+    if (!/^\d+$/.test(id)) { setFetchNote({ kind: "err", text: "Enter the ticket number, for example 41247." }); return; }
+    setFetchingTicket(true);
+    setFetchNote(null);
+    try {
+      const res = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(id)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.connected || !data.issue) {
+        setFetchNote({ kind: "err", text: `Redmine #${id} was not found, or you can't see it.` });
+        return;
+      }
+      const issue = data.issue;
+      priorityTouched.current = true; // the ticket's own priority wins over the milestone's
+      const priorityMap: Record<string, string> = { low: "low", normal: "normal", high: "high", urgent: "urgent" };
+      const ticketTracker: string | undefined = issue.tracker?.name;
+      setForm((f: any) => ({
+        ...f,
+        redmineTicketId: id,
+        title: issue.subject ?? f.title,
+        description: issue.description ?? f.description,
+        priority: priorityMap[String(issue.priority?.name ?? "").toLowerCase()] ?? f.priority,
+        ...(!lockedTracker && ticketTracker ? { tracker: ticketTracker } : {}),
+      }));
+      setFetchNote({
+        kind: "ok",
+        text: lockedTracker && ticketTracker && ticketTracker !== lockedTracker
+          ? `Filled from Redmine #${id}. Redmine lists it as "${ticketTracker}"; this milestone type uses "${lockedTracker}".`
+          : `Filled from Redmine #${id}. You can still edit the title, description and priority.`,
+      });
+    } catch {
+      setFetchNote({ kind: "err", text: "Could not reach Redmine. Try again." });
+    } finally {
+      setFetchingTicket(false);
+    }
+  };
 
   // Milestone options for the "Import from Redmine" dialog — scoped to the
   // selected import Project, mandatory so every imported requirement (and
@@ -350,7 +500,25 @@ export default function Requirements() {
     openCreateChild(parentReq);
   }, [searchString, requirements]);
 
+  // CR099 — the milestone page's "Create requirement" lands here with
+  // ?new=1&projectId=&milestoneId= and the form opens already pointed at it.
+  const hasAppliedNewDeepLink = useRef(false);
+  useEffect(() => {
+    if (hasAppliedNewDeepLink.current) return;
+    const params = new URLSearchParams(searchString);
+    if (params.get("new") !== "1") return;
+    hasAppliedNewDeepLink.current = true;
+    const pid = Number(params.get("projectId"));
+    const mid = Number(params.get("milestoneId"));
+    openCreate();
+    setForm((f: any) => ({ ...f, ...(pid ? { projectId: pid } : {}), ...(mid ? { milestoneId: mid } : {}) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchString]);
+
   const { canReviewFa: canReview } = useReviewEligibility();
+  // CR101 — only FA Leads and FA Members author requirements (and admin). The
+  // server decides per milestone; this just hides buttons that cannot succeed.
+  const canAuthorRequirements = ["fa_lead", "fa_member", "admin"].includes(user?.role ?? "");
 
   // Edit permission mirrors the backend check in PATCH /requirements/:id:
   // author/assignee always can; a Redmine-imported requirement can also be
@@ -400,6 +568,11 @@ export default function Requirements() {
   // points already invalidate once when they finish, so suppress it while one
   // is running.
   const syncingRef = useRef(false);
+  // CR093 — what the Redmine import or sync is on right now (a real count of
+  // tickets handled; the total is not known until each ticket's children are read).
+  const [singleSyncing, setSingleSyncing] = useState(false);
+  const syncCountRef = useRef(0);
+  const [syncProgress, setSyncProgress] = useState<{ count: number; ticket: string } | null>(null);
   const invalidateRequirements = () => {
     if (syncingRef.current) return;
     queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
@@ -583,6 +756,7 @@ parentId: number) => {
   });
 
   const openCreate = () => {
+    priorityTouched.current = false;
     setEditingReq(null);
     setForm({ priority: "normal", status: "draft" });
     setAcceptanceCriteria([]);
@@ -623,6 +797,7 @@ parentId: r.parentId ?? undefined,
   };
 
   const openCreateChild = (parentReq: any) => {
+    priorityTouched.current = false;
     setEditingReq(null);
     setForm({
       // @ts-ignore
@@ -648,7 +823,7 @@ tracker: parentReq.tracker ?? undefined,
     const errs: Record<string, string> = {};
     if (!form.title?.trim()) errs.title = "Title is required";
     if (!form.priority) errs.priority = "Priority is required";
-    if (!form.projectId) errs.projectId = "Project is required";
+    if (!form.projectId && form.milestoneId) errs.projectId = "Project is required";
     if (reqFormModules.length === 0) errs.module = "At least one module is required";
     if (!form.milestoneId) errs.milestoneId = "Milestone is required";
     setErrors(errs);
@@ -731,7 +906,8 @@ tracker: parentReq.tracker ?? undefined,
     setNewLinkLabel("");
   };
 
-  const handleSubmit = async () => {
+  // submitForReview applies to a new requirement: it is created as a draft, then submitted.
+  const handleSubmit = async (submitForReview = false) => {
     if (!validate()) {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
       return;
@@ -761,18 +937,23 @@ tracker: parentReq.tracker ?? undefined,
       // @ts-ignore
 parentId: finalParentId,
       module: reqFormModules.join(",") || undefined,
+      // @ts-ignore
+      tracker: lockedTracker ?? form.tracker ?? undefined,
       milestoneId: milestoneId ?? undefined,
       acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
     };
 
     try {
       let savedId: number | undefined;
+      let moduleWarning: string | null = null;
       if (editingReq) {
-        await updateMutation.mutateAsync({ id: editingReq.id, data: payload as any });
+        const updated: any = await updateMutation.mutateAsync({ id: editingReq.id, data: payload as any });
         savedId = editingReq.id;
+        moduleWarning = updated?.moduleWarning ?? null;
       } else {
         const created: any = await createMutation.mutateAsync({ data: payload as RequirementInput });
         savedId = created?.id;
+        moduleWarning = created?.moduleWarning ?? null;
       }
 
       // Attachment changes are all deferred to here so Cancel is a true
@@ -797,7 +978,26 @@ parentId: finalParentId,
       setErrors({});
       setEditingReq(null);
       resetAttachmentDrafts();
-      toast({ title: editingReq ? "Requirement updated" : "Requirement created" });
+      let submitError: string | null = null;
+      if (!editingReq && submitForReview && savedId) {
+        try {
+          const subRes = await fetch(`${getApiUrl()}/requirements/${savedId}/review`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify({ action: "submit" }),
+          });
+          if (!subRes.ok) submitError = (await subRes.json().catch(() => ({}))).error ?? `Server error ${subRes.status}`;
+        } catch {
+          submitError = "Network error";
+        }
+        queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      }
+      if (submitError) {
+        toast({ variant: "destructive", title: "Saved as a draft, but not submitted", description: submitError });
+      } else {
+        toast({ title: editingReq ? "Requirement updated" : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
+      }
+      if (moduleWarning) toast({ title: "Saved, but check the module", description: moduleWarning });
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
     }
@@ -837,7 +1037,7 @@ parentId: finalParentId,
     draft: "Draft",
     in_review: "In Review",
     approved: "Approved",
-    rejected: "Rejected",
+    rejected: "Returned",
   };
   const reviewStatusBadge = (reviewStatus?: string | null) => {
     const status = reviewStatus || "draft";
@@ -925,6 +1125,8 @@ parentId: finalParentId,
     includeParent: boolean = true,
     inheritedParent?: { id: string; title: string },
   ) => {
+    syncCountRef.current += 1;
+    setSyncProgress({ count: syncCountRef.current, ticket: ticketIdToSync });
     const resp = await fetch(`${getApiUrl()}/verdict-report/redmine/${encodeURIComponent(ticketIdToSync)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
@@ -1073,6 +1275,8 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
 
     setRedmineLoading(true);
     syncingRef.current = true;
+    syncCountRef.current = 0;
+    setSyncProgress(null);
     try {
       await processRedmineSync(clean, redmineSelectedModules.join(","), Number(redmineSelectedProject), undefined, redmineSelectedTracker || undefined, Number(redmineSelectedMilestone), true, redmineIncludeParent);
       syncingRef.current = false;
@@ -1122,11 +1326,9 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       return;
     }
 
-    toast({ 
-      title: "Syncing...", 
-      description: `Fetching updates for #${req.redmineTicketId} and its subtasks.`,
-    });
-
+    syncCountRef.current = 0;
+    setSyncProgress(null);
+    setSingleSyncing(true);
     syncingRef.current = true;
     try {
       await processRedmineSync(String(req.redmineTicketId), req.module, req.projectId, (req as any).parentId, (req as any).tracker || undefined, undefined, true);
@@ -1147,6 +1349,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
         syncingRef.current = false;
         queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
       }
+      setSingleSyncing(false);
     }
   };
 
@@ -1160,14 +1363,19 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
           <p className="text-muted-foreground mt-1">
             Manage and track project requirements
           </p>
+          <p className="mt-1">
+            <RedmineSyncBadge />
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
           <Button variant="outline" onClick={() => setRedmineDialogOpen(true)} className="gap-2 w-full sm:w-auto">
             <Download className="w-4 h-4" /> From Redmine
           </Button>
-          <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
-            <Plus className="w-4 h-4" /> New Requirement
-          </Button>
+          {canAuthorRequirements && (
+            <Button onClick={openCreate} className="gap-2 w-full sm:w-auto">
+              <Plus className="w-4 h-4" /> New Requirement
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1509,9 +1717,11 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                               <DropdownMenuItem onClick={() => navigate(`/requirements/${r.id}`)}>
                                 <DetailIcon className="w-4 h-4 mr-2" /> View Detail
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => openCreateChild(r)}>
-                                <Plus className="w-4 h-4 mr-2" /> Add Child
-                              </DropdownMenuItem>
+                              {canAuthorRequirements && (
+                                <DropdownMenuItem onClick={() => openCreateChild(r)}>
+                                  <Plus className="w-4 h-4 mr-2" /> Add Child
+                                </DropdownMenuItem>
+                              )}
                               {r.redmineTicketId && (
                                 <DropdownMenuItem onClick={() => handleSingleSync(r)}>
                                   <Download className="w-4 h-4 mr-2" /> Sync from Redmine
@@ -1593,7 +1803,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[75vw] max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
           <DialogHeader>
             <DialogTitle>
               {editingReq
@@ -1603,10 +1813,112 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                   : "New Requirement"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-6 py-2">
+          <div className="space-y-0 py-1">
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <div className="space-y-1.5 sm:col-span-3">
+            {/* 1 · Where it belongs: the milestone first; the project follows it and decides module and tracker */}
+            <section className="space-y-3 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where it belongs</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Milestone <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.milestoneId ? String(form.milestoneId) : ""}
+                    onValueChange={(v) => {
+                      const m = formMilestones.find((x) => String(x.id) === v);
+                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : form.projectId });
+                      if (!editingReq) setReqFormModules([]);
+                      if (m) rememberMilestone(m.id);
+                    }}
+                    options={milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                    placeholder="Select milestone…"
+                    searchPlaceholder="Search milestones…"
+                    className={errors.milestoneId ? "border-destructive" : ""}
+                  />
+                  {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
+                  {formMilestones.length === 0 && dialogOpen && (
+                    <p className="text-xs text-muted-foreground">No milestones yet — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Project <span className="text-xs font-normal text-muted-foreground">(from the milestone)</span></Label>
+                  <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
+                    {formProjectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                {!selectedMilestone ? (
+                  <>
+                    <Label>Module <span className="text-destructive">*</span></Label>
+                    <div className={`rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground ${errors.module ? "border-destructive" : ""}`}>
+                      Choose a milestone first
+                    </div>
+                  </>
+                ) : moduleLocked ? (
+                  lockedField("Module", formModuleOptions[0], "only module in this milestone")
+                ) : (
+                  <>
+                    <Label>
+                      Module <span className="text-destructive">*</span>
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">{reqFormModules.length} selected</span>
+                    </Label>
+                    <div className={`rounded-md border p-2 space-y-2 ${errors.module ? "border-destructive" : ""}`}>
+                      {moduleChoices.length > 8 && (
+                        <Input
+                          placeholder="Search modules…"
+                          value={moduleQuery}
+                          onChange={(e) => setModuleQuery(e.target.value)}
+                          className="h-8"
+                          aria-label="Search modules"
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {moduleChoices
+                          .filter((n) => !moduleQuery.trim() || n.toLowerCase().includes(moduleQuery.trim().toLowerCase()))
+                          .map((n) => {
+                            const on = reqFormModules.includes(n);
+                            const outside = !formModuleOptions.includes(n);
+                            return (
+                              <button
+                                key={n}
+                                type="button"
+                                aria-pressed={on}
+                                title={outside ? "Not one of this milestone's modules" : undefined}
+                                onClick={() => setReqFormModules((prev) => on ? prev.filter((x) => x !== n) : [...prev, n])}
+                                className={`rounded-full border px-3 py-1 text-sm transition-colors ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"} ${outside ? "border-amber-500" : ""}`}
+                              >
+                                {n}{outside ? " ⚠" : ""}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {msModuleNames.length > 0
+                        ? "Limited to this milestone's modules."
+                        : "This milestone covers all modules, so the project's list is shown."}
+                      {extraSelected.length > 0 && " ⚠ marks a module outside the milestone; it will be saved with a warning."}
+                    </p>
+                  </>
+                )}
+                {errors.module && <p className="text-xs text-destructive">{errors.module}</p>}
+              </div>
+
+              {selectedMilestone && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-primary/10 px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">From the milestone:</span>
+                  <span className="font-medium">{MILESTONE_TYPE_LABEL[selectedMilestone.type] ?? selectedMilestone.type}</span>
+                  {selectedMilestone.environment && <span>{selectedMilestone.environment}</span>}
+                  {selectedMilestone.goLiveDate && <span>Go-live {new Date(selectedMilestone.goLiveDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>}
+                </div>
+              )}
+            </section>
+
+            {/* 2 · What it is */}
+            <section className="space-y-4 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">What it is</h3>
+              <div className="space-y-1.5">
                 <Label>Title <span className="text-destructive">*</span></Label>
                 <Input
                   placeholder="Requirement title"
@@ -1617,110 +1929,17 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                 {errors.title && <p className="text-xs text-destructive">{errors.title}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Redmine Ticket ID</Label>
-                <Input placeholder="e.g. 12345" value={form.redmineTicketId ?? ""} onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value })} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label>Project <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.projectId ? String(form.projectId) : ""}
-                  onValueChange={(v) => setForm({ ...form, projectId: Number(v), milestoneId: null })}
-                  options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
-                  placeholder="Select project"
-                  searchPlaceholder="Search project..."
-                  className={errors.projectId ? "border-destructive" : ""}
-                />
-                {errors.projectId && <p className="text-xs text-destructive">{errors.projectId}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Module <span className="text-destructive">*</span></Label>
-                <div className={`border rounded-md p-2 max-h-28 overflow-y-auto space-y-0.5 ${errors.module ? "border-destructive" : ""}`}>
-                  {(executionModules as any[]).map((m: any) => (
-                    <label key={m.id ?? m.name} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
-                      <Checkbox
-                        checked={reqFormModules.includes(m.name)}
-                        onCheckedChange={(checked) => setReqFormModules(prev => checked ? [...prev, m.name] : prev.filter(n => n !== m.name))}
-                      />
-                      <span className="text-sm">{m.name}</span>
-                    </label>
-                  ))}
-                </div>
-                {errors.module
-                  ? <p className="text-xs text-destructive">{errors.module}</p>
-                  : reqFormModules.length > 0 && <p className="text-xs text-muted-foreground">{reqFormModules.length} selected</p>
-                }
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tracker</Label>
-                <SearchableSelect
-                  value={form.tracker ?? ""}
-                  onValueChange={(v) => setForm({ ...form, // @ts-ignore
-tracker: v })}
-                  options={[
-                    { value: "", label: "None" },
-                    ...trackers.map((t) => ({ value: t.name, label: t.name })),
-                    ...(form.tracker && !trackers.some((t) => t.name === form.tracker)
-                      ? [{ value: form.tracker, label: form.tracker }]
-                      : []),
-                  ]}
-                  placeholder="Select tracker..."
-                  searchPlaceholder="Search tracker..."
+                <Label>Description</Label>
+                <Textarea placeholder="Describe the requirement..." value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={5} />
+                <RequirementAiAnalyze
+                  title={form.title ?? ""}
+                  description={form.description ?? ""}
+                  module={reqFormModules.join(", ")}
+                  requirementId={editingReq?.id ?? null}
+                  resetKey={dialogOpen ? (editingReq?.id ?? "new") : "closed"}
+                  onAddToDescription={(prose) => setForm((f: any) => ({ ...f, description: (f.description ?? "").trim() ? `${(f.description ?? "").trim()}\n\n${prose}` : prose }))}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Priority <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.priority ?? "normal"}
-                  onValueChange={(v) => setForm({ ...form, priority: v as any })}
-                  options={[
-                    { value: "low", label: "Low" },
-                    { value: "normal", label: "Normal" },
-                    { value: "high", label: "High" },
-                    { value: "urgent", label: "Urgent" },
-                  ]}
-                  searchPlaceholder="Search..."
-                  className={errors.priority ? "border-destructive" : ""}
-                />
-              </div>
-              {form.release && (
-                <div className="space-y-1.5">
-                  <Label>Release (legacy)</Label>
-                  <Input value={form.release} disabled className="text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Parent Redmine ID (Optional)</Label>
-                <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Milestone <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  value={form.milestoneId ? String(form.milestoneId) : ""}
-                  onValueChange={(v) => setForm({ ...form, milestoneId: v ? Number(v) : null })}
-                  options={[
-                    { value: "", label: form.projectId ? "Select milestone…" : "Select a project first" },
-                    ...milestonesForProject.map(m => ({ value: String(m.id), label: m.name })),
-                  ]}
-                  placeholder="Select milestone…"
-                  searchPlaceholder="Search milestones…"
-                  className={errors.milestoneId ? "border-destructive" : ""}
-                />
-                {errors.milestoneId && <p className="text-xs text-destructive">{errors.milestoneId}</p>}
-                {form.projectId && milestonesForProject.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No milestones for this project — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
-                )}
-              </div>
-            </div>
-
             {/* Acceptance Criteria */}
             <div className="space-y-2">
               <Label>Acceptance Criteria</Label>
@@ -1774,7 +1993,92 @@ tracker: v })}
                 </div>
               </div>
             </div>
+            </section>
 
+            {/* 3 · Redmine link */}
+            <section className="space-y-3 border-b py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Redmine link</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Redmine Ticket ID</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. 12345"
+                      value={form.redmineTicketId ?? ""}
+                      onChange={(e) => setForm({ ...form, redmineTicketId: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); fetchTicketIntoForm(); } }}
+                      className="min-w-0 flex-1 font-mono"
+                    />
+                    <Button type="button" variant="outline" onClick={fetchTicketIntoForm} disabled={fetchingTicket || !(form.redmineTicketId ?? "").trim()}>
+                      {fetchingTicket ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
+                    </Button>
+                  </div>
+                  {fetchNote && (
+                    <p className={`text-xs ${fetchNote.kind === "err" ? "text-destructive" : "text-muted-foreground"}`}>{fetchNote.text}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Parent Redmine ID <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+                  <Input placeholder="e.g. 12345" value={form.parentRedmineTicketId ?? ""} onChange={(e) => setForm({ ...form, parentRedmineTicketId: e.target.value })} className="font-mono" />
+                </div>
+              </div>
+              {lockedTracker ? (
+                lockedField("Tracker", lockedTracker, `set by the ${MILESTONE_TYPE_LABEL[selectedMilestone?.type ?? ""] ?? "milestone"} type`)
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Tracker</Label>
+                  <SearchableSelect
+                    value={form.tracker ?? ""}
+                    onValueChange={(v) => setForm({ ...form, // @ts-ignore
+tracker: v })}
+                    options={[
+                      { value: "", label: "None" },
+                      ...trackers.map((t) => ({ value: t.name, label: t.name })),
+                      ...(form.tracker && !trackers.some((t) => t.name === form.tracker)
+                        ? [{ value: form.tracker, label: form.tracker }]
+                        : []),
+                    ]}
+                    placeholder="Select tracker..."
+                    searchPlaceholder="Search tracker..."
+                  />
+                </div>
+              )}
+            </section>
+
+            {/* 4 · Priority and extras */}
+            <section className="space-y-4 py-4">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Priority</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Priority <span className="text-destructive">*</span></Label>
+                  <SearchableSelect
+                    value={form.priority ?? "normal"}
+                    onValueChange={(v) => { priorityTouched.current = true; setForm({ ...form, priority: v as any }); }}
+                    options={[
+                      { value: "low", label: "Low" },
+                      { value: "normal", label: "Normal" },
+                      { value: "high", label: "High" },
+                      { value: "urgent", label: "Urgent" },
+                    ]}
+                    searchPlaceholder="Search..."
+                    className={errors.priority ? "border-destructive" : ""}
+                  />
+                </div>
+                {form.release && (
+                  <div className="space-y-1.5">
+                    <Label>Release (legacy)</Label>
+                    <Input value={form.release} disabled className="text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
+                  </div>
+                )}
+              </div>
+
+              <details className="rounded-lg border" open={!!editingReq || pendingFiles.length > 0 || pendingLinks.length > 0}>
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Attachments and links</span>
+                  <span className="text-xs font-normal text-muted-foreground">optional</span>
+                </summary>
+                <div className="p-3 pt-1">
             {/* Attachments */}
             <div className="space-y-2">
               <Label className="flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Attachments</Label>
@@ -1901,14 +2205,28 @@ tracker: v })}
                 <p className="text-xs text-muted-foreground">No attachments on this requirement yet.</p>
               )}
             </div>
+                </div>
+              </details>
+            </section>
           </div>
-          <DialogFooter className="gap-2 sm:gap-0 mt-4 sm:mt-0">
+          <DialogFooter className="sticky bottom-0 z-10 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 mt-2 gap-2 border-t bg-background px-4 py-3 sm:gap-0 sm:px-8">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
-              {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
-               createMutation.isPending || updateMutation.isPending ? "Saving..." :
-               editingReq ? "Save Changes" : "Create"}
-            </Button>
+            {editingReq ? (
+              <Button onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
+                 createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                  {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
+                   createMutation.isPending ? "Saving..." : "Save as Draft"}
+                </Button>
+                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                  Submit for review
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2040,6 +2358,14 @@ tracker: v })}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ProgressDialog
+        open={redmineLoading || singleSyncing}
+        title={redmineLoading ? "Importing from Redmine" : "Syncing from Redmine"}
+        message={syncProgress
+          ? `Reading ticket #${syncProgress.ticket} and saving it. ${syncProgress.count} ticket${syncProgress.count !== 1 ? "s" : ""} handled so far.`
+          : "Connecting to Redmine and reading the ticket."}
+        hint="Tickets with many subtasks take longer"
+      />
     </div>
   );
 }

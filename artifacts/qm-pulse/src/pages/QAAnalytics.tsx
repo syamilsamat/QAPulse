@@ -27,7 +27,7 @@ interface QAAnalyticsData {
   passByMilestone: { milestoneId: number; milestoneName: string; total: number; passed: number; pct: number }[];
   defectByModule: { module: string; critical: number; high: number; medium: number; low: number }[];
   defectTrend: { week: string; opened: number; closed: number }[];
-  escapeFunnel: { milestoneId: number; milestoneName: string; sit: number; uat: number; production: number }[];
+  escapeFunnel: { milestoneId: number; milestoneName: string; systemTesting: number; sit: number; uat: number; production: number }[];
   coverage: { totalReqs: number; tcCoveredReqs: number; executedReqs: number; passedReqs: number };
 }
 
@@ -383,7 +383,7 @@ export default function QAAnalytics() {
 
           {/* Panel 6 — Escape Funnel */}
           <Panel title="Defect Escape Funnel by Milestone">
-            {data.escapeFunnel.every(m => m.sit + m.uat + m.production === 0) ? (
+            {data.escapeFunnel.every(m => m.systemTesting + m.sit + m.uat + m.production === 0) ? (
               <EmptyChart message="No defects with milestone linkage found" />
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(220, data.escapeFunnel.length * 48)}>
@@ -393,6 +393,7 @@ export default function QAAnalytics() {
                   <YAxis type="category" dataKey="milestoneName" tick={<TruncatedTick />} width={130} />
                   <Tooltip />
                   <Legend />
+                  <Bar dataKey="systemTesting" stackId="a" fill="#0ea5e9" name="System Testing" />
                   <Bar dataKey="sit" stackId="a" fill="#6366f1" name="SIT" />
                   <Bar dataKey="uat" stackId="a" fill="#f59e0b" name="UAT" />
                   <Bar dataKey="production" stackId="a" fill="#ef4444" name="Production" radius={[0, 3, 3, 0]} />
