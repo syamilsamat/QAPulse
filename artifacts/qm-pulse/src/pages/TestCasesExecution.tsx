@@ -50,7 +50,7 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MilestonePicker } from "@/components/MilestonePicker";
 import { ProgressDialog } from "@/components/ProgressDialog";
-import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { isOpenMilestone } from "@/lib/last-milestone";
 import {
   Plus,
   Search,
@@ -811,10 +811,15 @@ export default function TestCasesExecution() {
     return modules.filter((m) => names.includes(m.name.trim().toLowerCase())).map((m) => m.id);
   };
 
-  // Milestone first: it sets the project, and drops a requirement that belongs to another milestone.
+  // Milestone is optional. Choosing one sets the project and drops a requirement that belongs to
+  // another milestone; clearing it keeps the chosen requirement, which then supplies the project.
   const handleMilestoneChange = (v: string) => {
     const ms = allMilestones.find((m) => String(m.id) === v);
     setFileForm((f) => {
+      if (!v) {
+        const req = requirements.find((r: any) => String(r.id) === f.requirementId);
+        return { ...f, milestoneId: "", projectId: req?.projectId ? String(req.projectId) : "" };
+      }
       const keep = !!f.requirementId && requirements.some((r) => String(r.id) === f.requirementId && String(r.milestoneId) === v);
       return {
         ...f,
@@ -851,17 +856,6 @@ export default function TestCasesExecution() {
       .then((rows) => setAllMilestones(Array.isArray(rows) ? rows : []))
       .catch(() => {});
   }, [newFileOpen]);
-
-  // CR098 — a new file starts at the last milestone used, once the list has loaded.
-  const milestonePrefilled = useRef(false);
-  useEffect(() => {
-    if (!newFileOpen) { milestonePrefilled.current = false; return; }
-    if (milestonePrefilled.current || allMilestones.length === 0 || fileFormRef.current.milestoneId || fileFormRef.current.requirementId) return;
-    milestonePrefilled.current = true;
-    const id = startingMilestoneId(allMilestones);
-    if (id != null) handleMilestoneChange(String(id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newFileOpen, allMilestones]);
 
   // Test cases already linked to the chosen requirement, offered for copying.
   useEffect(() => {
@@ -1068,16 +1062,12 @@ export default function TestCasesExecution() {
   };
 
   const handleCreateFile = async (submit = false) => {
-    if (!fileForm.milestoneId) {
-      toast({ variant: "destructive", title: "Milestone is required" });
-      return;
-    }
     if (!fileForm.requirementId && !fileForm.redmineTicketId.trim()) {
       toast({ variant: "destructive", title: "Choose a requirement, or enter a Redmine ticket" });
       return;
     }
     if (!fileForm.projectId) {
-      toast({ variant: "destructive", title: "Project is required" });
+      toast({ variant: "destructive", title: fileForm.requirementId && !fileForm.milestoneId ? "This requirement has no project" : "Pick a milestone or a requirement to set the project" });
       return;
     }
     // Test cases already linked to the requirement are copied unless the box is unticked.
@@ -1126,13 +1116,14 @@ export default function TestCasesExecution() {
 
   const thClass = "border-r border-border cursor-pointer select-none hover:bg-muted/70 transition-colors";
   const caseCount = (copyLinked ? linkedTcs.length : 0) + (parsedExcelRows?.length ?? 0);
-  const canCreate = !!fileForm.milestoneId && !!fileForm.projectId && (!!fileForm.requirementId || !!fileForm.redmineTicketId.trim()) && ticketLookupMsg?.type !== "error";
-  const canSubmit = canCreate && caseCount > 0;
+  const canCreate = !!fileForm.projectId && (!!fileForm.requirementId || !!fileForm.redmineTicketId.trim()) && ticketLookupMsg?.type !== "error";
+  const canSubmit = canCreate && !!fileForm.milestoneId && caseCount > 0;
   const chosenReq = requirements.find((r) => String(r.id) === fileForm.requirementId) ?? null;
   const fileModuleNames = fileForm.selectedModules.map((id) => modules.find((m) => m.id === id)?.name).filter(Boolean) as string[];
-  const createWhy = !fileForm.milestoneId ? "Choose a milestone."
-    : !fileForm.requirementId && !fileForm.redmineTicketId.trim() ? "Choose a requirement, or enter a Redmine ticket."
+  const createWhy = !fileForm.requirementId && !fileForm.redmineTicketId.trim() ? "Choose a requirement, or enter a Redmine ticket."
+    : !fileForm.projectId ? (fileForm.requirementId ? "This requirement has no project. Choose a milestone." : "Pick a milestone or a requirement to set the project.")
     : ticketLookupMsg?.type === "error" ? "That Redmine ticket already has a file."
+    : !fileForm.milestoneId ? "Submit to Review needs a milestone. Save as a draft now and link one later."
     : caseCount === 0 ? "Submit to Review needs at least one test case. Import an Excel, or save as a draft and add them later."
     : "";
 
@@ -1490,18 +1481,24 @@ export default function TestCasesExecution() {
           </DialogHeader>
 
           <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
-            {/* Milestone first (required) */}
+            {/* Milestone first (optional). Results can only be recorded once the file is linked to one. */}
             <div className="space-y-1">
-              <Label>Milestone <span className="text-destructive">*</span></Label>
+              <Label>Milestone <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
               <SearchableSelect
                 value={fileForm.milestoneId}
-                onValueChange={(v) => { handleMilestoneChange(v); if (v) rememberMilestone(v); }}
-                options={allMilestones
-                  .filter((m) => isOpenMilestone(m.status) || String(m.id) === fileForm.milestoneId)
-                  .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                onValueChange={handleMilestoneChange}
+                options={[
+                  { value: "", label: "None" },
+                  ...allMilestones
+                    .filter((m) => isOpenMilestone(m.status) || String(m.id) === fileForm.milestoneId)
+                    .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
+                ]}
                 placeholder="Select milestone..."
                 searchPlaceholder="Search milestones..."
               />
+              {!fileForm.milestoneId && (
+                <p className="text-xs text-muted-foreground">Without a milestone you can prepare the test cases, but not execute them.</p>
+              )}
             </div>
 
             {/* Requirement second (required), narrowed by the milestone */}

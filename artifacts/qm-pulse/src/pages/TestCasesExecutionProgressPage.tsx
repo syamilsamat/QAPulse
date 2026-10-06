@@ -1823,6 +1823,8 @@ export default function TestCasesExecutionProgressPage() {
         const testCases = result?.testCases || [];
         const file = result?.file;
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
+        // Results can't be recorded without a milestone, so an unlinked file opens ready for editing.
+        if (file && file.milestoneId == null) setMode("edit");
         setCurrentFileId(file?.id ?? null);
         setCurrentFileProjectId(file?.projectId ?? null);
         setCurrentFileType(file?.fileType ?? null);
@@ -2193,6 +2195,10 @@ export default function TestCasesExecutionProgressPage() {
       // Update ref immediately so blur-save and polling see it without waiting for useEffect
       if (field === "result") {
         const current = dataRef.current.find((r) => r.id === id);
+        if (currentFileMilestoneId == null) {
+          toast({ variant: "destructive", title: "Link a milestone before executing", description: "This file isn't linked to a milestone yet. Link one from the banner above, then record results." });
+          return;
+        }
         // The controls are already hidden when the row is locked, but a stale
         // render or a keyboard path must not slip a result past the gate — and
         // a silent no-op would read as a broken button.
@@ -2225,7 +2231,7 @@ export default function TestCasesExecutionProgressPage() {
       });
       setHasUnsavedChanges(true);
     },
-    [applyResultChange, currentUser, currentFileReviewStatus, toast],
+    [applyResultChange, currentUser, currentFileReviewStatus, currentFileMilestoneId, toast],
   );
 
   /** Stamps the reason onto the row (it rides along on the next save, where
@@ -4148,7 +4154,7 @@ export default function TestCasesExecutionProgressPage() {
       {currentFileMilestoneId == null && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/10 shrink-0">
           <p className="text-sm text-amber-700 dark:text-amber-400 flex-1">
-            No milestone linked — you can add and edit test cases, but results can't be recorded until one is set.
+            No milestone linked — you can add and edit test cases, but you can't execute them until a milestone is linked.
           </p>
           <div className="flex items-center gap-2">
             <div className="w-56">
@@ -4472,10 +4478,15 @@ export default function TestCasesExecutionProgressPage() {
               since that's the only mode that can record a result. */}
           <div className="flex border border-border rounded-lg overflow-hidden text-xs font-medium">
             <button
-              onClick={() => currentFileMilestoneId != null && setMode("execute")}
-              disabled={currentFileMilestoneId == null}
+              onClick={() => {
+                if (currentFileMilestoneId == null) {
+                  toast({ variant: "destructive", title: "Link a milestone before executing", description: "Use the banner above to link this file to a milestone." });
+                  return;
+                }
+                setMode("execute");
+              }}
               title={currentFileMilestoneId == null ? "Link a milestone to this execution file before you can record results" : undefined}
-              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"} ${currentFileMilestoneId == null ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`px-3 py-1.5 transition-colors ${mode === "execute" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted/50"} ${currentFileMilestoneId == null ? "opacity-50" : ""}`}
             >
               Execute
             </button>

@@ -93,6 +93,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
 | [CR108](#cr108--role-list-failed-silently-in-add-team-member) | Role List Failed Silently in Add Team Member | 🔨 Built, not deployed | 2026-10-06 |
 | [CR109](#cr109--editing-an-approved-requirement-draft-buttons-and-return-to-detail) | Editing an Approved Requirement: Draft Buttons and Return to Detail | 🔨 Built, not deployed | 2026-10-06 |
+| [CR110](#cr110--new-test-case-file-milestone-optional-and-no-execution-without-one) | New Test Case File: Milestone Optional, No Execution Without One | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2446,5 +2447,27 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** in-review requirements keep today's behaviour (a content edit returns them to draft, single Save Changes button).
 
 **Files:** `pages/Requirements.tsx`, `pages/RequirementDetail.tsx`, `api-server/src/routes/requirements.ts`.
+
+---
+
+### CR110 — New Test Case File: Milestone Optional, No Execution Without One
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Execute dashboard / new test case file: the milestone box should be optional and blank by default, but a test cannot be executed unless the file is linked to a milestone.
+
+**Root causes:** the dialog marked Milestone required, prefilled it from the last milestone used (CR098), and the server also returned 400 without one. Project was only derived from the milestone, so simply dropping the requirement would leave files with no project. On the execution sheet, a file with no milestone still opened in Execute mode; the server refused the result only when saving.
+
+**Decision (2026-10-06):** a file's project always comes from the milestone or, when there is none, from its requirement (option B). No separate project dropdown.
+
+**Built:**
+- **Dialog:** Milestone is optional, starts blank (prefill removed), with a "None" choice. Clearing the milestone keeps the chosen requirement and takes the project from it. Create is blocked with a plain reason when neither a milestone nor a requirement gives a project ("Pick a milestone or a requirement…", or "This requirement has no project"). Submit to Review also needs a milestone; saving as a draft does not.
+- **Server:** no longer rejects a file with no milestone; it still rejects one with no milestone, project or requirement. Submitting an unlinked file for review returns 409 with the same wording as the existing results gate (which stays as the final backstop).
+- **Execution sheet:** an unlinked file opens in Edit mode; clicking Execute, or any result, shows "Link a milestone before executing" instead of failing on save. The existing Link banner is reworded.
+
+**Differences from what was discussed:** the dashboard has no separate Execute button (rows and the Open Execution Sheet button open the sheet, which is also how test cases are authored), so there is no "link a milestone first" popup there; the linking happens on the sheet's banner.
+
+**Not changed:** the approval and verdict steps for rows; Compile to Execution (its own milestone rule).
+
+**Files:** `pages/TestCasesExecution.tsx`, `pages/TestCasesExecutionProgressPage.tsx`, `api-server/src/routes/test-execution.ts`.
 
 ---
