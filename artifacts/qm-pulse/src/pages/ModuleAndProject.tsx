@@ -3,7 +3,9 @@ import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { useSearch } from "wouter";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
 const TeamsPage = lazy(() => import("./Teams"));
-import { Columns3Cog } from 'lucide-react';
+const AiControlsPage = lazy(() => import("./AiControls"));
+const RedmineSyncPage = lazy(() => import("./RedmineSync"));
+import { Columns3Cog, Bot } from 'lucide-react';
 import {
   fetchProjects,
   createProject,
@@ -735,6 +737,16 @@ export default function ModuleAndProject() {
               <SettingsIcon className="w-4 h-4" /> Global Settings
             </TabsTrigger>
           )}
+          {(user?.role === "admin" || user?.role === "cto") && (
+            <TabsTrigger value="ai-controls" className="gap-2">
+              <Bot className="w-4 h-4" /> AI Controls
+            </TabsTrigger>
+          )}
+          {(user?.role === "admin" || user?.role === "cto") && (
+            <TabsTrigger value="redmine-sync" className="gap-2">
+              <RefreshCw className="w-4 h-4" /> Redmine Sync
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="projects">
@@ -1464,6 +1476,22 @@ export default function ModuleAndProject() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {(user?.role === "admin" || user?.role === "cto") && (
+          <TabsContent value="ai-controls">
+            <Suspense fallback={<div className="p-6 text-muted-foreground text-sm">Loading…</div>}>
+              <AiControlsPage embedded />
+            </Suspense>
+          </TabsContent>
+        )}
+
+        {(user?.role === "admin" || user?.role === "cto") && (
+          <TabsContent value="redmine-sync">
+            <Suspense fallback={<div className="p-6 text-muted-foreground text-sm">Loading…</div>}>
+              <RedmineSyncPage embedded />
+            </Suspense>
+          </TabsContent>
+        )}
 
         {user?.role === "admin" && (
           <TabsContent value="teams">

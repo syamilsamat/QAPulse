@@ -19,9 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   CircleUser, User, Shield, Bell, Upload, Lock, Eye, EyeOff,
   RefreshCw, Bug, Save, BookOpen, Plus, Pencil, Trash2, Check, XIcon,
-  Bot,
 } from "lucide-react";
-import { Link } from "wouter";
 
 interface DocRegEntry {
   id: number;
@@ -308,11 +306,6 @@ export default function Settings() {
           <TabsTrigger value="role" className="gap-2">
             <Shield className="w-4 h-4" /> Role &amp; Permissions
           </TabsTrigger>
-          {(user?.role === "admin" || user?.role === "cto") && (
-            <TabsTrigger value="ai" className="gap-2">
-              <Bot className="w-4 h-4" /> Admin Tools
-            </TabsTrigger>
-          )}
           <TabsTrigger value="about" className="gap-2">
             <Bell className="w-4 h-4" /> About
           </TabsTrigger>
@@ -549,30 +542,6 @@ export default function Settings() {
         </CardContent>
       </Card>
         </TabsContent>
-
-        {(user?.role === "admin" || user?.role === "cto") && (
-          <TabsContent value="ai" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base"><Bot className="w-4 h-4" /> AI Controls</CardTitle>
-                <CardDescription>Turn AI on or off, restrict features by role, set usage limits and see who ran what.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button asChild><Link href="/ai-controls">Open AI Controls</Link></Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base"><RefreshCw className="w-4 h-4" /> Redmine Sync</CardTitle>
-                <CardDescription>See when Redmine was last checked, change how often, run a sync now and review past runs.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button asChild><Link href="/redmine-sync">Open Redmine Sync</Link></Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
         <TabsContent value="about" className="space-y-6">
       {/* Team Members section has moved to Configuration > Team Members tab */}
 

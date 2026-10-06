@@ -63,7 +63,7 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="destructive" className="text-[10px]">Failed</Badge>;
 }
 
-export default function RedmineSync() {
+export default function RedmineSync({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -119,14 +119,18 @@ export default function RedmineSync() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl">
-      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
-        <ArrowLeft className="w-4 h-4" /> Back to Settings
-      </Link>
+      {!embedded && (
+        <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
+          <ArrowLeft className="w-4 h-4" /> Back to Settings
+        </Link>
+      )}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <RefreshCw className="w-7 h-7 text-primary" /> Redmine Sync
-        </h1>
-        <p className="text-muted-foreground mt-1">
+        {!embedded && (
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <RefreshCw className="w-7 h-7 text-primary" /> Redmine Sync
+          </h1>
+        )}
+        <p className={embedded ? "text-muted-foreground" : "text-muted-foreground mt-1"}>
           QM Pulse checks Redmine on a schedule so defects and requirements don't go stale.
         </p>
       </div>
