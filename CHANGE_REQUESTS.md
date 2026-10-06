@@ -101,6 +101,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR115](#cr115--defect-create-button-and-create-another-prompt) | Defect: Create Button and Create-Another Prompt | 🔨 Built, not deployed | 2026-10-06 |
 | [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
 | [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
+| [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2607,5 +2608,24 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not affected:** no Team or Teams dialog has a read-only field. Fields people can still edit are unchanged.
 
 **Files:** `components/ui/read-only-field.tsx` (new), `pages/TestCasesExecution.tsx`, `pages/TestCases.tsx`, `components/execution/CompileToExecutionDialog.tsx`, `pages/Requirements.tsx`, `components/RequirementDialog.tsx`, `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/Settings.tsx`.
+
+---
+
+### CR118 — Requirement Without a Milestone
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Requirement page / new requirement dialog: the milestone box should be optional. (CR113 already made it start blank and the project follow it.)
+
+**Decisions (2026-10-06):** FA Members **may** create a requirement with no milestone. For the Module list without a milestone I used the same global module list the dialog already falls back to when a milestone defines no modules (default picked, change if wanted).
+
+**Built:**
+- **Dialog:** Milestone is marked optional and has a "None" choice. Without a milestone the Project box stays blank and Module offers the global module list (the "Choose a milestone first" block is gone). The milestone is no longer a required field.
+- **Editing:** clearing the milestone on an existing requirement is now saved (the milestone is sent as empty instead of being left out, which used to keep the old one), and the project is cleared with it. Editing an older requirement that has a project but no milestone does not touch its project.
+- **Server:** an FA Member can create a requirement with no milestone (before: 403, since there is no milestone team to be on). FA Leads and admin could already. Everything else about creation is unchanged.
+- **Visibility:** the Requirements list used to hide every requirement with no project from non-admins, including the person who created it. A requirement with no project is now visible to its creator (and to admin as before). Other people only see it once it has a project.
+
+**Not changed:** the Redmine import dialog still needs a milestone; the milestone-page "Create requirement" button still creates under that milestone. Test case and execution links for a requirement with no milestone behave as they do for any milestone-less requirement (cascade skips it when the milestone is cleared).
+
+**Files:** `pages/Requirements.tsx`, `api-server/src/routes/requirements.ts`.
 
 ---

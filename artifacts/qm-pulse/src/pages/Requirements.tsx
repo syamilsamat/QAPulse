@@ -329,7 +329,7 @@ export default function Requirements() {
   const { data: formProjectModules = [] } = useProjectModules(form.projectId ?? null, token);
   const msModuleNames = (selectedMilestone?.modules ?? []).map((m) => m.name);
   const formModuleOptions: string[] = !selectedMilestone
-    ? []
+    ? (executionModules as any[]).map((m: any) => m.name)
     : msModuleNames.length > 0
       ? msModuleNames
       : formProjectModules.length > 0
@@ -820,7 +820,6 @@ tracker: parentReq.tracker ?? undefined,
     if (!form.priority) errs.priority = "Priority is required";
     if (!form.projectId && form.milestoneId) errs.projectId = "Project is required";
     if (reqFormModules.length === 0) errs.module = "At least one module is required";
-    if (!form.milestoneId) errs.milestoneId = "Milestone is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -949,7 +948,10 @@ parentId: finalParentId,
       module: reqFormModules.join(",") || undefined,
       // @ts-ignore
       tracker: lockedTracker ?? form.tracker ?? undefined,
-      milestoneId: milestoneId ?? undefined,
+      // An edit that clears the milestone has to say so (null); leaving the key out keeps the old one.
+      milestoneId: editingReq ? (milestoneId ?? null) : (milestoneId ?? undefined),
+      // The project follows the milestone: clearing the milestone in this edit clears it too.
+      ...(editingReq && (editingReq as any).milestoneId != null && !milestoneId ? { projectId: null } : {}),
       acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
     };
 
@@ -1835,7 +1837,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where it belongs</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label>Milestone <span className="text-destructive">*</span></Label>
+                  <Label>Milestone <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
                   <SearchableSelect
                     value={form.milestoneId ? String(form.milestoneId) : ""}
                     onValueChange={(v) => {
@@ -1843,7 +1845,10 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                       setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : undefined });
                       if (!editingReq) setReqFormModules([]);
                     }}
-                    options={milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                    options={[
+                      { value: "", label: "None" },
+                      ...milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
+                    ]}
                     placeholder="Select milestone…"
                     searchPlaceholder="Search milestones…"
                     className={errors.milestoneId ? "border-destructive" : ""}
@@ -1857,14 +1862,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
               </div>
 
               <div className="space-y-1.5">
-                {!selectedMilestone ? (
-                  <>
-                    <Label>Module <span className="text-destructive">*</span></Label>
-                    <div className={`rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground ${errors.module ? "border-destructive" : ""}`}>
-                      Choose a milestone first
-                    </div>
-                  </>
-                ) : moduleLocked ? (
+                {moduleLocked ? (
                   lockedField("Module", formModuleOptions[0], "only module in this milestone")
                 ) : (
                   <>
