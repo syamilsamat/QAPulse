@@ -99,6 +99,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR113](#cr113--new-requirement-dialog-milestone-and-project-start-blank) | New Requirement Dialog: Milestone and Project Start Blank | 🔨 Built, not deployed | 2026-10-06 |
 | [CR114](#cr114--qa-pipeline-tag-on-the-milestone-pages) | QA Pipeline Tag on the Milestone Pages | 🔨 Built, not deployed | 2026-10-06 |
 | [CR115](#cr115--defect-create-button-and-create-another-prompt) | Defect: Create Button and Create-Another Prompt | 🔨 Built, not deployed | 2026-10-06 |
+| [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2560,5 +2561,25 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR:** the Assignee list problem (D2) and the shared read-only box (S1).
 
 **Files:** `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR116 — Defect Assignee Lists Redmine Contacts
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Defect / create defect: the Assignee box fails to load contacts; investigate the root cause.
+
+**Root cause (confirmed 2026-10-06 from the browser):** the request succeeded (200) but returned an empty list. The Assignee list only kept Redmine contacts that match an active QM Pulse user with a Dev role (by email, else exact name). The contacts come from Redmine and are not QM Pulse users, so no name or email matched and the list was always empty. The old hint blamed a missing sync, which was misleading, and a failed request was shown the same way as an empty list.
+
+**Decision (2026-10-06):** list every synced Redmine person (not groups) that has a Redmine id; the ones that do match a QM Pulse dev user come first. Both defect dialogs use it.
+
+**Built:**
+- **Server:** a new list, GET /contacts/assignable: matched dev users first, then the remaining Redmine contacts, each marked with whether a QM Pulse user is behind it. The old dev-assignees list is unchanged (still used to match an assignee to a user when a defect is saved).
+- **Both defect dialogs** (failed-test popup and New Defect) show them in the Assignee box, with "(Redmine only)" after people who have no QM Pulse user. A failed request now says so with a Retry link; an empty directory says "No contacts synced yet. Run Sync in Configuration → Contacts."
+- **Redmine-only assignees:** Redmine receives the assignment as usual. QM Pulse keeps the name but has no user to link, so that person gets no QM Pulse notification and the defect is not in anyone's "assigned to me" there. Matched dev users keep both.
+
+**Not changed:** contacts have no role or job field, so the list cannot be limited to developers; it is searchable. The assign-to dropdown for existing defects still uses the dev-only list.
+
+**Files:** `api-server/src/routes/contacts.ts`, `lib/execution-api.ts`, `lib/use-assignable-contacts.ts` (new), `components/DefectCreationModal.tsx`, `pages/Defects.tsx`.
 
 ---

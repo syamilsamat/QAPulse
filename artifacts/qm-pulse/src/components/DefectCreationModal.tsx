@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
 import { DefectContextFields } from "@/components/DefectContextFields";
 import { useDefectContext, firstModule } from "@/lib/defect-context";
+import { useAssignableContacts, assigneeOptions } from "@/lib/use-assignable-contacts";
 import { FOUND_IN_OPTIONS, foundInForFileType } from "@/lib/defect-found-in";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -30,7 +31,6 @@ import {
   fetchRedmineProjects,
   fetchRedmineProjectConfig,
   fetchRedmineTrackers,
-  fetchContactAssignees,
   searchRedmineIssues,
   fetchRedmineIssueRoot,
   createRedmineDefect,
@@ -115,7 +115,7 @@ export default function DefectCreationModal({
   const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
-  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const { members, loadError, loading, reload } = useAssignableContacts(open);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
   const [subject, setSubject] = useState("");
   const [complexity, setComplexity] = useState("M");
@@ -176,7 +176,6 @@ export default function DefectCreationModal({
         .catch(() => {});
     }
     fetchRedmineProjects().then(setProjects).catch(() => {});
-    fetchContactAssignees().then(setMembers).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
         setTrackers(list);
@@ -389,7 +388,7 @@ export default function DefectCreationModal({
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
         assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
-        assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
+        assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId ?? undefined,
         tracker: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
       }).catch(() => {});
       onDefectCreated({
@@ -431,7 +430,6 @@ export default function DefectCreationModal({
     setScreenshots([]);
     setSelectedProjectId(null);
     setProjectConfig(null);
-    setMembers([]);
     setSelectedAssigneeId(null);
     setComplexity("M");
     setTargetedCompletionDate("");
@@ -635,16 +633,21 @@ export default function DefectCreationModal({
               <SearchableSelect
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
-                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                options={assigneeOptions(members)}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search developer..."
-                emptyText="No developers found."
+                searchPlaceholder="Search assignee..."
+                emptyText="No contacts found."
               />
-              {members.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  No dev contacts found — a contact is listed once it matches an active QM Pulse Dev user by email or name. Sync contacts from Configuration → Contacts.
+              {loadError ? (
+                <p className="text-xs text-destructive">
+                  {loadError}.{" "}
+                  <button type="button" className="underline" onClick={reload}>Retry</button>
                 </p>
-              )}
+              ) : !loading && members.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No contacts synced yet. Run Sync in Configuration → Contacts.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

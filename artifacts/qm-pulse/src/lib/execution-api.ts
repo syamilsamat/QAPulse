@@ -593,8 +593,8 @@ export const searchRedmineIssues = async (
 export interface RedmineMember {
   id: number;
   name: string;
-  // The QM Pulse user behind this member, when known.
-  userId?: number;
+  // The QM Pulse user behind this member, when known. Absent for a Redmine-only contact.
+  userId?: number | null;
 }
 
 // Contacts are QM Pulse's own directory, synced from every active Redmine
@@ -613,6 +613,16 @@ export const fetchContactAssignees = async (): Promise<RedmineMember[]> => {
   if (!res.ok) return [];
   const assignees: DevAssignee[] = await res.json();
   return assignees.map((a) => ({ id: a.redmineId, name: a.name, userId: a.userId }));
+};
+
+// CR116 — every synced Redmine person (QM Pulse dev users first). Unlike
+// fetchContactAssignees this throws on a failed request, so the dialog can say
+// so instead of showing an empty list.
+export const fetchAssignableContacts = async (): Promise<RedmineMember[]> => {
+  const res = await fetch("/api/contacts/assignable", { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Could not load assignees (status ${res.status})`);
+  const rows: { redmineId: number; name: string; userId: number | null }[] = await res.json();
+  return rows.map((a) => ({ id: a.redmineId, name: a.name, userId: a.userId }));
 };
 
 export const fetchRedmineProjectMembers = async (projectId: number): Promise<RedmineMember[]> => {

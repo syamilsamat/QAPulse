@@ -39,6 +39,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useAssignableContacts, assigneeOptions } from "@/lib/use-assignable-contacts";
 import { AttachmentFileList, ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 import { DefectHistory } from "@/components/DefectHistory";
 import { useDefectHistorySummaries } from "@/lib/defect-history";
@@ -2185,7 +2186,7 @@ function NewDefectDialog({
   const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
-  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const { members, loadError, loading, reload } = useAssignableContacts(open);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
   const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
   const [complexity, setComplexity] = useState("M");
@@ -2215,13 +2216,9 @@ function NewDefectDialog({
       .catch(() => {});
   }, [open, token]);
 
-  // Assignees come from the contact directory, not the selected project's
-  // Redmine memberships — the same reason as DefectCreationModal: a
-  // membership held on a sub-project or through a group never showed up.
-  useEffect(() => {
-    if (!open) return;
-    fetchContactAssignees().then(setMembers).catch(() => {});
-  }, [open]);
+  // Assignees come from the contact directory (useAssignableContacts), not the
+  // selected project's Redmine memberships — a membership held on a sub-project
+  // or through a group never showed up.
 
   // Project config still follows the selected Redmine project.
   useEffect(() => {
@@ -2283,7 +2280,7 @@ function NewDefectDialog({
           module: dc.state.ctx.module || undefined,
           assigneeId: selectedAssigneeId,
           assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
-          assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
+          assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId ?? undefined,
           trackerName: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
           complexity,
           targetedStartDate: targetedStartDate || undefined,
@@ -2456,11 +2453,21 @@ function NewDefectDialog({
               <SearchableSelect
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
-                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                options={assigneeOptions(members)}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search developer..."
-                emptyText="No developers found."
+                searchPlaceholder="Search assignee..."
+                emptyText="No contacts found."
               />
+              {loadError ? (
+                <p className="text-xs text-destructive">
+                  {loadError}.{" "}
+                  <button type="button" className="underline" onClick={reload}>Retry</button>
+                </p>
+              ) : !loading && members.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No contacts synced yet. Run Sync in Configuration → Contacts.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
