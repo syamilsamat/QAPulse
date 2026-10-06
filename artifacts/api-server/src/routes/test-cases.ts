@@ -244,12 +244,36 @@ const tcGenResponseSchema: Schema = {
           type: { type: Type.STRING },
           priority: { type: Type.STRING },
         },
-        required: ["title", "scenario", "testSteps", "expectedResult"],
+        required: ["title", "scenario", "testSteps", "expectedResult", "tags"],
       },
     },
   },
   required: ["testCases"],
 };
+
+// CR112 — "1 test case" / "3 cases" / "satu test case" in the Additional Notes is a
+// binding count, not a hint. Digits or a number word (English or Malay), 1 to 30.
+const COUNT_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, lapan: 8, sembilan: 9, sepuluh: 10,
+};
+export function requestedTestCaseCount(notes?: string | null): number | null {
+  if (!notes) return null;
+  const m = notes.match(
+    /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|satu|dua|tiga|empat|lima|enam|tujuh|lapan|sembilan|sepuluh)\s+(?:only\s+)?(?:(?:positive|negative|edge|boundary)\s+)?(?:test\s*)?(?:cases?|tc)\b/i,
+  );
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? Number(m[1]) : COUNT_WORDS[m[1].toLowerCase()];
+  return n >= 1 && n <= 30 ? n : null;
+}
+
+// CR112 — safety net for models that skip tags (the fallback models have no enforced schema).
+function fallbackTags(tc: any, featureModule?: string): string {
+  const parts = [featureModule, tc.type, tc.tracker]
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .filter((v) => v && v !== "n/a");
+  return Array.from(new Set(parts)).join(", ") || "general";
+}
 
 // The AI-authored fields CreateTestCaseBody types as optional strings.
 const AI_TEXT_FIELDS = [
@@ -282,13 +306,23 @@ async function generateForRequirement(
     // non-fatal
   }
 
-  const systemInstruction = `You are an expert QA engine. Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided.
+  const requestedCount = requestedTestCaseCount(opts.additionalNotes);
+  const countRule = requestedCount
+    ? `Generate EXACTLY ${requestedCount} test case${requestedCount === 1 ? "" : "s"} for the single requirement provided: no more, no fewer.`
+    : "Generate a focused batch of 5 to 10 highly detailed test cases for the single requirement provided, unless the user's instructions say otherwise.";
+
+  const systemInstruction = `You are an expert QA engine. ${countRule}
+    The user's instructions (the Notes) are binding. They override any default above, including how many test cases to write.
     CRITICAL: Output must align with the exact Execution Template structure (Scenario, Test Data, etc.).
+    For EVERY test case include a non-empty "tags" field: 2 to 5 short, lowercase, comma-separated labels covering the module, the feature and the kind of test (for example "login, validation, negative").
     If a Tracker is provided in the input, set the "tracker" field to that exact value for ALL generated test cases.
     "expectedResult" must be short and direct: state the outcome as one imperative sentence (or a tight list of outcomes), no explanation, no narrative, no filler words.
     Return ONLY a valid JSON object with a "testCases" array.`;
 
-  const userPrompt = `Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;
+  const notesBlock = opts.additionalNotes?.trim()
+    ? `USER INSTRUCTIONS (highest priority, follow exactly): ${opts.additionalNotes.trim()}\n\n`
+    : "";
+  const userPrompt = `${notesBlock}Requirement: [#${req.id}] ${req.title}\nDescription: ${req.description || "No description provided"}\n\nModule: ${opts.featureModule || "N/A"}\nTracker: ${opts.selectedTracker || "N/A"}\nFocus Scenarios: ${opts.caseTypes.join(", ")}\nNotes: ${opts.additionalNotes || "None"}${existingContext}`;
 
   let finalRawText = "";
   try {
@@ -328,6 +362,7 @@ async function generateForRequirement(
     if (!tc.title) tc.title = tc.scenario ? tc.scenario.slice(0, 120) : `${req.title} — case ${i + 1}`;
     // Tags read better inline than one per line.
     if (tc.tags) tc.tags = tc.tags.split("\n").join(", ");
+    if (!String(tc.tags ?? "").trim()) tc.tags = fallbackTags(tc, opts.featureModule);
     // Re-break run-together numbered steps ("1. a 2. b") onto their own lines.
     if (tc.testSteps && !stepsWereList) tc.testSteps = tc.testSteps.replace(/(?!\A)(\d+\.)/g, "\n$1").trim();
     // The AI has no way to know the real Redmine ticket — it was only ever
@@ -340,7 +375,8 @@ async function generateForRequirement(
     else delete tc.redmineUserStory;
     return tc;
   });
-  return { testCases };
+  // The model can still over-deliver; the requested count is a ceiling we enforce.
+  return { testCases: requestedCount ? testCases.slice(0, requestedCount) : testCases };
 }
 
 router.post("/test-cases/ai-generate", aiGuard("test-case-generation"), async (req, res): Promise<void> => {

@@ -624,6 +624,21 @@ function AIGenerateDialog({
                                 </span>
                               </div>
                             )}
+                            <div className="flex items-center gap-2 text-xs mt-2">
+                              <strong className="text-foreground shrink-0">Tags:</strong>
+                              <Input
+                                value={tc.tags ?? ""}
+                                placeholder="comma-separated tags"
+                                className="h-7 text-xs"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setPreview((prev) => prev.map((g) => g.requirementId !== group.requirementId ? g : {
+                                    ...g,
+                                    testCases: g.testCases.map((t, ti) => (ti === i ? { ...t, tags: value } : t)),
+                                  }));
+                                }}
+                              />
+                            </div>
                           </label>
                         </CardContent>
                       </Card>

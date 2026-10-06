@@ -95,6 +95,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR109](#cr109--editing-an-approved-requirement-draft-buttons-and-return-to-detail) | Editing an Approved Requirement: Draft Buttons and Return to Detail | 🔨 Built, not deployed | 2026-10-06 |
 | [CR110](#cr110--new-test-case-file-milestone-optional-and-no-execution-without-one) | New Test Case File: Milestone Optional, No Execution Without One | 🔨 Built, not deployed | 2026-10-06 |
 | [CR111](#cr111--ai-generate-test-cases-milestone-starts-blank) | AI Generate Test Cases: Milestone Starts Blank | 🔨 Built, not deployed | 2026-10-06 |
+| [CR112](#cr112--ai-generate-test-cases-respect-the-requested-count-and-always-add-tags) | AI Generate Test Cases: Respect the Requested Count and Always Add Tags | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2487,5 +2488,25 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Files:** `pages/TestCases.tsx`.
 
 **Still open from the same note:** respecting "Additional notes" (exact test case count) and generating tags for every case; to be discussed separately.
+
+---
+
+### CR112 — AI Generate Test Cases: Respect the Requested Count and Always Add Tags
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Test cases / AI generate test case: take note of the "Additional notes" box (asking for 1 test case must give 1), and tags must be generated with every test case.
+
+**Root causes:** (1) the instruction to the AI always said "generate 5 to 10"; the notes were only a trailing line in the prompt, and nothing limited the result afterwards. (2) the AI was never asked for tags and they were not required in its response format. Saving kept tags correctly, so they were simply empty.
+
+**Decisions (2026-10-06):** the count comes from the Additional Notes only (no new field). Tags are asked from the AI first, with a safety net.
+
+**Built:**
+- **Count:** a number in the notes ("1 test case", "3 negative cases", "satu test case", "2 TC"; digits or English/Malay number words, 1 to 30) becomes "generate EXACTLY N", and the result is cut to N even if the model over-delivers. The notes are also placed first in the prompt as binding instructions that override the default. With no number, the default 5 to 10 stays. The count applies per requirement when several are selected.
+- **Tags:** the AI is told to give every case 2 to 5 short lowercase comma-separated tags, and tags are now required in its response format. If a model (usually a fallback one) still returns none, they are filled from the module, test type and tracker, so no case is saved without tags.
+- **Preview:** each generated case shows an editable Tags box before saving.
+
+**Not changed:** the Positive/Negative/Edge checkboxes (the notes win if they conflict); the save path.
+
+**Files:** `api-server/src/routes/test-cases.ts`, `pages/TestCases.tsx`.
 
 ---
