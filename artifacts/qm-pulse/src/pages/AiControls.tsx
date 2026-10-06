@@ -54,7 +54,7 @@ async function send(path: string, method: string, body?: unknown) {
   return data;
 }
 
-export default function AiControls() {
+export default function AiControls({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -102,14 +102,18 @@ export default function AiControls() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-6xl">
-      <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
-        <ArrowLeft className="w-4 h-4" /> Back to Settings
-      </Link>
+      {!embedded && (
+        <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground w-fit">
+          <ArrowLeft className="w-4 h-4" /> Back to Settings
+        </Link>
+      )}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Bot className="w-7 h-7 text-primary" /> AI Controls
-        </h1>
-        <p className="text-muted-foreground mt-1">
+        {!embedded && (
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Bot className="w-7 h-7 text-primary" /> AI Controls
+          </h1>
+        )}
+        <p className={embedded ? "text-muted-foreground" : "text-muted-foreground mt-1"}>
           Decide who can use AI, how much, and see what has been run. Changes apply within seconds.
         </p>
       </div>
