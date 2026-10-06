@@ -687,7 +687,10 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     if (editor) {
       const nextContent = contentOf({ ...(before as any), ...parsed.data } as any);
       const contentDiff = diffContent(contentOf(before as any), nextContent);
-      if (Object.keys(contentDiff).length > 0) {
+      // CR109 — only title, description and acceptance criteria send an
+      // approved requirement back to draft; a priority change alone keeps the
+      // approval (it is still saved, and still logged when it rides along).
+      if (Object.keys(contentDiff).some((k) => k !== "priority")) {
         const lock = decideRevisionLock({
           status: (before as any).reviewStatus,
           draftOwnerId: (before as any).draftOwnerId ?? null,

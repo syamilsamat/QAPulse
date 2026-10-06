@@ -474,6 +474,17 @@ export default function Requirements() {
   // the edit dialog once the requirement is loaded. Waits for requirements
   // to load since openEdit needs the full row, not just the id.
   const hasAppliedEditDeepLink = useRef(false);
+  const returnToRef = useRef<string | null>(null);
+  const returnToDetail = () => {
+    const to = returnToRef.current;
+    if (!to) return;
+    returnToRef.current = null;
+    navigate(to);
+  };
+  const closeDialog = () => {
+    setDialogOpen(false);
+    returnToDetail();
+  };
   useEffect(() => {
     if (hasAppliedEditDeepLink.current || requirements.length === 0) return;
     const params = new URLSearchParams(searchString);
@@ -482,6 +493,10 @@ export default function Requirements() {
     const target = requirements.find((r: any) => String(r.id) === editIdParam);
     if (!target) return;
     hasAppliedEditDeepLink.current = true;
+    // CR109 — the detail page asks to be returned to when the dialog closes.
+    // Only a plain /requirements/<id> path is accepted, never an arbitrary URL.
+    const returnTo = params.get("returnTo");
+    returnToRef.current = returnTo && /^\/requirements\/\d+$/.test(returnTo) ? returnTo : null;
     openEdit(target);
   }, [searchString, requirements]);
 
@@ -907,6 +922,21 @@ tracker: parentReq.tracker ?? undefined,
   };
 
   // submitForReview applies to a new requirement: it is created as a draft, then submitted.
+  // CR109 — an approved requirement only goes back to draft when its title,
+  // description or acceptance criteria change (the server applies the same
+  // rule); then the footer offers Save as Draft / Submit for review instead.
+  const normText = (v: string) => v.replace(/\r\n/g, "\n").trim();
+  const editing: any = editingReq;
+  const sendsBackToDraft =
+    !!editing &&
+    editing.reviewStatus === "approved" &&
+    editing.source !== "qa_pipeline" &&
+    (normText(form.title ?? "") !== normText(editing.title ?? "") ||
+      normText(form.description ?? "") !== normText(editing.description ?? "") ||
+      JSON.stringify(acceptanceCriteria) !== JSON.stringify(Array.isArray(editing.acceptanceCriteria) ? editing.acceptanceCriteria : []));
+
+  // submitForReview: a new requirement is created as a draft then submitted; an
+  // approved one that was edited is saved (the server makes it a draft) then submitted.
   const handleSubmit = async (submitForReview = false) => {
     if (!validate()) {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
@@ -973,13 +1003,15 @@ parentId: finalParentId,
       }
 
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["requirement"] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history"] });
       setDialogOpen(false);
       setForm({});
       setErrors({});
       setEditingReq(null);
       resetAttachmentDrafts();
       let submitError: string | null = null;
-      if (!editingReq && submitForReview && savedId) {
+      if (submitForReview && savedId) {
         try {
           const subRes = await fetch(`${getApiUrl()}/requirements/${savedId}/review`, {
             method: "PATCH",
@@ -991,13 +1023,16 @@ parentId: finalParentId,
           submitError = "Network error";
         }
         queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["requirement"] });
+        queryClient.invalidateQueries({ queryKey: ["requirement-history"] });
       }
       if (submitError) {
         toast({ variant: "destructive", title: "Saved as a draft, but not submitted", description: submitError });
       } else {
-        toast({ title: editingReq ? "Requirement updated" : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
+        toast({ title: editingReq ? (submitForReview ? "Requirement updated and submitted for review" : sendsBackToDraft ? "Saved as a draft" : "Requirement updated") : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
       }
       if (moduleWarning) toast({ title: "Saved, but check the module", description: moduleWarning });
+      returnToDetail();
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
     }
@@ -1802,7 +1837,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else closeDialog(); }}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
           <DialogHeader>
             <DialogTitle>
@@ -2210,19 +2245,24 @@ tracker: v })}
             </section>
           </div>
           <DialogFooter className="sticky bottom-0 z-10 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 mt-2 gap-2 border-t bg-background px-4 py-3 sm:gap-0 sm:px-8">
-            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-            {editingReq ? (
+            {sendsBackToDraft && (
+              <p className="text-xs text-muted-foreground sm:mr-auto sm:self-center">
+                Changing the title, description or acceptance criteria sends this back to draft.
+              </p>
+            )}
+            <Button variant="outline" onClick={closeDialog} className="w-full sm:w-auto">Cancel</Button>
+            {editingReq && !sendsBackToDraft ? (
               <Button onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                 {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
                  createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             ) : (
               <>
-                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                   {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
-                   createMutation.isPending ? "Saving..." : "Save as Draft"}
+                   createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save as Draft"}
                 </Button>
-                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                   Submit for review
                 </Button>
               </>

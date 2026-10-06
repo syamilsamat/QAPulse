@@ -92,6 +92,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
 | [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
 | [CR108](#cr108--role-list-failed-silently-in-add-team-member) | Role List Failed Silently in Add Team Member | 🔨 Built, not deployed | 2026-10-06 |
+| [CR109](#cr109--editing-an-approved-requirement-draft-buttons-and-return-to-detail) | Editing an Approved Requirement: Draft Buttons and Return to Detail | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2425,5 +2426,25 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** no API or database change. The Teams page "Add Members" dialog (team role limited to member/lead) is a separate question, not part of this CR.
 
 **Files:** `hooks/use-roles.ts` (new), `use-role-labels.ts`, `use-review-eligibility.ts`, `pages/Team.tsx`, `pages/Tasks.tsx`, `pages/ModuleAndProject.tsx`.
+
+---
+
+### CR109 — Editing an Approved Requirement: Draft Buttons and Return to Detail
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** notes on the requirement detail page / edit requirement: (1) closing the edit dialog should return to the requirement detail page, not the list; (2) editing an approved requirement should offer Save as draft and Submit for review instead of Save, and the list status should stop showing Approved.
+
+**Root causes:** (1) the detail page has no edit dialog; its Edit button opens the list page with ?edit=<id>, so closing the dialog left the user on the list. (2) the edit footer only had Save Changes, and "submit for review" was coded for new requirements only. The save also refreshed only the list, so the detail page could keep showing Approved for up to 30 seconds.
+
+**Decisions (2026-10-06):**
+- Only a change to **title, description or acceptance criteria** sends an approved requirement back to draft. Priority, module, milestone, tracker, release, assignee and attachments keep the approval. The server rule previously included priority; it no longer does (a priority change alone is saved and does not touch the review status).
+- When one of the three fields differs from the saved value, the footer switches (live) from Save Changes to **Save as Draft** and **Submit for review**, with a note explaining why. Otherwise it stays Save Changes.
+- QA Pipeline requirements are exempt, as before.
+
+**Built:** the detail page's Edit button passes returnTo=/requirements/<id> (only a plain /requirements/<number> path is accepted); Cancel, the X, Escape and a successful save all return there, after the review submit finishes. Saving refreshes the detail page and its history as well as the list. Submit for review on an edited requirement saves first, then uses the same review endpoint as the detail page.
+
+**Not changed:** in-review requirements keep today's behaviour (a content edit returns them to draft, single Save Changes button).
+
+**Files:** `pages/Requirements.tsx`, `pages/RequirementDetail.tsx`, `api-server/src/routes/requirements.ts`.
 
 ---
