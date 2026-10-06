@@ -4,6 +4,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { AttachmentFileList } from "@/components/AttachmentFileList";
 import { Label } from "@/components/ui/label";
@@ -134,6 +137,8 @@ export default function DefectCreationModal({
 
   // Submit state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // CR115 — after a defect is created, ask whether to keep going instead of closing.
+  const [createdPrompt, setCreatedPrompt] = useState<{ id: number } | null>(null);
 
   // Load projects + trackers on open
   useEffect(() => {
@@ -392,12 +397,30 @@ export default function DefectCreationModal({
         actualResult,
         screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
       });
-      handleClose();
+      setCreatedPrompt({ id: result.id });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // "Create another": the next defect keeps the project, assignee, tracker, dates,
+  // severity and QM Pulse context; what belongs to the last defect is cleared.
+  const startAnother = () => {
+    setCreatedPrompt(null);
+    setDefectDescription("");
+    setActualResult("");
+    setScreenshots([]);
+    autoSubjectRef.current = "\u0000cleared";
+    setSubject("");
+    setDuplicates([]);
+    setLinkedIssueId(null);
+  };
+
+  const finishCreating = () => {
+    setCreatedPrompt(null);
+    handleClose();
   };
 
   const handleClose = () => {
@@ -725,11 +748,26 @@ export default function DefectCreationModal({
             {isSubmitting ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
             ) : (
-              <><ExternalLink className="w-4 h-4" /> Create in Redmine</>
+              <><ExternalLink className="w-4 h-4" /> Create</>
             )}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={!!createdPrompt} onOpenChange={(v) => { if (!v) finishCreating(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Defect #{createdPrompt?.id} created</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to keep creating defects? The next one keeps the project, assignee, tracker, dates and severity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={finishCreating}>Close</Button>
+            <Button onClick={startAnother}>Create another</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

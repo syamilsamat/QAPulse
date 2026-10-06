@@ -98,6 +98,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR112](#cr112--ai-generate-test-cases-respect-the-requested-count-and-always-add-tags) | AI Generate Test Cases: Respect the Requested Count and Always Add Tags | 🔨 Built, not deployed | 2026-10-06 |
 | [CR113](#cr113--new-requirement-dialog-milestone-and-project-start-blank) | New Requirement Dialog: Milestone and Project Start Blank | 🔨 Built, not deployed | 2026-10-06 |
 | [CR114](#cr114--qa-pipeline-tag-on-the-milestone-pages) | QA Pipeline Tag on the Milestone Pages | 🔨 Built, not deployed | 2026-10-06 |
+| [CR115](#cr115--defect-create-button-and-create-another-prompt) | Defect: Create Button and Create-Another Prompt | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2540,5 +2541,24 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR:** a "QA Pipeline only" filter on the Milestones list (can be added if wanted).
 
 **Files:** `components/qa-pipeline/QaPipelineBadge.tsx` (new), `pages/Milestones.tsx`, `pages/MilestoneDetail.tsx`, `pages/Tasks.tsx`.
+
+---
+
+### CR115 — Defect: Create Button and Create-Another Prompt
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Defect / create defect: change "Create in Redmine" to "Create", and when it is clicked, ask whether the user wants to keep creating new defects.
+
+**Built:** both defect dialogs (the failed-test popup, and New Defect on the Defects page) now have a plain **Create** button. When a defect is created, a prompt says "Defect #X created. Do you want to keep creating defects?" with **Close** (closes the dialog, as before) and **Create another** (the dialog stays open). The success toast stays.
+
+**Decision (2026-10-06):** "Create another" keeps the project, assignee, tracker, dates and severity (and the rest of the QM Pulse context: milestone, module, requirement, Found in, category, complexity). It clears the description, actual result, screenshots and subject/title (and the duplicate-match list). Steps to reproduce and expected result are left as they were.
+
+**Execution page:** the failed test case stays selected while the popup is open, so every extra defect is also linked to that row (previously the first defect cleared it, and a second one would have lost the link). It is released when the popup closes or is skipped.
+
+**Defects page:** the New Defect dialog no longer closes by itself on success; the list refreshes behind it and the prompt decides.
+
+**Not in this CR:** the Assignee list problem (D2) and the shared read-only box (S1).
+
+**Files:** `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
 
 ---

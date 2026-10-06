@@ -2293,8 +2293,8 @@ export default function TestCasesExecutionProgressPage() {
     );
     setDirtyRowIds((prev) => new Set([...prev, rowId]));
     setHasUnsavedChanges(true);
-    pendingFailRowIdRef.current = null;
-    setPendingFailRowId(null);
+    // The failed row stays selected: the defect popup may be asked to create
+    // another defect for it, and clears this itself when it closes (onClose).
   }, []);
 
   const handleSelectRow = useCallback(

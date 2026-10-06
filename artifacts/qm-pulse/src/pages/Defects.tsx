@@ -1561,7 +1561,7 @@ export default function Defects() {
         open={newOpen}
         onClose={() => setNewOpen(false)}
         projects={projects}
-        onCreated={() => { setNewOpen(false); invalidate(); }}
+        onCreated={() => invalidate()}
       />
 
       <EditDefectDialog
@@ -2198,6 +2198,8 @@ function NewDefectDialog({
   const [isSearching, setIsSearching] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+  // CR115 — after a defect is created, ask whether to keep going instead of closing.
+  const [createdPrompt, setCreatedPrompt] = useState<{ code: string } | null>(null);
 
   // Load Redmine projects + trackers on open
   useEffect(() => {
@@ -2297,13 +2299,27 @@ function NewDefectDialog({
           : `${data.defectCode} created locally — Redmine sync pending`,
         description: data.syncOk ? undefined : data.syncError ?? undefined,
       });
-      handleClose();
       onCreated();
+      setCreatedPrompt({ code: data.defectCode ?? "Defect" });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // "Create another": keeps the project, assignee, tracker, dates and severity
+  // (and the QM Pulse context); clears the title, description, actual result and screenshots.
+  const startAnother = () => {
+    setCreatedPrompt(null);
+    setForm((f) => ({ ...f, title: "", description: "", actualResult: "" }));
+    setScreenshots([]);
+    setDuplicates([]);
+  };
+
+  const finishCreating = () => {
+    setCreatedPrompt(null);
+    handleClose();
   };
 
   return (
@@ -2507,10 +2523,25 @@ function NewDefectDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose} disabled={isSaving}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={isSaving} className="gap-2">
-            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create and push to Redmine</>}
+            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create</>}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={!!createdPrompt} onOpenChange={(v) => { if (!v) finishCreating(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{createdPrompt?.code} created</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to keep creating defects? The next one keeps the project, assignee, tracker, dates and severity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={finishCreating}>Close</Button>
+            <Button onClick={startAnother}>Create another</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
