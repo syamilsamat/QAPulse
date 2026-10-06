@@ -79,7 +79,7 @@ import {
   Lock,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
-import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { isOpenMilestone } from "@/lib/last-milestone";
 import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
@@ -310,21 +310,10 @@ export default function Requirements() {
   // type -> tracker mapping) the tracker.
   const selectedMilestone = formMilestones.find((m) => m.id === form.milestoneId) ?? null;
   const milestoneChoices = formMilestones.filter((m) => isOpenMilestone(m.status) || m.id === form.milestoneId);
-  const formProjectName = projects.find((p) => p.id === form.projectId)?.name ?? selectedMilestone?.projectName ?? null;
-
-  // A new requirement starts at the page's milestone filter, else the last
-  // milestone used, once the list has loaded. Never touches an existing
-  // requirement, a child (it inherits its parent's) or a deep link.
-  const milestonePrefilled = useRef(false);
-  useEffect(() => {
-    if (!dialogOpen) { milestonePrefilled.current = false; return; }
-    if (editingReq || milestonePrefilled.current || form.milestoneId || formMilestones.length === 0) return;
-    milestonePrefilled.current = true;
-    const id = startingMilestoneId(formMilestones, filterMilestone !== "all" ? filterMilestone : null);
-    const m = id != null ? formMilestones.find((x) => x.id === id) : null;
-    if (m) setForm((f: any) => ({ ...f, milestoneId: m.id, projectId: m.projectId }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dialogOpen, editingReq, formMilestones, form.milestoneId]);
+  // The project is the milestone's: with no milestone chosen the box stays blank.
+  const formProjectName = selectedMilestone
+    ? (projects.find((p) => p.id === selectedMilestone.projectId)?.name ?? selectedMilestone.projectName ?? null)
+    : null;
 
   // CR091 — a new requirement starts at the milestone's priority until the user
   // sets one by hand (or a Redmine ticket supplies its own). Never touches an
@@ -1860,9 +1849,8 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                     value={form.milestoneId ? String(form.milestoneId) : ""}
                     onValueChange={(v) => {
                       const m = formMilestones.find((x) => String(x.id) === v);
-                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : form.projectId });
+                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : undefined });
                       if (!editingReq) setReqFormModules([]);
-                      if (m) rememberMilestone(m.id);
                     }}
                     options={milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
                     placeholder="Select milestone…"

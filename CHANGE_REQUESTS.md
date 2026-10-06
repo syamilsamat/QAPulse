@@ -96,6 +96,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR110](#cr110--new-test-case-file-milestone-optional-and-no-execution-without-one) | New Test Case File: Milestone Optional, No Execution Without One | 🔨 Built, not deployed | 2026-10-06 |
 | [CR111](#cr111--ai-generate-test-cases-milestone-starts-blank) | AI Generate Test Cases: Milestone Starts Blank | 🔨 Built, not deployed | 2026-10-06 |
 | [CR112](#cr112--ai-generate-test-cases-respect-the-requested-count-and-always-add-tags) | AI Generate Test Cases: Respect the Requested Count and Always Add Tags | 🔨 Built, not deployed | 2026-10-06 |
+| [CR113](#cr113--new-requirement-dialog-milestone-and-project-start-blank) | New Requirement Dialog: Milestone and Project Start Blank | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2508,5 +2509,20 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** the Positive/Negative/Edge checkboxes (the notes win if they conflict); the save path.
 
 **Files:** `api-server/src/routes/test-cases.ts`, `pages/TestCases.tsx`.
+
+---
+
+### CR113 — New Requirement Dialog: Milestone and Project Start Blank
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** notes on Requirement page / new requirement dialog: the milestone should default to empty until the user selects one; the project box should be blank when there is no milestone.
+
+**Root causes:** the CR098 prefill opened the dialog on the page's milestone filter, else the last milestone used (browser storage), and filled the project with it. The milestone select also kept the old project when the milestone was cleared, and the Project box preferred that stored project over the milestone's.
+
+**Built:** the prefill and the "remember last milestone" write are removed, so a new requirement opens with Milestone and Project both blank. The Project box now always follows the chosen milestone and is blank without one. Deep links from the milestone page (?new=1&milestoneId=) still open with that milestone chosen. After this CR nothing calls the CR098 "last milestone" helpers any more (the shared file is still used for the open-milestone check).
+
+**Not in this CR (parked):** making the milestone optional (R2). The milestone is still required to save; that decision depends on whether FA Members may create requirements with no milestone, which is open.
+
+**Files:** `pages/Requirements.tsx`.
 
 ---
