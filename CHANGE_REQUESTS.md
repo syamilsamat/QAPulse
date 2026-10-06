@@ -94,6 +94,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR108](#cr108--role-list-failed-silently-in-add-team-member) | Role List Failed Silently in Add Team Member | 🔨 Built, not deployed | 2026-10-06 |
 | [CR109](#cr109--editing-an-approved-requirement-draft-buttons-and-return-to-detail) | Editing an Approved Requirement: Draft Buttons and Return to Detail | 🔨 Built, not deployed | 2026-10-06 |
 | [CR110](#cr110--new-test-case-file-milestone-optional-and-no-execution-without-one) | New Test Case File: Milestone Optional, No Execution Without One | 🔨 Built, not deployed | 2026-10-06 |
+| [CR111](#cr111--ai-generate-test-cases-milestone-starts-blank) | AI Generate Test Cases: Milestone Starts Blank | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2469,5 +2470,22 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** the approval and verdict steps for rows; Compile to Execution (its own milestone rule).
 
 **Files:** `pages/TestCasesExecution.tsx`, `pages/TestCasesExecutionProgressPage.tsx`, `api-server/src/routes/test-execution.ts`.
+
+---
+
+### CR111 — AI Generate Test Cases: Milestone Starts Blank
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Test cases / AI generate test case: the milestone box should be blank before selection.
+
+**Root cause:** the CR098 prefill filled the milestone from the page's milestone filter, else the last milestone used (browser storage), and the box showed "All milestones" whenever the value was empty, so it never looked blank.
+
+**Decision (2026-10-06):** picking a requirement still fills that requirement's milestone (kept).
+
+**Built:** the prefill and the "remember last milestone" write are removed from this dialog (other dialogs keep the shared helper). The box now opens showing "Select milestone..."; a "None (all milestones)" choice remains for clearing it.
+
+**Files:** `pages/TestCases.tsx`.
+
+**Still open from the same note:** respecting "Additional notes" (exact test case count) and generating tags for every case; to be discussed separately.
 
 ---

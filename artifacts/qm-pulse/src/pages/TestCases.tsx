@@ -75,7 +75,7 @@ import { format } from "date-fns";
 import { authHeaders, getApiUrl } from "@/lib/api";
 import { getAllDescendants } from "@/lib/utils";
 import { ProgressDialog } from "@/components/ProgressDialog";
-import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { isOpenMilestone } from "@/lib/last-milestone";
 import { AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
@@ -104,7 +104,6 @@ function AIGenerateDialog({
   modules,
   users,
   trackers,
-  defaultMilestoneId,
   onSuccess,
 }: any) {
   const { user: currentUser } = useAuth();
@@ -129,16 +128,6 @@ function AIGenerateDialog({
     },
     enabled: open,
   });
-  // CR098 — start at the page's milestone filter, else the last milestone used.
-  const milestonePrefilled = useRef(false);
-  useEffect(() => {
-    if (!open) { milestonePrefilled.current = false; return; }
-    if (milestonePrefilled.current || milestoneOptions.length === 0) return;
-    milestonePrefilled.current = true;
-    const id = startingMilestoneId(milestoneOptions, defaultMilestoneId);
-    if (id != null) setMilestoneId(String(id));
-  }, [open, milestoneOptions, defaultMilestoneId]);
-
   const pickedReqs = pickedIds.map((id) => requirements.find((r: any) => r.id === id)).filter(Boolean) as any[];
   // Each picked requirement with its descendants, de-duplicated (a child picked
   // together with its parent appears once, under the parent).
@@ -195,7 +184,6 @@ function AIGenerateDialog({
   const changeMilestone = (v: string) => {
     const next = v === "all" ? "" : v;
     setMilestoneId(next);
-    if (next) rememberMilestone(next);
     if (next) for (const r of pickedReqs) if (String(r.milestoneId) !== next) removeRequirement(r.id);
   };
 
@@ -281,15 +269,15 @@ function AIGenerateDialog({
               <div className="space-y-1.5">
                 <Label>Milestone</Label>
                 <SearchableSelect
-                  value={milestoneId || "all"}
+                  value={milestoneId}
                   onValueChange={changeMilestone}
                   options={[
-                    { value: "all", label: "All milestones" },
+                    { value: "all", label: "None (all milestones)" },
                     ...milestoneOptions
                       .filter((m) => isOpenMilestone(m.status) || String(m.id) === milestoneId)
                       .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
                   ]}
-                  placeholder="All milestones"
+                  placeholder="Select milestone..."
                   searchPlaceholder="Search milestones..."
                 />
                 <p className="text-xs text-muted-foreground">Narrows the requirement list. Optional.</p>
@@ -2270,7 +2258,6 @@ export default function TestCases() {
         modules={modules}
         users={users}
         trackers={trackers}
-        defaultMilestoneId={filterMilestone !== "all" ? Number(filterMilestone) : null}
         onSuccess={handleAISuccess}
       />
 
