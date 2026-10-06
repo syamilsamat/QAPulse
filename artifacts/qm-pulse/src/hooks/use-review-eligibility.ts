@@ -1,7 +1,6 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl } from "@/lib/api";
+import { useRoles } from "@/hooks/use-roles";
 
 /**
  * Who may peer-review an artifact — the client mirror of the API's
@@ -46,19 +45,9 @@ function eligible(domain: ReviewDomain, row: RoleRow): boolean {
 }
 
 export function useReviewEligibility() {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
 
-  // Same query key and shape as useRoleLabels, so the two share one fetch.
-  const { data: dbRoles = [] } = useQuery<RoleRow[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/roles`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      return res.ok ? res.json() : [];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
+  const { data: dbRoles = [] } = useRoles();
 
   const role = user?.role ?? "";
 

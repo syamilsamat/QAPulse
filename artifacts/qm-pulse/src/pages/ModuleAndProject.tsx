@@ -22,6 +22,7 @@ import {
 } from "@/lib/execution-api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useRoles } from "@/hooks/use-roles";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreateUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -1793,14 +1794,6 @@ export default function ModuleAndProject() {
 // into the giant parent component above, since it's a fully independent
 // feature slotted into one tab.
 
-interface RoleRow {
-  id: number;
-  name: string;
-  description: string | null;
-  department: string | null;
-  tierRank: number | null;
-}
-
 interface UserRow {
   id: number;
   name: string;
@@ -1909,13 +1902,7 @@ function ProjectAccessPanel({ projects, allModules }: { projects: ExecutionProje
     if (!selectedProjectId && projects.length > 0) setSelectedProjectId(String(projects[0].id));
   }, [projects, selectedProjectId]);
 
-  const { data: roles = [] } = useQuery<RoleRow[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await paApi("/roles", token);
-      return res.ok ? res.json() : [];
-    },
-  });
+  const { data: roles = [] } = useRoles();
   const { data: users = [] } = useQuery<UserRow[]>({
     queryKey: ["users"],
     queryFn: async () => {

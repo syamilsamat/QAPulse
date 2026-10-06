@@ -17,6 +17,7 @@ import {
 import { TaskVisualization } from "@/components/tasks/TaskVisualization";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useRoles } from "@/hooks/use-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -680,13 +681,7 @@ export default function Tasks() {
     queryFn: () => listUsers(),
   });
 
-  const { data: roles = [] } = useQuery<{ name: string; department: string | null }[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/roles`, { headers: authHeaders() });
-      return res.ok ? res.json() : [];
-    },
-  });
+  const { data: roles = [] } = useRoles();
 
   const { data: filterMilestones = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["milestones", filterProject, "task-board-filter"],

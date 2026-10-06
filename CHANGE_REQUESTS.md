@@ -91,6 +91,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
 | [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
 | [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
+| [CR108](#cr108--role-list-failed-silently-in-add-team-member) | Role List Failed Silently in Add Team Member | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2412,3 +2413,17 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 
 ---
 
+### CR108 — Role List Failed Silently in Add Team Member
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Problem:** logged in as admin, the Role box in Add Team Member showed only 3 roles (QA Member, QA Lead, Admin) instead of every role on the Roles page.
+
+**Root cause:** the roles list is fetched from GET /roles, which needs a login token. Five places each built their own query with the same cache key and turned any failed request into an empty list. One early failure (for example fired before the token was ready) was cached for 5 minutes for all of them, and Add Team Member then fell back to a hardcoded list of 3 roles. The other places have their own fallbacks, so only this dropdown made it visible. Not yet reproduced in a browser; the cause is read from the code.
+
+**Built:** one shared `useRoles()` hook that waits for the token and treats a non-OK response as an error (retried, never cached as "no roles"). Role labels, review eligibility, Tasks, the Project Admin page and Add Team Member all use it. The hardcoded 3-role fallback is removed; the Role box shows "Loading roles..." and, on failure, "Could not load roles. Retry".
+
+**Not changed:** no API or database change. The Teams page "Add Members" dialog (team role limited to member/lead) is a separate question, not part of this CR.
+
+**Files:** `hooks/use-roles.ts` (new), `use-role-labels.ts`, `use-review-eligibility.ts`, `pages/Team.tsx`, `pages/Tasks.tsx`, `pages/ModuleAndProject.tsx`.
+
+---
