@@ -28,6 +28,7 @@ import { DataPrepFilesSection, DATA_PREP_TEMPLATE } from "@/components/DataPrepF
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { QaPipelineBadge } from "@/components/qa-pipeline/QaPipelineBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -57,6 +58,7 @@ interface Milestone {
   name: string;
   type: string;
   status: string;
+  pipelineEnabled?: boolean;
   priority: string | null;
   targetDate: string | null;
   startDate: string | null;
@@ -529,6 +531,7 @@ export default function Milestones() {
                     <p className="text-xs text-muted-foreground capitalize mt-0.5">
                       {TYPE_OPTIONS.find(t => t.value === m.type)?.label ?? m.type}
                     </p>
+                    {m.pipelineEnabled && <QaPipelineBadge className="mt-1" />}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge status={m.status} isDataPrep={m.type === "data_prep"} />

@@ -97,6 +97,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR111](#cr111--ai-generate-test-cases-milestone-starts-blank) | AI Generate Test Cases: Milestone Starts Blank | 🔨 Built, not deployed | 2026-10-06 |
 | [CR112](#cr112--ai-generate-test-cases-respect-the-requested-count-and-always-add-tags) | AI Generate Test Cases: Respect the Requested Count and Always Add Tags | 🔨 Built, not deployed | 2026-10-06 |
 | [CR113](#cr113--new-requirement-dialog-milestone-and-project-start-blank) | New Requirement Dialog: Milestone and Project Start Blank | 🔨 Built, not deployed | 2026-10-06 |
+| [CR114](#cr114--qa-pipeline-tag-on-the-milestone-pages) | QA Pipeline Tag on the Milestone Pages | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2524,5 +2525,20 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not in this CR (parked):** making the milestone optional (R2). The milestone is still required to save; that decision depends on whether FA Members may create requirements with no milestone, which is open.
 
 **Files:** `pages/Requirements.tsx`.
+
+---
+
+### CR114 — QA Pipeline Tag on the Milestone Pages
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Milestones: tag which milestone came from the QA Pipeline, the way the Tasks page does.
+
+**Root cause:** the "QA Pipeline" badge existed only on the Tasks page. The Milestones list and the milestone detail page never showed it, although the server already sends the flag (`pipelineEnabled`) to both.
+
+**Built:** one shared badge component, used on the Tasks page (unchanged look), on each milestone card in the Milestones list (under the type), and in the header badge row of the milestone detail page, shown to every role (not only QA, who get the Open QA Pipeline button). No server or database change.
+
+**Not in this CR:** a "QA Pipeline only" filter on the Milestones list (can be added if wanted).
+
+**Files:** `components/qa-pipeline/QaPipelineBadge.tsx` (new), `pages/Milestones.tsx`, `pages/MilestoneDetail.tsx`, `pages/Tasks.tsx`.
 
 ---
