@@ -51,6 +51,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MilestonePicker } from "@/components/MilestonePicker";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { isOpenMilestone } from "@/lib/last-milestone";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import {
   Plus,
   Search,
@@ -1519,30 +1520,27 @@ export default function TestCasesExecution() {
             </div>
 
             {/* Derived from the requirement: read-only */}
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">From the requirement (read-only)</p>
+            <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Project</Label>
-                  <p className="text-sm min-h-[1.5rem]">
-                    {projects.find((p) => String(p.id) === fileForm.projectId)?.name ?? <span className="text-muted-foreground">Filled from the milestone</span>}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Tracker</Label>
-                  <p className="text-sm min-h-[1.5rem]">
-                    {fileForm.tracker || <span className="text-muted-foreground">{chosenReq ? "None set" : "Filled from the requirement"}</span>}
-                  </p>
-                </div>
+                <ReadOnlyField
+                  label="Project"
+                  hint="from the milestone or requirement"
+                  value={projects.find((p) => String(p.id) === fileForm.projectId)?.name}
+                  placeholder="Filled from the milestone or requirement"
+                />
+                <ReadOnlyField
+                  label="Tracker"
+                  hint="from the requirement"
+                  value={fileForm.tracker}
+                  placeholder={chosenReq ? "None set" : "Filled from the requirement"}
+                />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Module</Label>
-                <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
-                  {fileModuleNames.length > 0
-                    ? fileModuleNames.map((m) => <Badge key={m} variant="outline">{m}</Badge>)
-                    : <span className="text-sm text-muted-foreground">{chosenReq ? "No module set on this requirement" : "Filled from the requirement"}</span>}
-                </div>
-              </div>
+              <ReadOnlyField
+                label="Module"
+                hint="from the requirement"
+                value={fileModuleNames.length > 0 ? fileModuleNames.map((m) => <Badge key={m} variant="outline">{m}</Badge>) : undefined}
+                placeholder={chosenReq ? "No module set on this requirement" : "Filled from the requirement"}
+              />
             </div>
 
             {/* File Type (QA vs UAT) */}

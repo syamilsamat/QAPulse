@@ -48,6 +48,7 @@ import { DefectReviewSection } from "@/components/DefectReviewSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -1983,8 +1984,9 @@ function EditDefectDialog({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Assignee</Label>
               {canEditAssignee ? (
+                <>
+                <Label>Assignee</Label>
                 <Select
                   value={assigneeSelectValue(form.assigneeId, savedAssigneeName)}
                   onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
@@ -1997,8 +1999,9 @@ function EditDefectDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                </>
               ) : (
-                <p className="text-sm text-muted-foreground">{defect?.assigneeName ?? "Unassigned"}</p>
+                <ReadOnlyField label="Assignee" hint="you can't change this" value={defect?.assigneeName ?? "Unassigned"} />
               )}
             </div>
             <div className="space-y-1.5">

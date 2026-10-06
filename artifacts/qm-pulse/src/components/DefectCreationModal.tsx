@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { AttachmentFileList } from "@/components/AttachmentFileList";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
@@ -566,12 +567,12 @@ export default function DefectCreationModal({
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
 
             {projectConfig?.sourceFieldId && (
-              <div className="space-y-1.5">
-                <Label>Source</Label>
-                <p className="text-sm text-muted-foreground">
-                  {reporterDepartment ? reporterDepartment.toUpperCase() : "Not set for your role"}
-                </p>
-              </div>
+              <ReadOnlyField
+                label="Source"
+                hint="from your role"
+                value={reporterDepartment ? reporterDepartment.toUpperCase() : undefined}
+                placeholder="Not set for your role"
+              />
             )}
 
             <div className="space-y-1.5">

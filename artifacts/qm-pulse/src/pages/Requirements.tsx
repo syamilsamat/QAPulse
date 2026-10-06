@@ -80,6 +80,7 @@ import {
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { isOpenMilestone } from "@/lib/last-milestone";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
@@ -361,17 +362,7 @@ export default function Requirements() {
   useEffect(() => { if (!dialogOpen) setFetchNote(null); }, [dialogOpen]);
 
   const lockedField = (label: string, value: string, why: string) => (
-    <div className="space-y-1.5">
-      <Label className="flex items-center gap-1.5">
-        {label}
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">locked</span>
-      </Label>
-      <div className="flex min-h-9 items-center gap-2 rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm">
-        <Lock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-        <span className="font-medium break-words">{value}</span>
-        <span className="ml-auto text-right text-xs text-muted-foreground">{why}</span>
-      </div>
-    </div>
+    <ReadOnlyField label={label} hint={why} value={value} />
   );
 
   // Pulls title, description and priority from the Redmine ticket. The tracker
@@ -1862,12 +1853,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                     <p className="text-xs text-muted-foreground">No milestones yet — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
                   )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Project <span className="text-xs font-normal text-muted-foreground">(from the milestone)</span></Label>
-                  <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
-                    {formProjectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
-                  </p>
-                </div>
+                <ReadOnlyField label="Project" hint="from the milestone" value={formProjectName ?? undefined} placeholder="Filled from the milestone" />
               </div>
 
               <div className="space-y-1.5">
@@ -2088,11 +2074,7 @@ tracker: v })}
                   />
                 </div>
                 {form.release && (
-                  <div className="space-y-1.5">
-                    <Label>Release (legacy)</Label>
-                    <Input value={form.release} disabled className="text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
-                  </div>
+                  <ReadOnlyField label="Release" hint="legacy; the milestone is the field of record" value={form.release} />
                 )}
               </div>
 

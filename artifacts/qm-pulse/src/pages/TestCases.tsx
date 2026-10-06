@@ -76,6 +76,7 @@ import { authHeaders, getApiUrl } from "@/lib/api";
 import { getAllDescendants } from "@/lib/utils";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { isOpenMilestone } from "@/lib/last-milestone";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
@@ -315,30 +316,23 @@ function AIGenerateDialog({
               </div>
             </div>
 
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">From the requirements (read-only)</p>
+            <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Project</Label>
-                  <p className="text-sm min-h-[1.5rem]">{projectName ?? <span className="text-muted-foreground">Filled from the requirements</span>}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Tracker</Label>
-                  <p className="text-sm min-h-[1.5rem]">
-                    {pickedReqs.length === 0 ? <span className="text-muted-foreground">Filled from the requirements</span>
-                      : pickedTrackers.length === 0 ? <span className="text-muted-foreground">None set</span>
-                      : pickedTrackers.length === 1 ? pickedTrackers[0] : `Mixed: ${pickedTrackers.join(", ")}`}
-                  </p>
-                </div>
+                <ReadOnlyField label="Project" hint="from the requirements" value={projectName ?? undefined} placeholder="Filled from the requirements" />
+                <ReadOnlyField
+                  label="Tracker"
+                  hint="from the requirements"
+                  value={pickedReqs.length === 0 || pickedTrackers.length === 0 ? undefined
+                    : pickedTrackers.length === 1 ? pickedTrackers[0] : `Mixed: ${pickedTrackers.join(", ")}`}
+                  placeholder={pickedReqs.length === 0 ? "Filled from the requirements" : "None set"}
+                />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Module</Label>
-                <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
-                  {aiFormModules.length > 0
-                    ? aiFormModules.map((m) => <Badge key={m} variant="outline">{m}</Badge>)
-                    : <span className="text-sm text-muted-foreground">{pickedReqs.length ? "No module set on these requirements" : "Filled from the requirements"}</span>}
-                </div>
-              </div>
+              <ReadOnlyField
+                label="Module"
+                hint="from the requirements"
+                value={aiFormModules.length > 0 ? aiFormModules.map((m) => <Badge key={m} variant="outline">{m}</Badge>) : undefined}
+                placeholder={pickedReqs.length ? "No module set on these requirements" : "Filled from the requirements"}
+              />
             </div>
 
             {availableReqs.length > 0 && (

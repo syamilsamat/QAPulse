@@ -100,6 +100,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR114](#cr114--qa-pipeline-tag-on-the-milestone-pages) | QA Pipeline Tag on the Milestone Pages | 🔨 Built, not deployed | 2026-10-06 |
 | [CR115](#cr115--defect-create-button-and-create-another-prompt) | Defect: Create Button and Create-Another Prompt | 🔨 Built, not deployed | 2026-10-06 |
 | [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
+| [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2581,5 +2582,30 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** contacts have no role or job field, so the list cannot be limited to developers; it is searchable. The assign-to dropdown for existing defects still uses the dev-only list.
 
 **Files:** `api-server/src/routes/contacts.ts`, `lib/execution-api.ts`, `lib/use-assignable-contacts.ts` (new), `components/DefectCreationModal.tsx`, `pages/Defects.tsx`.
+
+---
+
+### CR117 — One Look for Read-only Fields
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note "sync read-only box across all dialogue".
+
+**Root cause:** there was no shared read-only field. Ten different treatments of the same idea had grown up: a grey panel with bare text, a boxed paragraph, a dashed box with a "locked" pill and the reason inside, loose grey text with no box, and faded disabled inputs.
+
+**Decisions (2026-10-06, from the mock-up):** one solid style everywhere (the dashed boxes go solid); the lock icon is shown on every read-only field; the milestone-page requirement dialog's one-line strip becomes four fields in a 2 x 2 grid; Release (legacy) becomes a normal read-only field.
+
+**Built:** a shared `ReadOnlyField` (label, a small hint saying where the value comes from or why it can't change, a grey box with a lock icon, a muted placeholder when empty, badges for several values). It is announced as read-only to screen readers. Migrated in all 8 places:
+1. New Test Case File (Project, Tracker, Module)
+2. AI Generate Test Cases (Project, Tracker, Module)
+3. Compile to Execution (Milestone when locked, Project)
+4. New / Edit Requirement (Project, locked Module and Tracker, Release legacy)
+5. Requirement dialog on the milestone page (Project, Milestone, Tracker, Module)
+6. Create Defect (Source)
+7. Edit Defect (Assignee, for people who can't reassign)
+8. Settings, My Profile (Email)
+
+**Not affected:** no Team or Teams dialog has a read-only field. Fields people can still edit are unchanged.
+
+**Files:** `components/ui/read-only-field.tsx` (new), `pages/TestCasesExecution.tsx`, `pages/TestCases.tsx`, `components/execution/CompileToExecutionDialog.tsx`, `pages/Requirements.tsx`, `components/RequirementDialog.tsx`, `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/Settings.tsx`.
 
 ---
