@@ -854,7 +854,7 @@ export default function RequirementDetail() {
         {/* Review actions + AI Analyzer (available to author and approver alike) */}
         <div className="flex gap-2 flex-wrap shrink-0">
           {canEditReq && (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`/requirements?edit=${req.id}`)}>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`/requirements?edit=${req.id}&returnTo=${encodeURIComponent(`/requirements/${req.id}`)}`)}>
               <Pencil className="w-3.5 h-3.5" />
               Edit
             </Button>

@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -374,11 +375,7 @@ export default function Settings() {
               <Label>Team</Label>
               <Input value={team} onChange={(e) => setTeam(e.target.value)} placeholder="e.g. Mobile QA, Web QA" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input value={user?.email ?? ""} disabled className="bg-muted/50" />
-              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-            </div>
+            <ReadOnlyField label="Email" hint="cannot be changed" value={user?.email ?? undefined} />
           </div>
 
           <Separator />

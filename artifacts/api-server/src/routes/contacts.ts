@@ -42,6 +42,33 @@ export async function listDevAssignees(): Promise<DevAssignee[]> {
   return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export interface AssignableContact {
+  redmineId: number;
+  name: string;
+  /** The QM Pulse dev user behind this contact, when one matches; null for a Redmine-only person. */
+  userId: number | null;
+}
+
+// CR116 — the defect Assignee list. Redmine people are not necessarily QM Pulse
+// users, so every synced person contact with a Redmine id is assignable.
+// Contacts that match an active QM Pulse dev user come first (they keep
+// notifications and "assigned to me"); the rest are Redmine-only — Redmine
+// still gets the assignment, QM Pulse just has no user to link it to.
+export async function listAssignableContacts(): Promise<AssignableContact[]> {
+  const matched = await listDevAssignees();
+  const matchedByRedmineId = new Map(matched.map((a) => [a.redmineId, a]));
+  const contacts = await db.select().from(contactsTable).where(eq(contactsTable.isGroup, false));
+  const seen = new Set<number>(matched.map((a) => a.redmineId));
+  const redmineOnly: AssignableContact[] = [];
+  for (const c of contacts) {
+    if (c.redmineId == null || seen.has(c.redmineId) || matchedByRedmineId.has(c.redmineId)) continue;
+    seen.add(c.redmineId);
+    redmineOnly.push({ redmineId: c.redmineId, name: c.fullName, userId: null });
+  }
+  redmineOnly.sort((a, b) => a.name.localeCompare(b.name));
+  return [...matched, ...redmineOnly];
+}
+
 let mysql2: any = null;
 try {
   mysql2 = require("mysql2/promise");
@@ -61,6 +88,14 @@ router.get("/contacts", async (_req, res) => {
     res.json(contacts);
   } catch {
     res.status(500).json({ error: "Failed to fetch contacts" });
+  }
+});
+
+router.get("/contacts/assignable", async (_req, res) => {
+  try {
+    res.json(await listAssignableContacts());
+  } catch {
+    res.status(500).json({ error: "Failed to fetch assignable contacts" });
   }
 });
 

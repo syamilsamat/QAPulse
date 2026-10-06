@@ -1,7 +1,5 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl } from "@/lib/api";
+import { useRoles } from "@/hooks/use-roles";
 
 /**
  * Human-readable names for role slugs.
@@ -35,18 +33,7 @@ export function titleCaseRole(role: string): string {
 }
 
 export function useRoleLabels() {
-  const { token } = useAuth();
-
-  const { data: dbRoles = [] } = useQuery<{ name: string; description: string | null }[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/roles`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      return res.ok ? res.json() : [];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
+  const { data: dbRoles = [] } = useRoles();
 
   const roleLabel = useMemo(() => {
     const byName = new Map(dbRoles.map((r) => [r.name, r.description]));

@@ -79,7 +79,8 @@ import {
   Lock,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
-import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { isOpenMilestone } from "@/lib/last-milestone";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { RequirementAiAnalyze } from "@/components/RequirementAiAnalyze";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { useProjectModules } from "@/components/MilestoneModulePicker";
@@ -310,21 +311,10 @@ export default function Requirements() {
   // type -> tracker mapping) the tracker.
   const selectedMilestone = formMilestones.find((m) => m.id === form.milestoneId) ?? null;
   const milestoneChoices = formMilestones.filter((m) => isOpenMilestone(m.status) || m.id === form.milestoneId);
-  const formProjectName = projects.find((p) => p.id === form.projectId)?.name ?? selectedMilestone?.projectName ?? null;
-
-  // A new requirement starts at the page's milestone filter, else the last
-  // milestone used, once the list has loaded. Never touches an existing
-  // requirement, a child (it inherits its parent's) or a deep link.
-  const milestonePrefilled = useRef(false);
-  useEffect(() => {
-    if (!dialogOpen) { milestonePrefilled.current = false; return; }
-    if (editingReq || milestonePrefilled.current || form.milestoneId || formMilestones.length === 0) return;
-    milestonePrefilled.current = true;
-    const id = startingMilestoneId(formMilestones, filterMilestone !== "all" ? filterMilestone : null);
-    const m = id != null ? formMilestones.find((x) => x.id === id) : null;
-    if (m) setForm((f: any) => ({ ...f, milestoneId: m.id, projectId: m.projectId }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dialogOpen, editingReq, formMilestones, form.milestoneId]);
+  // The project is the milestone's: with no milestone chosen the box stays blank.
+  const formProjectName = selectedMilestone
+    ? (projects.find((p) => p.id === selectedMilestone.projectId)?.name ?? selectedMilestone.projectName ?? null)
+    : null;
 
   // CR091 — a new requirement starts at the milestone's priority until the user
   // sets one by hand (or a Redmine ticket supplies its own). Never touches an
@@ -339,7 +329,7 @@ export default function Requirements() {
   const { data: formProjectModules = [] } = useProjectModules(form.projectId ?? null, token);
   const msModuleNames = (selectedMilestone?.modules ?? []).map((m) => m.name);
   const formModuleOptions: string[] = !selectedMilestone
-    ? []
+    ? (executionModules as any[]).map((m: any) => m.name)
     : msModuleNames.length > 0
       ? msModuleNames
       : formProjectModules.length > 0
@@ -372,17 +362,7 @@ export default function Requirements() {
   useEffect(() => { if (!dialogOpen) setFetchNote(null); }, [dialogOpen]);
 
   const lockedField = (label: string, value: string, why: string) => (
-    <div className="space-y-1.5">
-      <Label className="flex items-center gap-1.5">
-        {label}
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">locked</span>
-      </Label>
-      <div className="flex min-h-9 items-center gap-2 rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm">
-        <Lock className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-        <span className="font-medium break-words">{value}</span>
-        <span className="ml-auto text-right text-xs text-muted-foreground">{why}</span>
-      </div>
-    </div>
+    <ReadOnlyField label={label} hint={why} value={value} />
   );
 
   // Pulls title, description and priority from the Redmine ticket. The tracker
@@ -474,6 +454,17 @@ export default function Requirements() {
   // the edit dialog once the requirement is loaded. Waits for requirements
   // to load since openEdit needs the full row, not just the id.
   const hasAppliedEditDeepLink = useRef(false);
+  const returnToRef = useRef<string | null>(null);
+  const returnToDetail = () => {
+    const to = returnToRef.current;
+    if (!to) return;
+    returnToRef.current = null;
+    navigate(to);
+  };
+  const closeDialog = () => {
+    setDialogOpen(false);
+    returnToDetail();
+  };
   useEffect(() => {
     if (hasAppliedEditDeepLink.current || requirements.length === 0) return;
     const params = new URLSearchParams(searchString);
@@ -482,6 +473,10 @@ export default function Requirements() {
     const target = requirements.find((r: any) => String(r.id) === editIdParam);
     if (!target) return;
     hasAppliedEditDeepLink.current = true;
+    // CR109 — the detail page asks to be returned to when the dialog closes.
+    // Only a plain /requirements/<id> path is accepted, never an arbitrary URL.
+    const returnTo = params.get("returnTo");
+    returnToRef.current = returnTo && /^\/requirements\/\d+$/.test(returnTo) ? returnTo : null;
     openEdit(target);
   }, [searchString, requirements]);
 
@@ -825,7 +820,6 @@ tracker: parentReq.tracker ?? undefined,
     if (!form.priority) errs.priority = "Priority is required";
     if (!form.projectId && form.milestoneId) errs.projectId = "Project is required";
     if (reqFormModules.length === 0) errs.module = "At least one module is required";
-    if (!form.milestoneId) errs.milestoneId = "Milestone is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -907,6 +901,21 @@ tracker: parentReq.tracker ?? undefined,
   };
 
   // submitForReview applies to a new requirement: it is created as a draft, then submitted.
+  // CR109 — an approved requirement only goes back to draft when its title,
+  // description or acceptance criteria change (the server applies the same
+  // rule); then the footer offers Save as Draft / Submit for review instead.
+  const normText = (v: string) => v.replace(/\r\n/g, "\n").trim();
+  const editing: any = editingReq;
+  const sendsBackToDraft =
+    !!editing &&
+    editing.reviewStatus === "approved" &&
+    editing.source !== "qa_pipeline" &&
+    (normText(form.title ?? "") !== normText(editing.title ?? "") ||
+      normText(form.description ?? "") !== normText(editing.description ?? "") ||
+      JSON.stringify(acceptanceCriteria) !== JSON.stringify(Array.isArray(editing.acceptanceCriteria) ? editing.acceptanceCriteria : []));
+
+  // submitForReview: a new requirement is created as a draft then submitted; an
+  // approved one that was edited is saved (the server makes it a draft) then submitted.
   const handleSubmit = async (submitForReview = false) => {
     if (!validate()) {
       toast({ variant: "destructive", title: "Please fill in all required fields" });
@@ -939,7 +948,10 @@ parentId: finalParentId,
       module: reqFormModules.join(",") || undefined,
       // @ts-ignore
       tracker: lockedTracker ?? form.tracker ?? undefined,
-      milestoneId: milestoneId ?? undefined,
+      // An edit that clears the milestone has to say so (null); leaving the key out keeps the old one.
+      milestoneId: editingReq ? (milestoneId ?? null) : (milestoneId ?? undefined),
+      // The project follows the milestone: clearing the milestone in this edit clears it too.
+      ...(editingReq && (editingReq as any).milestoneId != null && !milestoneId ? { projectId: null } : {}),
       acceptanceCriteria: acceptanceCriteria.length > 0 ? JSON.stringify(acceptanceCriteria) : undefined,
     };
 
@@ -973,13 +985,15 @@ parentId: finalParentId,
       }
 
       queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ["requirement"] });
+      queryClient.invalidateQueries({ queryKey: ["requirement-history"] });
       setDialogOpen(false);
       setForm({});
       setErrors({});
       setEditingReq(null);
       resetAttachmentDrafts();
       let submitError: string | null = null;
-      if (!editingReq && submitForReview && savedId) {
+      if (submitForReview && savedId) {
         try {
           const subRes = await fetch(`${getApiUrl()}/requirements/${savedId}/review`, {
             method: "PATCH",
@@ -991,13 +1005,16 @@ parentId: finalParentId,
           submitError = "Network error";
         }
         queryClient.invalidateQueries({ queryKey: getListRequirementsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["requirement"] });
+        queryClient.invalidateQueries({ queryKey: ["requirement-history"] });
       }
       if (submitError) {
         toast({ variant: "destructive", title: "Saved as a draft, but not submitted", description: submitError });
       } else {
-        toast({ title: editingReq ? "Requirement updated" : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
+        toast({ title: editingReq ? (submitForReview ? "Requirement updated and submitted for review" : sendsBackToDraft ? "Saved as a draft" : "Requirement updated") : submitForReview ? "Requirement created and submitted for review" : "Requirement saved as a draft" });
       }
       if (moduleWarning) toast({ title: "Saved, but check the module", description: moduleWarning });
+      returnToDetail();
     } catch {
       toast({ variant: "destructive", title: "Failed to save requirement" });
     }
@@ -1802,7 +1819,7 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else closeDialog(); }}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-8">
           <DialogHeader>
             <DialogTitle>
@@ -1820,16 +1837,18 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
               <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Where it belongs</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label>Milestone <span className="text-destructive">*</span></Label>
+                  <Label>Milestone <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
                   <SearchableSelect
                     value={form.milestoneId ? String(form.milestoneId) : ""}
                     onValueChange={(v) => {
                       const m = formMilestones.find((x) => String(x.id) === v);
-                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : form.projectId });
+                      setForm({ ...form, milestoneId: m ? m.id : null, projectId: m ? m.projectId : undefined });
                       if (!editingReq) setReqFormModules([]);
-                      if (m) rememberMilestone(m.id);
                     }}
-                    options={milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name }))}
+                    options={[
+                      { value: "", label: "None" },
+                      ...milestoneChoices.map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
+                    ]}
                     placeholder="Select milestone…"
                     searchPlaceholder="Search milestones…"
                     className={errors.milestoneId ? "border-destructive" : ""}
@@ -1839,23 +1858,11 @@ parentRedmineTitle: parentId == null ? (inheritedParent?.title ?? null) : null,
                     <p className="text-xs text-muted-foreground">No milestones yet — <a href="/milestones" className="underline text-primary">create one first</a>.</p>
                   )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Project <span className="text-xs font-normal text-muted-foreground">(from the milestone)</span></Label>
-                  <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
-                    {formProjectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
-                  </p>
-                </div>
+                <ReadOnlyField label="Project" hint="from the milestone" value={formProjectName ?? undefined} placeholder="Filled from the milestone" />
               </div>
 
               <div className="space-y-1.5">
-                {!selectedMilestone ? (
-                  <>
-                    <Label>Module <span className="text-destructive">*</span></Label>
-                    <div className={`rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground ${errors.module ? "border-destructive" : ""}`}>
-                      Choose a milestone first
-                    </div>
-                  </>
-                ) : moduleLocked ? (
+                {moduleLocked ? (
                   lockedField("Module", formModuleOptions[0], "only module in this milestone")
                 ) : (
                   <>
@@ -2065,11 +2072,7 @@ tracker: v })}
                   />
                 </div>
                 {form.release && (
-                  <div className="space-y-1.5">
-                    <Label>Release (legacy)</Label>
-                    <Input value={form.release} disabled className="text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Deprecated — Milestone is now the field of record. Kept read-only so existing data isn't lost.</p>
-                  </div>
+                  <ReadOnlyField label="Release" hint="legacy; the milestone is the field of record" value={form.release} />
                 )}
               </div>
 
@@ -2210,19 +2213,24 @@ tracker: v })}
             </section>
           </div>
           <DialogFooter className="sticky bottom-0 z-10 -mx-4 -mb-4 sm:-mx-8 sm:-mb-8 mt-2 gap-2 border-t bg-background px-4 py-3 sm:gap-0 sm:px-8">
-            <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-            {editingReq ? (
+            {sendsBackToDraft && (
+              <p className="text-xs text-muted-foreground sm:mr-auto sm:self-center">
+                Changing the title, description or acceptance criteria sends this back to draft.
+              </p>
+            )}
+            <Button variant="outline" onClick={closeDialog} className="w-full sm:w-auto">Cancel</Button>
+            {editingReq && !sendsBackToDraft ? (
               <Button onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                 {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
                  createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             ) : (
               <>
-                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                <Button variant="outline" onClick={() => handleSubmit(false)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                   {uploadingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading files…</> :
-                   createMutation.isPending ? "Saving..." : "Save as Draft"}
+                   createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save as Draft"}
                 </Button>
-                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
+                <Button onClick={() => handleSubmit(true)} disabled={createMutation.isPending || updateMutation.isPending || uploadingFiles} className="w-full sm:w-auto">
                   Submit for review
                 </Button>
               </>

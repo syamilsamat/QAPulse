@@ -17,6 +17,7 @@ import {
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useRoles } from "@/hooks/use-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -303,28 +304,13 @@ export default function Team() {
     : null;
   const isAdmin = currentUser?.role === "admin";
 
-  const { data: dbRoles = [] } = useQuery<{ id: number; name: string; description: string | null }[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/roles`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    staleTime: 5 * 60 * 1000,
-    enabled: isAdmin,
-  });
+  const { data: dbRoles = [], isLoading: rolesLoading, isError: rolesError, refetch: refetchRoles } = useRoles({ enabled: isAdmin });
 
   const roleLabelMap: Record<string, string> = Object.fromEntries(
     dbRoles.map((r) => [r.name, r.description || formatRoleLabel(r.name)])
   );
 
-  const roleOptions = (
-    dbRoles.length > 0
-      ? dbRoles
-      : [{ name: "qa_member", description: "QA Member" }, { name: "qa_lead", description: "QA Lead" }, { name: "admin", description: "Admin" }]
-  ).map((r) => ({ value: r.name, label: r.description || formatRoleLabel(r.name) }));
+  const roleOptions = dbRoles.map((r) => ({ value: r.name, label: r.description || formatRoleLabel(r.name) }));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -608,8 +594,15 @@ export default function Team() {
                   value={form.role ?? "qa_member"}
                   onValueChange={(v) => setForm({ ...form, role: v as any })}
                   options={roleOptions}
+                  placeholder={rolesLoading ? "Loading roles..." : "Select role"}
                   searchPlaceholder="Search role..."
                 />
+                {rolesError && (
+                  <p className="text-xs text-destructive">
+                    Could not load roles.{" "}
+                    <button type="button" className="underline" onClick={() => refetchRoles()}>Retry</button>
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Team</Label>

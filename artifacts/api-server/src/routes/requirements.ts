@@ -160,7 +160,8 @@ router.get("/requirements", async (req, res): Promise<void> => {
       if (!ok) { res.status(403).json({ error: "Access denied to this project" }); return; }
       reqs = reqs.filter(r => r.projectId === projectId);
     } else if (accessible !== null) {
-      reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
+      // CR118 — a requirement with no project is still visible to whoever created it.
+      reqs = reqs.filter(r => r.projectId !== null ? accessible.includes(r.projectId) : r.createdBy === ctx.userId);
     }
     if (milestoneId) reqs = reqs.filter(r => r.milestoneId === milestoneId);
     if (assigneeId) reqs = reqs.filter(r => r.assigneeId === assigneeId);
@@ -170,7 +171,7 @@ router.get("/requirements", async (req, res): Promise<void> => {
     if (release) reqs = reqs.filter(r => r.release === release);
     if (search) reqs = reqs.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
   } else if (accessible !== null) {
-    reqs = reqs.filter(r => r.projectId !== null && accessible.includes(r.projectId));
+    reqs = reqs.filter(r => r.projectId !== null ? accessible.includes(r.projectId) : r.createdBy === ctx.userId);
   }
 
   // CR035 — module-scope, checked once per distinct project rather than per row.
@@ -298,7 +299,10 @@ router.post("/requirements", async (req, res): Promise<void> => {
         .where(and(eq(milestoneAssigneesTable.milestoneId, parsed.data.milestoneId), eq(milestoneAssigneesTable.userId, ctx.userId)));
       onTeam = !!member;
     }
-    if (!canCreateRequirementFor(ctx.role, onTeam)) {
+    // CR118 — a requirement with no milestone has no team to be on, so any FA
+    // Member may author one (it is checked like any other when it is reviewed).
+    const unscopedByFaMember = !parsed.data.milestoneId && ctx.role === "fa_member";
+    if (!canCreateRequirementFor(ctx.role, onTeam) && !unscopedByFaMember) {
       res.status(403).json({ error: "Only FA Leads, and FA Members assigned to this milestone, can create requirements" });
       return;
     }
@@ -687,7 +691,10 @@ router.patch("/requirements/:id", async (req, res): Promise<void> => {
     if (editor) {
       const nextContent = contentOf({ ...(before as any), ...parsed.data } as any);
       const contentDiff = diffContent(contentOf(before as any), nextContent);
-      if (Object.keys(contentDiff).length > 0) {
+      // CR109 — only title, description and acceptance criteria send an
+      // approved requirement back to draft; a priority change alone keeps the
+      // approval (it is still saved, and still logged when it rides along).
+      if (Object.keys(contentDiff).some((k) => k !== "priority")) {
         const lock = decideRevisionLock({
           status: (before as any).reviewStatus,
           draftOwnerId: (before as any).draftOwnerId ?? null,

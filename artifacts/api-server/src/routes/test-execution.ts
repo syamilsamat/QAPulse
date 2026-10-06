@@ -603,8 +603,10 @@ router.post("/execution-files", async (req, res): Promise<void> => {
   if (!ctx) return;
   try {
     const { redmineTicketId, title, qaPic, remarks, selectedModules, selectedModuleIds, tracker, projectId, requirementId, milestoneId, fileType } = req.body;
-    if (!milestoneId) {
-      res.status(400).json({ error: "Milestone is required" });
+    // A milestone is optional, but the file still has to belong to a project: it
+    // comes from the milestone or from the requirement the file is built on.
+    if (!milestoneId && !projectId && !requirementId) {
+      res.status(400).json({ error: "Pick a milestone or a requirement so the file belongs to a project" });
       return;
     }
     if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
@@ -1029,6 +1031,12 @@ router.patch("/execution-files/:id/review", async (req, res): Promise<void> => {
     if (!file_) { res.status(404).json({ error: "Execution file not found" }); return; }
     if (!(await canAccessFileProject(ctx, file_.projectId))) {
       res.status(403).json({ error: "Access denied to this project" }); return;
+    }
+
+    // A file with no milestone can't be executed, so it doesn't go to review
+    // either; link a milestone first. (Same wording as the results gate below.)
+    if (action === "submit" && (file_ as any).milestoneId == null) {
+      res.status(409).json({ error: "This execution file has no milestone linked — link one before submitting it for review." }); return;
     }
 
     // DEF-0024 — only the file's author can submit it for review. canReview

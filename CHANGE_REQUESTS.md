@@ -91,6 +91,17 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR105](#cr105--new-defect-and-fail-popup-field-order-auto-fill-and-testing-phase-values) | New Defect and Fail Popup: Field Order, Auto-fill and Testing-Phase Values | 🔨 Built, not deployed | 2026-10-04 |
 | [CR106](#cr106--sit-testing-phase-on-the-milestone) | SIT Testing Phase on the Milestone | 🔨 Built, not deployed | 2026-10-04 |
 | [CR107](#cr107--ba-requirement-template-in-the-add-requirement-dialog) | BA Requirement Template in the Add Requirement Dialog | 📋 Planned | 2026-10-01 |
+| [CR108](#cr108--role-list-failed-silently-in-add-team-member) | Role List Failed Silently in Add Team Member | 🔨 Built, not deployed | 2026-10-06 |
+| [CR109](#cr109--editing-an-approved-requirement-draft-buttons-and-return-to-detail) | Editing an Approved Requirement: Draft Buttons and Return to Detail | 🔨 Built, not deployed | 2026-10-06 |
+| [CR110](#cr110--new-test-case-file-milestone-optional-and-no-execution-without-one) | New Test Case File: Milestone Optional, No Execution Without One | 🔨 Built, not deployed | 2026-10-06 |
+| [CR111](#cr111--ai-generate-test-cases-milestone-starts-blank) | AI Generate Test Cases: Milestone Starts Blank | 🔨 Built, not deployed | 2026-10-06 |
+| [CR112](#cr112--ai-generate-test-cases-respect-the-requested-count-and-always-add-tags) | AI Generate Test Cases: Respect the Requested Count and Always Add Tags | 🔨 Built, not deployed | 2026-10-06 |
+| [CR113](#cr113--new-requirement-dialog-milestone-and-project-start-blank) | New Requirement Dialog: Milestone and Project Start Blank | 🔨 Built, not deployed | 2026-10-06 |
+| [CR114](#cr114--qa-pipeline-tag-on-the-milestone-pages) | QA Pipeline Tag on the Milestone Pages | 🔨 Built, not deployed | 2026-10-06 |
+| [CR115](#cr115--defect-create-button-and-create-another-prompt) | Defect: Create Button and Create-Another Prompt | 🔨 Built, not deployed | 2026-10-06 |
+| [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
+| [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
+| [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
 
 ---
 
@@ -2412,3 +2423,209 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 
 ---
 
+### CR108 — Role List Failed Silently in Add Team Member
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Problem:** logged in as admin, the Role box in Add Team Member showed only 3 roles (QA Member, QA Lead, Admin) instead of every role on the Roles page.
+
+**Root cause:** the roles list is fetched from GET /roles, which needs a login token. Five places each built their own query with the same cache key and turned any failed request into an empty list. One early failure (for example fired before the token was ready) was cached for 5 minutes for all of them, and Add Team Member then fell back to a hardcoded list of 3 roles. The other places have their own fallbacks, so only this dropdown made it visible. Not yet reproduced in a browser; the cause is read from the code.
+
+**Built:** one shared `useRoles()` hook that waits for the token and treats a non-OK response as an error (retried, never cached as "no roles"). Role labels, review eligibility, Tasks, the Project Admin page and Add Team Member all use it. The hardcoded 3-role fallback is removed; the Role box shows "Loading roles..." and, on failure, "Could not load roles. Retry".
+
+**Not changed:** no API or database change. The Teams page "Add Members" dialog (team role limited to member/lead) is a separate question, not part of this CR.
+
+**Files:** `hooks/use-roles.ts` (new), `use-role-labels.ts`, `use-review-eligibility.ts`, `pages/Team.tsx`, `pages/Tasks.tsx`, `pages/ModuleAndProject.tsx`.
+
+---
+
+### CR109 — Editing an Approved Requirement: Draft Buttons and Return to Detail
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** notes on the requirement detail page / edit requirement: (1) closing the edit dialog should return to the requirement detail page, not the list; (2) editing an approved requirement should offer Save as draft and Submit for review instead of Save, and the list status should stop showing Approved.
+
+**Root causes:** (1) the detail page has no edit dialog; its Edit button opens the list page with ?edit=<id>, so closing the dialog left the user on the list. (2) the edit footer only had Save Changes, and "submit for review" was coded for new requirements only. The save also refreshed only the list, so the detail page could keep showing Approved for up to 30 seconds.
+
+**Decisions (2026-10-06):**
+- Only a change to **title, description or acceptance criteria** sends an approved requirement back to draft. Priority, module, milestone, tracker, release, assignee and attachments keep the approval. The server rule previously included priority; it no longer does (a priority change alone is saved and does not touch the review status).
+- When one of the three fields differs from the saved value, the footer switches (live) from Save Changes to **Save as Draft** and **Submit for review**, with a note explaining why. Otherwise it stays Save Changes.
+- QA Pipeline requirements are exempt, as before.
+
+**Built:** the detail page's Edit button passes returnTo=/requirements/<id> (only a plain /requirements/<number> path is accepted); Cancel, the X, Escape and a successful save all return there, after the review submit finishes. Saving refreshes the detail page and its history as well as the list. Submit for review on an edited requirement saves first, then uses the same review endpoint as the detail page.
+
+**Not changed:** in-review requirements keep today's behaviour (a content edit returns them to draft, single Save Changes button).
+
+**Files:** `pages/Requirements.tsx`, `pages/RequirementDetail.tsx`, `api-server/src/routes/requirements.ts`.
+
+---
+
+### CR110 — New Test Case File: Milestone Optional, No Execution Without One
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Execute dashboard / new test case file: the milestone box should be optional and blank by default, but a test cannot be executed unless the file is linked to a milestone.
+
+**Root causes:** the dialog marked Milestone required, prefilled it from the last milestone used (CR098), and the server also returned 400 without one. Project was only derived from the milestone, so simply dropping the requirement would leave files with no project. On the execution sheet, a file with no milestone still opened in Execute mode; the server refused the result only when saving.
+
+**Decision (2026-10-06):** a file's project always comes from the milestone or, when there is none, from its requirement (option B). No separate project dropdown.
+
+**Built:**
+- **Dialog:** Milestone is optional, starts blank (prefill removed), with a "None" choice. Clearing the milestone keeps the chosen requirement and takes the project from it. Create is blocked with a plain reason when neither a milestone nor a requirement gives a project ("Pick a milestone or a requirement…", or "This requirement has no project"). Submit to Review also needs a milestone; saving as a draft does not.
+- **Server:** no longer rejects a file with no milestone; it still rejects one with no milestone, project or requirement. Submitting an unlinked file for review returns 409 with the same wording as the existing results gate (which stays as the final backstop).
+- **Execution sheet:** an unlinked file opens in Edit mode; clicking Execute, or any result, shows "Link a milestone before executing" instead of failing on save. The existing Link banner is reworded.
+
+**Differences from what was discussed:** the dashboard has no separate Execute button (rows and the Open Execution Sheet button open the sheet, which is also how test cases are authored), so there is no "link a milestone first" popup there; the linking happens on the sheet's banner.
+
+**Not changed:** the approval and verdict steps for rows; Compile to Execution (its own milestone rule).
+
+**Files:** `pages/TestCasesExecution.tsx`, `pages/TestCasesExecutionProgressPage.tsx`, `api-server/src/routes/test-execution.ts`.
+
+---
+
+### CR111 — AI Generate Test Cases: Milestone Starts Blank
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Test cases / AI generate test case: the milestone box should be blank before selection.
+
+**Root cause:** the CR098 prefill filled the milestone from the page's milestone filter, else the last milestone used (browser storage), and the box showed "All milestones" whenever the value was empty, so it never looked blank.
+
+**Decision (2026-10-06):** picking a requirement still fills that requirement's milestone (kept).
+
+**Built:** the prefill and the "remember last milestone" write are removed from this dialog (other dialogs keep the shared helper). The box now opens showing "Select milestone..."; a "None (all milestones)" choice remains for clearing it.
+
+**Files:** `pages/TestCases.tsx`.
+
+**Still open from the same note:** respecting "Additional notes" (exact test case count) and generating tags for every case; to be discussed separately.
+
+---
+
+### CR112 — AI Generate Test Cases: Respect the Requested Count and Always Add Tags
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Test cases / AI generate test case: take note of the "Additional notes" box (asking for 1 test case must give 1), and tags must be generated with every test case.
+
+**Root causes:** (1) the instruction to the AI always said "generate 5 to 10"; the notes were only a trailing line in the prompt, and nothing limited the result afterwards. (2) the AI was never asked for tags and they were not required in its response format. Saving kept tags correctly, so they were simply empty.
+
+**Decisions (2026-10-06):** the count comes from the Additional Notes only (no new field). Tags are asked from the AI first, with a safety net.
+
+**Built:**
+- **Count:** a number in the notes ("1 test case", "3 negative cases", "satu test case", "2 TC"; digits or English/Malay number words, 1 to 30) becomes "generate EXACTLY N", and the result is cut to N even if the model over-delivers. The notes are also placed first in the prompt as binding instructions that override the default. With no number, the default 5 to 10 stays. The count applies per requirement when several are selected.
+- **Tags:** the AI is told to give every case 2 to 5 short lowercase comma-separated tags, and tags are now required in its response format. If a model (usually a fallback one) still returns none, they are filled from the module, test type and tracker, so no case is saved without tags.
+- **Preview:** each generated case shows an editable Tags box before saving.
+
+**Not changed:** the Positive/Negative/Edge checkboxes (the notes win if they conflict); the save path.
+
+**Files:** `api-server/src/routes/test-cases.ts`, `pages/TestCases.tsx`.
+
+---
+
+### CR113 — New Requirement Dialog: Milestone and Project Start Blank
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** notes on Requirement page / new requirement dialog: the milestone should default to empty until the user selects one; the project box should be blank when there is no milestone.
+
+**Root causes:** the CR098 prefill opened the dialog on the page's milestone filter, else the last milestone used (browser storage), and filled the project with it. The milestone select also kept the old project when the milestone was cleared, and the Project box preferred that stored project over the milestone's.
+
+**Built:** the prefill and the "remember last milestone" write are removed, so a new requirement opens with Milestone and Project both blank. The Project box now always follows the chosen milestone and is blank without one. Deep links from the milestone page (?new=1&milestoneId=) still open with that milestone chosen. After this CR nothing calls the CR098 "last milestone" helpers any more (the shared file is still used for the open-milestone check).
+
+**Not in this CR (parked):** making the milestone optional (R2). The milestone is still required to save; that decision depends on whether FA Members may create requirements with no milestone, which is open.
+
+**Files:** `pages/Requirements.tsx`.
+
+---
+
+### CR114 — QA Pipeline Tag on the Milestone Pages
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Milestones: tag which milestone came from the QA Pipeline, the way the Tasks page does.
+
+**Root cause:** the "QA Pipeline" badge existed only on the Tasks page. The Milestones list and the milestone detail page never showed it, although the server already sends the flag (`pipelineEnabled`) to both.
+
+**Built:** one shared badge component, used on the Tasks page (unchanged look), on each milestone card in the Milestones list (under the type), and in the header badge row of the milestone detail page, shown to every role (not only QA, who get the Open QA Pipeline button). No server or database change.
+
+**Not in this CR:** a "QA Pipeline only" filter on the Milestones list (can be added if wanted).
+
+**Files:** `components/qa-pipeline/QaPipelineBadge.tsx` (new), `pages/Milestones.tsx`, `pages/MilestoneDetail.tsx`, `pages/Tasks.tsx`.
+
+---
+
+### CR115 — Defect: Create Button and Create-Another Prompt
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Defect / create defect: change "Create in Redmine" to "Create", and when it is clicked, ask whether the user wants to keep creating new defects.
+
+**Built:** both defect dialogs (the failed-test popup, and New Defect on the Defects page) now have a plain **Create** button. When a defect is created, a prompt says "Defect #X created. Do you want to keep creating defects?" with **Close** (closes the dialog, as before) and **Create another** (the dialog stays open). The success toast stays.
+
+**Decision (2026-10-06):** "Create another" keeps the project, assignee, tracker, dates and severity (and the rest of the QM Pulse context: milestone, module, requirement, Found in, category, complexity). It clears the description, actual result, screenshots and subject/title (and the duplicate-match list). Steps to reproduce and expected result are left as they were.
+
+**Execution page:** the failed test case stays selected while the popup is open, so every extra defect is also linked to that row (previously the first defect cleared it, and a second one would have lost the link). It is released when the popup closes or is skipped.
+
+**Defects page:** the New Defect dialog no longer closes by itself on success; the list refreshes behind it and the prompt decides.
+
+**Not in this CR:** the Assignee list problem (D2) and the shared read-only box (S1).
+
+**Files:** `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/TestCasesExecutionProgressPage.tsx`.
+
+---
+
+### CR116 — Defect Assignee Lists Redmine Contacts
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Defect / create defect: the Assignee box fails to load contacts; investigate the root cause.
+
+**Root cause (confirmed 2026-10-06 from the browser):** the request succeeded (200) but returned an empty list. The Assignee list only kept Redmine contacts that match an active QM Pulse user with a Dev role (by email, else exact name). The contacts come from Redmine and are not QM Pulse users, so no name or email matched and the list was always empty. The old hint blamed a missing sync, which was misleading, and a failed request was shown the same way as an empty list.
+
+**Decision (2026-10-06):** list every synced Redmine person (not groups) that has a Redmine id; the ones that do match a QM Pulse dev user come first. Both defect dialogs use it.
+
+**Built:**
+- **Server:** a new list, GET /contacts/assignable: matched dev users first, then the remaining Redmine contacts, each marked with whether a QM Pulse user is behind it. The old dev-assignees list is unchanged (still used to match an assignee to a user when a defect is saved).
+- **Both defect dialogs** (failed-test popup and New Defect) show them in the Assignee box, with "(Redmine only)" after people who have no QM Pulse user. A failed request now says so with a Retry link; an empty directory says "No contacts synced yet. Run Sync in Configuration → Contacts."
+- **Redmine-only assignees:** Redmine receives the assignment as usual. QM Pulse keeps the name but has no user to link, so that person gets no QM Pulse notification and the defect is not in anyone's "assigned to me" there. Matched dev users keep both.
+
+**Not changed:** contacts have no role or job field, so the list cannot be limited to developers; it is searchable. The assign-to dropdown for existing defects still uses the dev-only list.
+
+**Files:** `api-server/src/routes/contacts.ts`, `lib/execution-api.ts`, `lib/use-assignable-contacts.ts` (new), `components/DefectCreationModal.tsx`, `pages/Defects.tsx`.
+
+---
+
+### CR117 — One Look for Read-only Fields
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note "sync read-only box across all dialogue".
+
+**Root cause:** there was no shared read-only field. Ten different treatments of the same idea had grown up: a grey panel with bare text, a boxed paragraph, a dashed box with a "locked" pill and the reason inside, loose grey text with no box, and faded disabled inputs.
+
+**Decisions (2026-10-06, from the mock-up):** one solid style everywhere (the dashed boxes go solid); the lock icon is shown on every read-only field; the milestone-page requirement dialog's one-line strip becomes four fields in a 2 x 2 grid; Release (legacy) becomes a normal read-only field.
+
+**Built:** a shared `ReadOnlyField` (label, a small hint saying where the value comes from or why it can't change, a grey box with a lock icon, a muted placeholder when empty, badges for several values). It is announced as read-only to screen readers. Migrated in all 8 places:
+1. New Test Case File (Project, Tracker, Module)
+2. AI Generate Test Cases (Project, Tracker, Module)
+3. Compile to Execution (Milestone when locked, Project)
+4. New / Edit Requirement (Project, locked Module and Tracker, Release legacy)
+5. Requirement dialog on the milestone page (Project, Milestone, Tracker, Module)
+6. Create Defect (Source)
+7. Edit Defect (Assignee, for people who can't reassign)
+8. Settings, My Profile (Email)
+
+**Not affected:** no Team or Teams dialog has a read-only field. Fields people can still edit are unchanged.
+
+**Files:** `components/ui/read-only-field.tsx` (new), `pages/TestCasesExecution.tsx`, `pages/TestCases.tsx`, `components/execution/CompileToExecutionDialog.tsx`, `pages/Requirements.tsx`, `components/RequirementDialog.tsx`, `components/DefectCreationModal.tsx`, `pages/Defects.tsx`, `pages/Settings.tsx`.
+
+---
+
+### CR118 — Requirement Without a Milestone
+**Status: 🔨 Built, not deployed** (raised 2026-10-06)
+
+**Origin:** note on Requirement page / new requirement dialog: the milestone box should be optional. (CR113 already made it start blank and the project follow it.)
+
+**Decisions (2026-10-06):** FA Members **may** create a requirement with no milestone. For the Module list without a milestone I used the same global module list the dialog already falls back to when a milestone defines no modules (default picked, change if wanted).
+
+**Built:**
+- **Dialog:** Milestone is marked optional and has a "None" choice. Without a milestone the Project box stays blank and Module offers the global module list (the "Choose a milestone first" block is gone). The milestone is no longer a required field.
+- **Editing:** clearing the milestone on an existing requirement is now saved (the milestone is sent as empty instead of being left out, which used to keep the old one), and the project is cleared with it. Editing an older requirement that has a project but no milestone does not touch its project.
+- **Server:** an FA Member can create a requirement with no milestone (before: 403, since there is no milestone team to be on). FA Leads and admin could already. Everything else about creation is unchanged.
+- **Visibility:** the Requirements list used to hide every requirement with no project from non-admins, including the person who created it. A requirement with no project is now visible to its creator (and to admin as before). Other people only see it once it has a project.
+
+**Not changed:** the Redmine import dialog still needs a milestone; the milestone-page "Create requirement" button still creates under that milestone. Test case and execution links for a requirement with no milestone behave as they do for any milestone-less requirement (cascade skips it when the milestone is cleared).
+
+**Files:** `pages/Requirements.tsx`, `api-server/src/routes/requirements.ts`.
+
+---

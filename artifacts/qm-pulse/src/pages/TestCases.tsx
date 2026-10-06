@@ -75,7 +75,8 @@ import { format } from "date-fns";
 import { authHeaders, getApiUrl } from "@/lib/api";
 import { getAllDescendants } from "@/lib/utils";
 import { ProgressDialog } from "@/components/ProgressDialog";
-import { isOpenMilestone, rememberMilestone, startingMilestoneId } from "@/lib/last-milestone";
+import { isOpenMilestone } from "@/lib/last-milestone";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { AlertTriangle, XCircleIcon, CheckCircle2 } from "lucide-react";
 
 async function exportToExcel(testCases: any[], senderName?: string) {
@@ -104,7 +105,6 @@ function AIGenerateDialog({
   modules,
   users,
   trackers,
-  defaultMilestoneId,
   onSuccess,
 }: any) {
   const { user: currentUser } = useAuth();
@@ -129,16 +129,6 @@ function AIGenerateDialog({
     },
     enabled: open,
   });
-  // CR098 — start at the page's milestone filter, else the last milestone used.
-  const milestonePrefilled = useRef(false);
-  useEffect(() => {
-    if (!open) { milestonePrefilled.current = false; return; }
-    if (milestonePrefilled.current || milestoneOptions.length === 0) return;
-    milestonePrefilled.current = true;
-    const id = startingMilestoneId(milestoneOptions, defaultMilestoneId);
-    if (id != null) setMilestoneId(String(id));
-  }, [open, milestoneOptions, defaultMilestoneId]);
-
   const pickedReqs = pickedIds.map((id) => requirements.find((r: any) => r.id === id)).filter(Boolean) as any[];
   // Each picked requirement with its descendants, de-duplicated (a child picked
   // together with its parent appears once, under the parent).
@@ -195,7 +185,6 @@ function AIGenerateDialog({
   const changeMilestone = (v: string) => {
     const next = v === "all" ? "" : v;
     setMilestoneId(next);
-    if (next) rememberMilestone(next);
     if (next) for (const r of pickedReqs) if (String(r.milestoneId) !== next) removeRequirement(r.id);
   };
 
@@ -281,15 +270,15 @@ function AIGenerateDialog({
               <div className="space-y-1.5">
                 <Label>Milestone</Label>
                 <SearchableSelect
-                  value={milestoneId || "all"}
+                  value={milestoneId}
                   onValueChange={changeMilestone}
                   options={[
-                    { value: "all", label: "All milestones" },
+                    { value: "all", label: "None (all milestones)" },
                     ...milestoneOptions
                       .filter((m) => isOpenMilestone(m.status) || String(m.id) === milestoneId)
                       .map((m) => ({ value: String(m.id), label: m.projectName ? `${m.name} (${m.projectName})` : m.name })),
                   ]}
-                  placeholder="All milestones"
+                  placeholder="Select milestone..."
                   searchPlaceholder="Search milestones..."
                 />
                 <p className="text-xs text-muted-foreground">Narrows the requirement list. Optional.</p>
@@ -327,30 +316,23 @@ function AIGenerateDialog({
               </div>
             </div>
 
-            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">From the requirements (read-only)</p>
+            <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Project</Label>
-                  <p className="text-sm min-h-[1.5rem]">{projectName ?? <span className="text-muted-foreground">Filled from the requirements</span>}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Tracker</Label>
-                  <p className="text-sm min-h-[1.5rem]">
-                    {pickedReqs.length === 0 ? <span className="text-muted-foreground">Filled from the requirements</span>
-                      : pickedTrackers.length === 0 ? <span className="text-muted-foreground">None set</span>
-                      : pickedTrackers.length === 1 ? pickedTrackers[0] : `Mixed: ${pickedTrackers.join(", ")}`}
-                  </p>
-                </div>
+                <ReadOnlyField label="Project" hint="from the requirements" value={projectName ?? undefined} placeholder="Filled from the requirements" />
+                <ReadOnlyField
+                  label="Tracker"
+                  hint="from the requirements"
+                  value={pickedReqs.length === 0 || pickedTrackers.length === 0 ? undefined
+                    : pickedTrackers.length === 1 ? pickedTrackers[0] : `Mixed: ${pickedTrackers.join(", ")}`}
+                  placeholder={pickedReqs.length === 0 ? "Filled from the requirements" : "None set"}
+                />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Module</Label>
-                <div className="flex flex-wrap gap-1.5 min-h-[1.5rem]">
-                  {aiFormModules.length > 0
-                    ? aiFormModules.map((m) => <Badge key={m} variant="outline">{m}</Badge>)
-                    : <span className="text-sm text-muted-foreground">{pickedReqs.length ? "No module set on these requirements" : "Filled from the requirements"}</span>}
-                </div>
-              </div>
+              <ReadOnlyField
+                label="Module"
+                hint="from the requirements"
+                value={aiFormModules.length > 0 ? aiFormModules.map((m) => <Badge key={m} variant="outline">{m}</Badge>) : undefined}
+                placeholder={pickedReqs.length ? "No module set on these requirements" : "Filled from the requirements"}
+              />
             </div>
 
             {availableReqs.length > 0 && (
@@ -636,6 +618,21 @@ function AIGenerateDialog({
                                 </span>
                               </div>
                             )}
+                            <div className="flex items-center gap-2 text-xs mt-2">
+                              <strong className="text-foreground shrink-0">Tags:</strong>
+                              <Input
+                                value={tc.tags ?? ""}
+                                placeholder="comma-separated tags"
+                                className="h-7 text-xs"
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setPreview((prev) => prev.map((g) => g.requirementId !== group.requirementId ? g : {
+                                    ...g,
+                                    testCases: g.testCases.map((t, ti) => (ti === i ? { ...t, tags: value } : t)),
+                                  }));
+                                }}
+                              />
+                            </div>
                           </label>
                         </CardContent>
                       </Card>
@@ -2270,7 +2267,6 @@ export default function TestCases() {
         modules={modules}
         users={users}
         trackers={trackers}
-        defaultMilestoneId={filterMilestone !== "all" ? Number(filterMilestone) : null}
         onSuccess={handleAISuccess}
       />
 

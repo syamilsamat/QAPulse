@@ -4,9 +4,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { AttachmentFileList } from "@/components/AttachmentFileList";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
@@ -16,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
 import { DefectContextFields } from "@/components/DefectContextFields";
 import { useDefectContext, firstModule } from "@/lib/defect-context";
+import { useAssignableContacts, assigneeOptions } from "@/lib/use-assignable-contacts";
 import { FOUND_IN_OPTIONS, foundInForFileType } from "@/lib/defect-found-in";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -27,7 +32,6 @@ import {
   fetchRedmineProjects,
   fetchRedmineProjectConfig,
   fetchRedmineTrackers,
-  fetchContactAssignees,
   searchRedmineIssues,
   fetchRedmineIssueRoot,
   createRedmineDefect,
@@ -112,7 +116,7 @@ export default function DefectCreationModal({
   const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
-  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const { members, loadError, loading, reload } = useAssignableContacts(open);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
   const [subject, setSubject] = useState("");
   const [complexity, setComplexity] = useState("M");
@@ -134,6 +138,8 @@ export default function DefectCreationModal({
 
   // Submit state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // CR115 — after a defect is created, ask whether to keep going instead of closing.
+  const [createdPrompt, setCreatedPrompt] = useState<{ id: number } | null>(null);
 
   // Load projects + trackers on open
   useEffect(() => {
@@ -171,7 +177,6 @@ export default function DefectCreationModal({
         .catch(() => {});
     }
     fetchRedmineProjects().then(setProjects).catch(() => {});
-    fetchContactAssignees().then(setMembers).catch(() => {});
     fetchRedmineTrackers()
       .then((list) => {
         setTrackers(list);
@@ -384,7 +389,7 @@ export default function DefectCreationModal({
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
         assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
-        assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
+        assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId ?? undefined,
         tracker: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
       }).catch(() => {});
       onDefectCreated({
@@ -392,12 +397,30 @@ export default function DefectCreationModal({
         actualResult,
         screenshots: JSON.stringify(screenshots.map((s) => s.filename)),
       });
-      handleClose();
+      setCreatedPrompt({ id: result.id });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // "Create another": the next defect keeps the project, assignee, tracker, dates,
+  // severity and QM Pulse context; what belongs to the last defect is cleared.
+  const startAnother = () => {
+    setCreatedPrompt(null);
+    setDefectDescription("");
+    setActualResult("");
+    setScreenshots([]);
+    autoSubjectRef.current = "\u0000cleared";
+    setSubject("");
+    setDuplicates([]);
+    setLinkedIssueId(null);
+  };
+
+  const finishCreating = () => {
+    setCreatedPrompt(null);
+    handleClose();
   };
 
   const handleClose = () => {
@@ -408,7 +431,6 @@ export default function DefectCreationModal({
     setScreenshots([]);
     setSelectedProjectId(null);
     setProjectConfig(null);
-    setMembers([]);
     setSelectedAssigneeId(null);
     setComplexity("M");
     setTargetedCompletionDate("");
@@ -545,12 +567,12 @@ export default function DefectCreationModal({
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Redmine Issue</p>
 
             {projectConfig?.sourceFieldId && (
-              <div className="space-y-1.5">
-                <Label>Source</Label>
-                <p className="text-sm text-muted-foreground">
-                  {reporterDepartment ? reporterDepartment.toUpperCase() : "Not set for your role"}
-                </p>
-              </div>
+              <ReadOnlyField
+                label="Source"
+                hint="from your role"
+                value={reporterDepartment ? reporterDepartment.toUpperCase() : undefined}
+                placeholder="Not set for your role"
+              />
             )}
 
             <div className="space-y-1.5">
@@ -612,16 +634,21 @@ export default function DefectCreationModal({
               <SearchableSelect
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
-                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                options={assigneeOptions(members)}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search developer..."
-                emptyText="No developers found."
+                searchPlaceholder="Search assignee..."
+                emptyText="No contacts found."
               />
-              {members.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  No dev contacts found — a contact is listed once it matches an active QM Pulse Dev user by email or name. Sync contacts from Configuration → Contacts.
+              {loadError ? (
+                <p className="text-xs text-destructive">
+                  {loadError}.{" "}
+                  <button type="button" className="underline" onClick={reload}>Retry</button>
                 </p>
-              )}
+              ) : !loading && members.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No contacts synced yet. Run Sync in Configuration → Contacts.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -725,11 +752,26 @@ export default function DefectCreationModal({
             {isSubmitting ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
             ) : (
-              <><ExternalLink className="w-4 h-4" /> Create in Redmine</>
+              <><ExternalLink className="w-4 h-4" /> Create</>
             )}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={!!createdPrompt} onOpenChange={(v) => { if (!v) finishCreating(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Defect #{createdPrompt?.id} created</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to keep creating defects? The next one keeps the project, assignee, tracker, dates and severity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={finishCreating}>Close</Button>
+            <Button onClick={startAnother}>Create another</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

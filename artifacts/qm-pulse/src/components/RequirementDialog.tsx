@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -382,35 +383,32 @@ export function RequirementDialog({
   const title = creating ? "New requirement" : editing ? "Edit requirement" : req?.title ?? "Requirement";
 
   const contextBlock = (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-dashed bg-muted/50 px-3 py-2 text-sm">
-      <span><b>Project</b> {milestone.projectName}</span>
-      <span><b>Milestone</b> {milestone.name}</span>
-      {!creating && req?.module && <span><b>Module</b> {req.module}</span>}
-      <span><b>Tracker</b> {(creating ? milestone.tracker : req?.tracker) ?? "not set"}</span>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <ReadOnlyField label="Project" hint="from the milestone" value={milestone.projectName ?? undefined} />
+      <ReadOnlyField label="Milestone" value={milestone.name} />
+      <ReadOnlyField label="Tracker" hint={creating ? "from the milestone" : undefined} value={(creating ? milestone.tracker : req?.tracker) ?? "not set"} />
+      {moduleLocked && <ReadOnlyField label="Module" hint="only module in this milestone" value={milestone.modules[0].name} />}
+      {!creating && req?.module && <ReadOnlyField label="Module" value={req.module} />}
     </div>
   );
 
   const form = (
     <div className="space-y-4">
       {contextBlock}
-      {creating && (
+      {creating && !moduleLocked && (
         <div className="space-y-1.5">
-          <Label className="flex items-center gap-2">Module <span className="text-destructive">*</span>{moduleLocked && <Badge variant="secondary" className="gap-1"><Lock className="w-3 h-3" /> locked</Badge>}</Label>
-          {moduleLocked ? (
-            <p className="text-sm font-medium">{milestone.modules[0].name} <span className="text-xs text-muted-foreground font-normal">only module in this milestone</span></p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {moduleChoices.map((n) => {
-                const on = modules.includes(n);
-                return (
-                  <button key={n} type="button" aria-pressed={on}
-                    onClick={() => setModules((p) => (on ? p.filter((x) => x !== n) : [...p, n]))}
-                    className={`rounded-full border px-3 py-1 text-sm ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"}`}>{n}</button>
-                );
-              })}
-              {moduleChoices.length === 0 && <span className="text-xs text-muted-foreground">No modules are set up for this project.</span>}
-            </div>
-          )}
+          <Label>Module <span className="text-destructive">*</span></Label>
+          <div className="flex flex-wrap gap-1.5">
+            {moduleChoices.map((n) => {
+              const on = modules.includes(n);
+              return (
+                <button key={n} type="button" aria-pressed={on}
+                  onClick={() => setModules((p) => (on ? p.filter((x) => x !== n) : [...p, n]))}
+                  className={`rounded-full border px-3 py-1 text-sm ${on ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"}`}>{n}</button>
+              );
+            })}
+            {moduleChoices.length === 0 && <span className="text-xs text-muted-foreground">No modules are set up for this project.</span>}
+          </div>
         </div>
       )}
       <div className="space-y-1.5">

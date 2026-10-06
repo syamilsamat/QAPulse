@@ -17,10 +17,12 @@ import {
 import { TaskVisualization } from "@/components/tasks/TaskVisualization";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useRoles } from "@/hooks/use-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { QaPipelineBadge } from "@/components/qa-pipeline/QaPipelineBadge";
 import { Progress } from "@/components/ui/progress";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -28,7 +30,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, Workflow, BarChart3, LayoutList } from "lucide-react";
+import { CheckSquare, Search, Download, Loader2, Users, AlertTriangle, CalendarClock, Plus, ChevronLeft, ChevronRight, CheckCircle2, Clock, XCircle, BarChart3, LayoutList } from "lucide-react";
 
 // CR060 — Tasks is a read-only, auto-populated rollup of requirements within
 // their milestones (no manual creation). CR073 removed GET
@@ -680,13 +682,7 @@ export default function Tasks() {
     queryFn: () => listUsers(),
   });
 
-  const { data: roles = [] } = useQuery<{ name: string; department: string | null }[]>({
-    queryKey: ["roles"],
-    queryFn: async () => {
-      const res = await fetch(`${getApiUrl()}/roles`, { headers: authHeaders() });
-      return res.ok ? res.json() : [];
-    },
-  });
+  const { data: roles = [] } = useRoles();
 
   const { data: filterMilestones = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["milestones", filterProject, "task-board-filter"],
@@ -941,13 +937,7 @@ export default function Tasks() {
                                 phase reads as a pipeline gate rather than the usual
                                 FA→Dev→QA progression. */}
                             {g.pipelineEnabled && (
-                              <Badge
-                                variant="outline"
-                                className="mt-1 h-4 text-[10px] font-normal gap-1 bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800"
-                                title="Runs on the QA Pipeline — QA-led, with no FA approval or dev handoff stage"
-                              >
-                                <Workflow className="w-2.5 h-2.5" /> QA Pipeline
-                              </Badge>
+                              <QaPipelineBadge className="mt-1" />
                             )}
                           </TableCell>
                           <TableCell className="truncate text-sm text-muted-foreground">

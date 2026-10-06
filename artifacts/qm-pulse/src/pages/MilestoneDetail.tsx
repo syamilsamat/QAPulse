@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRoleLabels } from "@/hooks/use-role-labels";
 import { getApiUrl, authHeaders } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { QaPipelineBadge } from "@/components/qa-pipeline/QaPipelineBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -180,6 +181,7 @@ export default function MilestoneDetail() {
           <div className="flex flex-wrap gap-1.5">
             <Badge>{STATUS_LABEL[m.status] ?? m.status}</Badge>
             <Badge variant="secondary">{TYPE_LABEL[m.type] ?? m.type}</Badge>
+            {m.pipelineEnabled && <QaPipelineBadge className="h-5 text-xs" />}
             {m.priority && <Badge variant="outline">Priority {m.priority}</Badge>}
             {m.environment && <Badge variant="outline" className="font-mono">{m.environment}</Badge>}
             {readOnly && <Badge variant="outline" className="text-muted-foreground">Read-only</Badge>}

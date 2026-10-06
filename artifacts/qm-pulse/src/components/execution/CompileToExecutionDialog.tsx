@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import {
   Dialog,
   DialogContent,
@@ -452,13 +453,7 @@ export function CompileToExecutionDialog({
             <div className="space-y-4">
               {/* Milestone first (required); locked when compiling from a pipeline */}
               {lockProjectAndMilestone ? (
-                <div className="space-y-1">
-                  <Label>Milestone</Label>
-                  <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border">
-                    {chosenMilestone?.name ?? "—"}
-                    <span className="text-xs text-muted-foreground ml-2">(from this pipeline)</span>
-                  </p>
-                </div>
+                <ReadOnlyField label="Milestone" hint="from this pipeline" value={chosenMilestone?.name} />
               ) : (
                 <div className="space-y-1">
                   <Label>Milestone <span className="text-destructive">*</span></Label>
@@ -522,12 +517,7 @@ export function CompileToExecutionDialog({
                 </p>
               </div>
 
-              <div className="space-y-1">
-                <Label>Project <span className="text-xs text-muted-foreground font-normal">(read-only)</span></Label>
-                <p className="text-sm px-3 py-2 rounded-md bg-muted/50 border min-h-[2.25rem]">
-                  {projectName ?? <span className="text-muted-foreground">Filled from the milestone</span>}
-                </p>
-              </div>
+              <ReadOnlyField label="Project" hint="from the milestone" value={projectName ?? undefined} placeholder="Filled from the milestone" />
 
               <div className="space-y-1">
                 <Label>Module</Label>

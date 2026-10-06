@@ -39,6 +39,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useAssignableContacts, assigneeOptions } from "@/lib/use-assignable-contacts";
 import { AttachmentFileList, ATTACHMENT_DESCRIPTION_MAX } from "@/components/AttachmentFileList";
 import { DefectHistory } from "@/components/DefectHistory";
 import { useDefectHistorySummaries } from "@/lib/defect-history";
@@ -47,6 +48,7 @@ import { DefectReviewSection } from "@/components/DefectReviewSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReadOnlyField } from "@/components/ui/read-only-field";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -1561,7 +1563,7 @@ export default function Defects() {
         open={newOpen}
         onClose={() => setNewOpen(false)}
         projects={projects}
-        onCreated={() => { setNewOpen(false); invalidate(); }}
+        onCreated={() => invalidate()}
       />
 
       <EditDefectDialog
@@ -1982,8 +1984,9 @@ function EditDefectDialog({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Assignee</Label>
               {canEditAssignee ? (
+                <>
+                <Label>Assignee</Label>
                 <Select
                   value={assigneeSelectValue(form.assigneeId, savedAssigneeName)}
                   onValueChange={(v) => setForm({ ...form, assigneeId: v === "unassigned" ? undefined : Number(v) })}
@@ -1996,8 +1999,9 @@ function EditDefectDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                </>
               ) : (
-                <p className="text-sm text-muted-foreground">{defect?.assigneeName ?? "Unassigned"}</p>
+                <ReadOnlyField label="Assignee" hint="you can't change this" value={defect?.assigneeName ?? "Unassigned"} />
               )}
             </div>
             <div className="space-y-1.5">
@@ -2185,7 +2189,7 @@ function NewDefectDialog({
   const [redmineProjects, setRedmineProjects] = useState<{ redmineId: number; name: string; identifier?: string }[]>([]);
   const [trackers, setTrackers] = useState<RedmineTracker[]>([]);
   const [qaDefectTrackerId, setQaDefectTrackerId] = useState<number | null>(null);
-  const [members, setMembers] = useState<RedmineMember[]>([]);
+  const { members, loadError, loading, reload } = useAssignableContacts(open);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null);
   const [projectConfig, setProjectConfig] = useState<RedmineProjectConfigItem | null>(null);
   const [complexity, setComplexity] = useState("M");
@@ -2198,6 +2202,8 @@ function NewDefectDialog({
   const [isSearching, setIsSearching] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+  // CR115 — after a defect is created, ask whether to keep going instead of closing.
+  const [createdPrompt, setCreatedPrompt] = useState<{ code: string } | null>(null);
 
   // Load Redmine projects + trackers on open
   useEffect(() => {
@@ -2213,13 +2219,9 @@ function NewDefectDialog({
       .catch(() => {});
   }, [open, token]);
 
-  // Assignees come from the contact directory, not the selected project's
-  // Redmine memberships — the same reason as DefectCreationModal: a
-  // membership held on a sub-project or through a group never showed up.
-  useEffect(() => {
-    if (!open) return;
-    fetchContactAssignees().then(setMembers).catch(() => {});
-  }, [open]);
+  // Assignees come from the contact directory (useAssignableContacts), not the
+  // selected project's Redmine memberships — a membership held on a sub-project
+  // or through a group never showed up.
 
   // Project config still follows the selected Redmine project.
   useEffect(() => {
@@ -2281,7 +2283,7 @@ function NewDefectDialog({
           module: dc.state.ctx.module || undefined,
           assigneeId: selectedAssigneeId,
           assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
-          assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId,
+          assigneeUserId: members.find((m) => m.id === selectedAssigneeId)?.userId ?? undefined,
           trackerName: trackers.find((t) => t.id === qaDefectTrackerId)?.name,
           complexity,
           targetedStartDate: targetedStartDate || undefined,
@@ -2297,13 +2299,27 @@ function NewDefectDialog({
           : `${data.defectCode} created locally — Redmine sync pending`,
         description: data.syncOk ? undefined : data.syncError ?? undefined,
       });
-      handleClose();
       onCreated();
+      setCreatedPrompt({ code: data.defectCode ?? "Defect" });
     } catch (err: any) {
       toast({ variant: "destructive", title: err.message });
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // "Create another": keeps the project, assignee, tracker, dates and severity
+  // (and the QM Pulse context); clears the title, description, actual result and screenshots.
+  const startAnother = () => {
+    setCreatedPrompt(null);
+    setForm((f) => ({ ...f, title: "", description: "", actualResult: "" }));
+    setScreenshots([]);
+    setDuplicates([]);
+  };
+
+  const finishCreating = () => {
+    setCreatedPrompt(null);
+    handleClose();
   };
 
   return (
@@ -2440,11 +2456,21 @@ function NewDefectDialog({
               <SearchableSelect
                 value={selectedAssigneeId?.toString() ?? ""}
                 onValueChange={(v) => setSelectedAssigneeId(v ? Number(v) : null)}
-                options={members.map((m) => ({ value: m.id.toString(), label: m.name }))}
+                options={assigneeOptions(members)}
                 placeholder="Select assignee..."
-                searchPlaceholder="Search developer..."
-                emptyText="No developers found."
+                searchPlaceholder="Search assignee..."
+                emptyText="No contacts found."
               />
+              {loadError ? (
+                <p className="text-xs text-destructive">
+                  {loadError}.{" "}
+                  <button type="button" className="underline" onClick={reload}>Retry</button>
+                </p>
+              ) : !loading && members.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No contacts synced yet. Run Sync in Configuration → Contacts.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2507,10 +2533,25 @@ function NewDefectDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose} disabled={isSaving}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={isSaving} className="gap-2">
-            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create and push to Redmine</>}
+            {isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : <><ExternalLink className="w-4 h-4" /> Create</>}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={!!createdPrompt} onOpenChange={(v) => { if (!v) finishCreating(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{createdPrompt?.code} created</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to keep creating defects? The next one keeps the project, assignee, tracker, dates and severity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={finishCreating}>Close</Button>
+            <Button onClick={startAnother}>Create another</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
