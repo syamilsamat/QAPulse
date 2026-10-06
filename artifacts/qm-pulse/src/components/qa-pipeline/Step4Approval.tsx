@@ -110,10 +110,10 @@ export function Step4Approval({ milestoneId, locked = false }: { milestoneId: nu
               <>
                 <XCircle className="w-8 h-8 mx-auto text-red-500" />
                 <p className="font-medium text-red-600">
-                  {rejected} execution file{rejected > 1 ? "s" : ""} rejected
+                  {rejected} execution file{rejected > 1 ? "s" : ""} returned
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Revise the rejected file{rejected > 1 ? "s" : ""} on the Execution Dashboard and resubmit for review.
+                  Revise the returned file{rejected > 1 ? "s" : ""} on the Execution Dashboard and resubmit for review.
                 </p>
               </>
             ) : (
@@ -149,7 +149,7 @@ export function Step4Approval({ milestoneId, locked = false }: { milestoneId: nu
                       </Badge>
                     ) : f.reviewStatus === "rejected" ? (
                       <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-                        <XCircle className="w-3 h-3 mr-1" /> Rejected
+                        <XCircle className="w-3 h-3 mr-1" /> Returned
                       </Badge>
                     ) : f.reviewStatus === "in_review" ? (
                       <Badge variant="outline" className="text-amber-600">

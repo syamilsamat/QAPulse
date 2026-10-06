@@ -25,6 +25,7 @@ import { resolveApiKeyFromToken } from "./requirements";
 import { listDevAssignees } from "./contacts";
 import { attachmentDescription } from "../lib/attachment-description";
 import { submitForReview, getLatestReview, getEvidenceForReview, decideReview, notifyDevPeersOfReview, EvidenceRejectedError } from "./_code-review";
+import { DEFAULT_QA_FOUND_IN, FOUND_IN_VALUES, foundInForExecutionFile } from "../lib/defect-found-in";
 import {
   pushDefectToRedmine,
   refreshDefectStatuses,
@@ -602,7 +603,7 @@ router.post("/defects", async (req, res): Promise<void> => {
         milestoneId: effectiveMilestoneId,
         reporterId: actorId,
         source: isRequirementDefect ? "requirement" : "qa",
-        foundIn: foundIn ?? (isRequirementDefect ? "Development" : "SIT"),
+        foundIn: foundIn ?? (isRequirementDefect ? "Development" : DEFAULT_QA_FOUND_IN),
         tracker: trackerName ?? null,
         defectCategory: categoryAllowed ? defectCategory : null,
         syncStatus: isRequirementDefect ? "not_applicable" : "pending",
@@ -737,7 +738,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   try {
-    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, assigneeUserId, tracker, projectId: requestedProjectId } = req.body ?? {};
+    const { redmineId, title, description, stepsToReproduce, expectedResult, actualResult, severity, module, executionTcId, defectCategory, assigneeName, assigneeUserId, tracker, projectId: requestedProjectId, foundIn: requestedFoundIn, milestoneId: requestedMilestoneId } = req.body ?? {};
     if (!redmineId || !title) {
       res.status(400).json({ error: "redmineId and title are required" });
       return;
@@ -763,7 +764,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
     // Derive the default project + environment from the execution row's file.
     let projectId: number | null = null;
     let milestoneId: number | null = null;
-    let foundIn = "SIT";
+    let foundIn: string = DEFAULT_QA_FOUND_IN;
     let execMeta: { libraryTcId: number | null; requirementId: number | null } | null = null;
     if (executionTcId != null) {
       const [row] = await db
@@ -773,6 +774,7 @@ router.post("/defects/register", async (req, res): Promise<void> => {
           fileProjectId: executionFilesTable.projectId,
           fileMilestoneId: executionFilesTable.milestoneId,
           fileTracker: executionFilesTable.tracker,
+          fileType: executionFilesTable.fileType,
         })
         .from(executionTestCasesTable)
         .leftJoin(executionFilesTable, eq(executionFilesTable.id, executionTestCasesTable.executionFileId))
@@ -787,7 +789,8 @@ router.post("/defects/register", async (req, res): Promise<void> => {
         // as every other creation path. Without it, fail-modal defects were
         // missing from the CR026 milestone escape funnel and CR037 risk.
         milestoneId = row.fileMilestoneId ?? null;
-        if (/uat/i.test(row.fileTracker ?? "")) foundIn = "UAT";
+        // CR105 — the phase follows the file type (QA, SIT, UAT); the tracker text is only a fallback.
+        foundIn = foundInForExecutionFile(row.fileType, row.fileTracker);
         execMeta = { libraryTcId: row.libraryTcId, requirementId: row.requirementId };
       }
     }
@@ -796,6 +799,12 @@ router.post("/defects/register", async (req, res): Promise<void> => {
     if (requestedProjectId != null) {
       if (requestedProjectId !== projectId) milestoneId = null;
       projectId = requestedProjectId;
+    }
+    // CR105 — what the person chose in the Fail popup wins over what the execution file implies.
+    if (typeof requestedFoundIn === "string" && (FOUND_IN_VALUES as readonly string[]).includes(requestedFoundIn)) foundIn = requestedFoundIn;
+    if (Number.isSafeInteger(requestedMilestoneId) && requestedMilestoneId > 0) {
+      const [chosen] = await db.select({ id: milestonesTable.id, projectId: milestonesTable.projectId }).from(milestonesTable).where(eq(milestonesTable.id, requestedMilestoneId));
+      if (chosen && (projectId == null || chosen.projectId === projectId)) milestoneId = chosen.id;
     }
     if (!(await canAccessDefectProject(ctx, projectId))) {
       res.status(403).json({ error: "Access denied to this project" });
@@ -1703,7 +1712,7 @@ router.post("/defects/sync-from-redmine", async (req, res): Promise<void> => {
             redmineId: rid,
             syncStatus: "synced",
             source: route, // qa | production | other
-            foundIn: route === "production" ? "Production" : "SIT",
+            foundIn: route === "production" ? "Production" : DEFAULT_QA_FOUND_IN,
             tracker: issueTracker || null,
             category: issue.category?.name ?? null,
             redmineCreatedAt,

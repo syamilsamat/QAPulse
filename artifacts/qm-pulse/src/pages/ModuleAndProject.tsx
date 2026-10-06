@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { useSearch } from "wouter";
 import { useHighlightRow, highlightRowId } from "@/hooks/use-highlight";
@@ -37,6 +38,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { MilestoneTrackerMapping } from "@/components/MilestoneTrackerMapping";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -1143,6 +1145,12 @@ export default function ModuleAndProject() {
                 <RefreshCw className={`w-4 h-4 ${isSyncingTrackers ? "animate-spin" : ""}`} />
                 {isSyncingTrackers ? "Syncing..." : "Sync Redmine Trackers"}
               </Button>
+              <ProgressDialog
+                open={isSyncing || isSyncingTrackers || isSyncingContacts}
+                title={isSyncing ? "Syncing Redmine projects" : isSyncingTrackers ? "Syncing Redmine trackers" : "Syncing Redmine contacts"}
+                message="Reading the list from Redmine and saving what changed."
+                hint="Usually a few seconds"
+              />
               <span className="text-xs text-muted-foreground">Populates the Tracker dropdown across all dialogs</span>
             </div>
 
@@ -1743,6 +1751,7 @@ export default function ModuleAndProject() {
             )}
           </CardContent>
         </Card>
+        <MilestoneTrackerMapping />
       </TabsContent>
       </Tabs>
 

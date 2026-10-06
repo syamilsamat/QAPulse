@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
+import { ProgressDialog } from "@/components/ProgressDialog";
 import {
   Brain,
   Zap,
@@ -82,6 +83,59 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// ── Coverage spec document: upload once, reuse via the server cache ─────────
+// The file is hashed in the browser; if the server already holds those bytes
+// nothing is uploaded at all. Otherwise it is uploaded once and later runs
+// send only the documentId. The id is remembered for the tab session so
+// leaving and returning to this page doesn't mean choosing the file again.
+const COVERAGE_DOC_KEY = "qmpulse.ai.coverageDoc";
+type CoverageDoc = { documentId: string; fileName: string; size: number };
+
+function loadStoredCoverageDoc(): CoverageDoc | null {
+  try {
+    const raw = sessionStorage.getItem(COVERAGE_DOC_KEY);
+    return raw ? (JSON.parse(raw) as CoverageDoc) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeCoverageDoc(doc: CoverageDoc | null) {
+  try {
+    if (doc) sessionStorage.setItem(COVERAGE_DOC_KEY, JSON.stringify(doc));
+    else sessionStorage.removeItem(COVERAGE_DOC_KEY);
+  } catch {
+    /* storage can be unavailable (private window); the cache still works for this visit */
+  }
+}
+
+async function sha256Hex(file: File): Promise<string | null> {
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null; // e.g. insecure context — fall back to uploading
+  }
+}
+
+async function cacheCoverageDocument(token: string | null, file: File): Promise<CoverageDoc & { reused: boolean }> {
+  const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  const hash = await sha256Hex(file);
+  if (hash) {
+    const res = await fetch(`${API_BASE()}/ai/documents/${hash}`, { headers });
+    if (res.ok) {
+      const info = await res.json();
+      return { documentId: info.documentId, fileName: file.name, size: file.size, reused: true };
+    }
+  }
+  const info = await callAiEndpoint(token, "/ai/documents", {
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    dataBase64: await fileToBase64(file),
+  });
+  return { documentId: info.documentId, fileName: file.name, size: file.size, reused: info.cached === true };
+}
+
 function LoadingSpinner() {
   return <Loader2 className="w-4 h-4 animate-spin" />;
 }
@@ -124,8 +178,6 @@ export default function AiFeatures() {
   const [dupLoading, setDupLoading] = useState(false);
 
   const [coverageReqId, setCoverageReqId] = useState<string>("all");
-  const [coverageFileName, setCoverageFileName] = useState<string>("");
-  const [coverageFile, setCoverageFile] = useState<File | null>(null);
 
   const [weeklySummaryResult, setWeeklySummaryResult] = useState<any>(null);
   const [weeklySummaryLoading, setWeeklySummaryLoading] = useState(false);
@@ -274,6 +326,71 @@ export default function AiFeatures() {
       setLoading(false);
     }
   };
+  const [coverageDoc, setCoverageDoc] = useState<CoverageDoc | null>(() => loadStoredCoverageDoc());
+  const [coverageUploading, setCoverageUploading] = useState(false);
+
+  // A remembered document may have expired from the server cache (restart or
+  // the 2-hour limit); drop it quietly so the user is asked to choose it again
+  // rather than hitting an error on the next run.
+  useEffect(() => {
+    if (!coverageDoc) return;
+    fetch(`${API_BASE()}/ai/documents/${coverageDoc.documentId}`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    }).then((res) => {
+      if (!res.ok) { setCoverageDoc(null); storeCoverageDoc(null); }
+    }).catch(() => {});
+    // Only check once on page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCoverageFile = async (file: File | null) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "Document too large", description: "Maximum file size is 8 MB." });
+      return;
+    }
+    setCoverageUploading(true);
+    try {
+      const { reused, ...doc } = await cacheCoverageDocument(token, file);
+      setCoverageDoc(doc);
+      storeCoverageDoc(doc);
+      toast({ title: reused ? "Document already cached" : "Document cached", description: "It won't be uploaded again for later runs." });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Could not upload document", description: err.message });
+    } finally {
+      setCoverageUploading(false);
+    }
+  };
+
+  const clearCoverageDoc = () => {
+    setCoverageDoc(null);
+    storeCoverageDoc(null);
+  };
+
+  const runCoverage = (refresh: boolean) =>
+    run(setCoverageLoading, setCoverageResult, async () => {
+      try {
+        return await callAiEndpoint(token, "/ai/coverage-gap", {
+          requirementId:
+            coverageReqId && coverageReqId !== "all" ? Number(coverageReqId) : undefined,
+          documentId: coverageDoc?.documentId,
+          refresh: refresh || undefined,
+        });
+      } catch (err: any) {
+        if (String(err.message).includes("no longer cached")) { clearCoverageDoc(); }
+        throw err;
+      }
+    });
+
+  // CR093 — one progress dialog for whichever AI tool is running.
+  const aiBusy = reqAnalyzeLoading ? { title: "Analyzing the requirement", message: "Asking the AI to check the requirement for gaps and unclear points." }
+    : edgeCaseLoading ? { title: "Finding edge cases", message: "Asking the AI for edge cases and negative scenarios." }
+    : dupLoading ? { title: "Checking for duplicates", message: "Asking the AI to compare your test cases and find duplicates." }
+    : coverageLoading ? { title: "Checking coverage", message: "Asking the AI to compare the document against your test cases." }
+    : coverageUploading ? { title: "Uploading the document", message: "Sending your file so the AI can read it." }
+    : weeklySummaryLoading ? { title: "Writing the weekly summary", message: "Asking the AI to summarise the week from your project data." }
+    : testDataLoading ? { title: "Generating test data", message: "Asking the AI to generate the test data you described." }
+    : null;
 
   return (
     <div className="space-y-6">
@@ -719,11 +836,13 @@ export default function AiFeatures() {
                     </label>
                     <div
                       className="flex items-center gap-3 border rounded-lg p-3 cursor-pointer hover:bg-muted/40 transition-colors"
-                      onClick={() => coverageFileRef.current?.click()}
+                      onClick={() => !coverageUploading && coverageFileRef.current?.click()}
                     >
-                      <Upload className="w-4 h-4 text-muted-foreground shrink-0" />
+                      {coverageUploading
+                        ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+                        : <Upload className="w-4 h-4 text-muted-foreground shrink-0" />}
                       <span className="text-sm text-muted-foreground truncate">
-                        {coverageFileName || "Choose XLSX or PDF file…"}
+                        {coverageUploading ? "Uploading…" : coverageDoc?.fileName || "Choose XLSX or PDF file…"}
                       </span>
                     </div>
                     <input
@@ -733,20 +852,18 @@ export default function AiFeatures() {
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0] ?? null;
-                        if (file && file.size > 8 * 1024 * 1024) {
-                          toast({ variant: "destructive", title: "Document too large", description: "Maximum file size is 8 MB." });
-                          e.target.value = "";
-                          setCoverageFile(null);
-                          setCoverageFileName("");
-                          return;
-                        }
-                        setCoverageFile(file);
-                        setCoverageFileName(file?.name ?? "");
+                        e.target.value = ""; // allow choosing the same file again later
+                        handleCoverageFile(file);
                       }}
                     />
-                    {coverageFileName && (
-                      <p className="text-xs text-primary mt-1">
-                        {coverageFileName} selected
+                    {coverageDoc && (
+                      <p className="text-xs text-primary mt-1 flex items-center gap-2">
+                        <span>
+                          {coverageDoc.fileName} ({(coverageDoc.size / 1024).toFixed(0)} KB) is cached — it won't be uploaded again.
+                        </span>
+                        <button type="button" className="underline text-muted-foreground hover:text-foreground" onClick={clearCoverageDoc}>
+                          Remove
+                        </button>
                       </p>
                     )}
                   </div>
@@ -754,22 +871,8 @@ export default function AiFeatures() {
               </div>
               <div className="flex gap-3">
                 <Button
-                  disabled={coverageLoading}
-                  onClick={() =>
-                    run(setCoverageLoading, setCoverageResult, async () =>
-                      callAiEndpoint(token, "/ai/coverage-gap", {
-                        requirementId:
-                          coverageReqId && coverageReqId !== "all"
-                            ? Number(coverageReqId)
-                            : undefined,
-                        attachment: coverageFile ? {
-                          fileName: coverageFile.name,
-                          mimeType: coverageFile.type || "application/octet-stream",
-                          dataBase64: await fileToBase64(coverageFile),
-                        } : undefined,
-                      }),
-                    )
-                  }
+                  disabled={coverageLoading || coverageUploading}
+                  onClick={() => runCoverage(false)}
                 >
                   {coverageLoading ? (
                     <>
@@ -785,6 +888,16 @@ export default function AiFeatures() {
               </div>
               {coverageResult && (
                 <div className="space-y-4">
+                  {coverageResult.cached && (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                      <span>
+                        Showing a saved result from {coverageResult.cachedAt ? new Date(coverageResult.cachedAt).toLocaleTimeString() : "earlier"} — your requirements and test cases haven't changed since.
+                      </span>
+                      <Button size="sm" variant="outline" className="h-7 shrink-0" disabled={coverageLoading} onClick={() => runCoverage(true)}>
+                        <RefreshCw className="w-3 h-3 mr-1" /> Run fresh
+                      </Button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-3 rounded-lg border text-center">
                       <p className="text-2xl font-bold text-primary">
@@ -1188,6 +1301,12 @@ export default function AiFeatures() {
           </Card>
         </TabsContent>
       </Tabs>
+      <ProgressDialog
+        open={aiBusy !== null}
+        title={aiBusy?.title ?? ""}
+        message={aiBusy?.message ?? ""}
+        hint="Usually 10 to 30 seconds"
+      />
     </div>
   );
 }

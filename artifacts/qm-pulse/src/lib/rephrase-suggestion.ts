@@ -10,7 +10,7 @@ export interface RephrasedSuggestion {
 // Asks the server to reword an AI Analysis suggestion into prose for the
 // requirement's Description. Never throws: any failure returns the suggestion
 // as written so Accept still works.
-export async function rephraseSuggestion(requirementId: number, suggestion: string): Promise<RephrasedSuggestion> {
+export async function rephraseSuggestion(requirementId: number | null, suggestion: string): Promise<RephrasedSuggestion> {
   const asWritten = { text: suggestion.trim(), rephrased: false };
   try {
     const res = await fetch(`${getApiUrl()}/ai/rephrase-suggestion`, {

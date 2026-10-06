@@ -14,7 +14,9 @@ import { useToast } from "@/hooks/use-toast";
 import { numberTestSteps } from "@/lib/test-steps";
 import { useAuth } from "@/contexts/AuthContext";
 import { DefectCategoryField } from "@/components/DefectCategoryField";
-import { ModuleSelect } from "@/components/ModuleSelect";
+import { DefectContextFields } from "@/components/DefectContextFields";
+import { useDefectContext, firstModule } from "@/lib/defect-context";
+import { FOUND_IN_OPTIONS, foundInForFileType } from "@/lib/defect-found-in";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -30,7 +32,6 @@ import {
   fetchRedmineIssueRoot,
   createRedmineDefect,
   registerLocalDefect,
-  fetchQmpulseProjects,
   type RedmineProjectItem,
   type RedmineProjectConfigItem,
   type RedmineTracker,
@@ -60,6 +61,11 @@ interface Props {
   onSkip?: () => void;
   // CR019: DB id of the execution row that failed — links the local defect record
   executionTcId?: number | null;
+  // CR105: what the failed test case already knows, so the QM Pulse fields start filled in
+  requirementId?: number | null;
+  milestoneId?: number | null;
+  /** QA, SIT or UAT: decides the starting "Found in". */
+  fileType?: string | null;
 }
 
 export default function DefectCreationModal({
@@ -75,6 +81,9 @@ export default function DefectCreationModal({
   parentIssueId,
   onSkip,
   executionTcId,
+  requirementId,
+  milestoneId,
+  fileType,
 }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -112,11 +121,11 @@ export default function DefectCreationModal({
 
   // QM Pulse fields
   const [severity, setSeverity] = useState("medium");
-  const [foundIn, setFoundIn] = useState("SIT");
-  const [defectModule, setDefectModule] = useState("");
+  const [foundIn, setFoundIn] = useState(foundInForFileType(fileType));
+  // CR105 — project, milestone, module and requirement fill each other in.
+  const dc = useDefectContext(open);
+  const startingContext = () => ({ projectId: projectId ?? null, milestoneId: milestoneId ?? null, requirementId: requirementId ?? null, module: firstModule(moduleName) });
   const [defectCategory, setDefectCategory] = useState("");
-  const [qmpulseProjectId, setQmpulseProjectId] = useState<number | null>(null);
-  const [qmpulseProjects, setQmpulseProjects] = useState<{ id: number; name: string }[]>([]);
 
   // Duplicate check
   const [duplicates, setDuplicates] = useState<RedmineIssueMatch[]>([]);
@@ -131,8 +140,8 @@ export default function DefectCreationModal({
     if (!open) return;
     setExpectedResultValue(expectedResult ?? "");
     setStepsToReproduce(numberTestSteps(testSteps));
-    setDefectModule(moduleName ?? "");
-    setQmpulseProjectId(projectId ?? null);
+    dc.reset(startingContext());
+    setFoundIn(foundInForFileType(fileType));
     setDefectDescription("");
     setActualResult("");
     setScreenshots([]);
@@ -161,7 +170,6 @@ export default function DefectCreationModal({
         })
         .catch(() => {});
     }
-    fetchQmpulseProjects().then(setQmpulseProjects).catch(() => {});
     fetchRedmineProjects().then(setProjects).catch(() => {});
     fetchContactAssignees().then(setMembers).catch(() => {});
     fetchRedmineTrackers()
@@ -258,10 +266,13 @@ export default function DefectCreationModal({
       description: defectDescription.trim() || undefined,
       stepsToReproduce: stepsToReproduce.trim() || undefined,
       expectedResult: expectedResultValue.trim() || undefined,
-      projectId: qmpulseProjectId,
+      projectId: dc.state.ctx.projectId,
+      milestoneId: dc.state.ctx.milestoneId,
+      requirementId: dc.state.ctx.requirementId,
+      foundIn,
       actualResult,
       severity,
-      module: defectModule.trim() || undefined,
+      module: dc.state.ctx.module.trim() || undefined,
       defectCategory: defectCategory || undefined,
       executionTcId: executionTcId ?? null,
     }).catch(() => {});
@@ -362,11 +373,14 @@ export default function DefectCreationModal({
         title: subject.trim(),
         description: defectDescription.trim() || undefined,
         stepsToReproduce: stepsToReproduce.trim() || undefined,
-        projectId: qmpulseProjectId,
+        projectId: dc.state.ctx.projectId,
+        milestoneId: dc.state.ctx.milestoneId,
+        requirementId: dc.state.ctx.requirementId,
+        foundIn,
         expectedResult: expectedResultValue.trim() || undefined,
         actualResult: actualResult.trim() || undefined,
         severity,
-        module: defectModule.trim() || undefined,
+        module: dc.state.ctx.module.trim() || undefined,
         defectCategory: defectCategory || undefined,
         executionTcId: executionTcId ?? null,
         assigneeName: members.find((m) => m.id === selectedAssigneeId)?.name,
@@ -401,10 +415,9 @@ export default function DefectCreationModal({
     setDuplicates([]);
     setLinkedIssueId(null);
     setSeverity("medium");
-    setFoundIn("SIT");
-    setDefectModule(moduleName ?? "");
+    setFoundIn(foundInForFileType(fileType));
     setDefectCategory("");
-    setQmpulseProjectId(projectId ?? null);
+    dc.reset(startingContext());
     onClose();
   };
 
@@ -493,10 +506,11 @@ export default function DefectCreationModal({
 
           <Separator />
 
-          {/* QM Pulse Fields */}
+          {/* QM Pulse Fields: Project, Milestone, Module, Requirement, then Severity, Found in, Category. All optional. */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">QM Pulse <span className="font-normal normal-case tracking-normal">(all optional)</span></p>
+            <DefectContextFields dc={dc} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Severity</Label>
                 <Select value={severity} onValueChange={setSeverity}>
@@ -513,30 +527,13 @@ export default function DefectCreationModal({
                 <Select value={foundIn} onValueChange={setFoundIn}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["SIT", "UAT", "Production"].map((s) => (
+                    {FOUND_IN_OPTIONS.map((s) => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Starts at the phase of this execution file. You can change it.</p>
               </div>
-              <div className="space-y-1.5">
-                <Label>Module</Label>
-                <ModuleSelect
-                  value={defectModule}
-                  onChange={setDefectModule}
-                  projectId={qmpulseProjectId}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>QM Pulse Project</Label>
-              <SearchableSelect
-                value={qmpulseProjectId?.toString() ?? ""}
-                onValueChange={(v) => setQmpulseProjectId(v ? Number(v) : null)}
-                options={qmpulseProjects.map((p) => ({ value: p.id.toString(), label: p.name }))}
-                placeholder="Select project (optional)..."
-                searchPlaceholder="Search project..."
-              />
             </div>
             <DefectCategoryField value={defectCategory} onChange={setDefectCategory} />
           </div>

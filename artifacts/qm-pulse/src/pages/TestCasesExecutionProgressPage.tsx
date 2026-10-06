@@ -1,3 +1,4 @@
+import { ProgressDialog } from "@/components/ProgressDialog";
 import { openAttachmentResponse } from "@/lib/attachment-download";
 import { readVerdictDrilldown, matchesExecutionResult } from "@/lib/verdict-drilldown";
 import { CompiledLibraryAttachments } from "@/components/TestCaseAttachments";
@@ -62,6 +63,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/hooks/use-toast";
 import { useReviewEligibility } from "@/hooks/use-review-eligibility";
+import { authHeaders } from "@/lib/api";
+import { ReviewRemarkDialog } from "@/components/execution/ReviewRemarkDialog";
+import { ReviewHistory } from "@/components/execution/ReviewHistory";
 import { useAuth } from "@/contexts/AuthContext";
 import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
@@ -499,9 +503,9 @@ const CopilotTextarea = ({
     const handler = setTimeout(async () => {
       if (value && isTyping) {
         try {
-          const res = await fetch("/api/ai/chat", {
+          const res = await fetch("/api/ai/autocomplete", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({
               message: `You are an inline AI autocomplete assistant for a QA tester writing a test case. Current field: ${fieldName}. Current text written so far: "${value}". Provide ONLY the next logical 3-10 words to continue or complete the thought. Do NOT repeat the existing text. Do NOT wrap in quotes. If the sentence is fully complete, return an empty string.`,
             }),
@@ -1452,12 +1456,34 @@ export default function TestCasesExecutionProgressPage() {
   const [requirementsList, setRequirementsList] = useState<RequirementOption[]>([]);
   const [qaUsers, setQaUsers] = useState<ExecutionUser[]>([]);
   const [data, setData] = useState<AppExecutionTestCase[]>([]);
+
+  // Module dropdown options: the file's compiled modules (availableModules)
+  // plus every module its test cases actually use — the same set the module
+  // tree on the left groups by. availableModules alone only covers what was
+  // picked at compile time, so a file whose rows came in from a library pull
+  // or an import across 4 modules offered 1 or 2 of them per row (just the
+  // compiled one, plus the row's own via withCurrentModuleOption).
+  // availableModules itself stays as-is: the "only one module → auto-fill"
+  // rules on Add Row and import depend on the compiled set.
+  const moduleOptions = useMemo<ExecutionModule[]>(() => {
+    const seen = new Set(availableModules.map((m) => m.name.trim().toLowerCase()));
+    const extra: ExecutionModule[] = [];
+    for (const row of data) {
+      const name = (row.moduleName || "").trim();
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      // Negative ids: these exist only as option keys, never sent to the server.
+      extra.push({ id: -(extra.length + 2), name } as ExecutionModule);
+    }
+    return [...availableModules, ...extra];
+  }, [availableModules, data]);
   // This file's own milestone, so an Excel import that auto-creates a
   // requirement (via resolveRequirementByRedmine) can inherit it instead of
   // leaving the new requirement milestone-less.
   const [currentFileMilestoneId, setCurrentFileMilestoneId] = useState<number | null>(null);
   const [currentFileId, setCurrentFileId] = useState<number | null>(null);
   const [currentFileProjectId, setCurrentFileProjectId] = useState<number | null>(null);
+  const [currentFileType, setCurrentFileType] = useState<string | null>(null);
   const [currentFileTitle, setCurrentFileTitle] = useState<string | null>(null);
   const [currentFileTracker, setCurrentFileTracker] = useState<string | null>(null);
   const [currentFileReviewStatus, setCurrentFileReviewStatus] = useState<string | null>(null);
@@ -1473,6 +1499,10 @@ export default function TestCasesExecutionProgressPage() {
   const [returnRowTarget, setReturnRowTarget] = useState<AppExecutionTestCase | null>(null);
   const [returnRowComment, setReturnRowComment] = useState("");
   const [rowReviewBusy, setRowReviewBusy] = useState(false);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [acceptRowTarget, setAcceptRowTarget] = useState<AppExecutionTestCase | null>(null);
+  // Bumped after any review action so the Review history list reloads.
+  const [reviewLogKey, setReviewLogKey] = useState(0);
   // DEF-0022 — inline edit of a returned row's Test Steps / Expected Result,
   // right from the rework banner (the row is off the main sheet, so there's
   // no other way to fix it before resubmitting).
@@ -1795,6 +1825,7 @@ export default function TestCasesExecutionProgressPage() {
         setCurrentFileMilestoneId(file?.milestoneId ?? null);
         setCurrentFileId(file?.id ?? null);
         setCurrentFileProjectId(file?.projectId ?? null);
+        setCurrentFileType(file?.fileType ?? null);
         setCurrentFileTitle(file?.title ?? null);
         setCurrentFileTracker(file?.tracker ?? null);
         setCurrentFileReviewStatus(file?.reviewStatus ?? null);
@@ -1937,8 +1968,9 @@ export default function TestCasesExecutionProgressPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "Failed to perform review action");
       }
-      toast({ title: "Success", description: `Execution file ${action}ed successfully.` });
+      toast({ title: "Success", description: `Execution file ${action === "approve" ? "approved" : action === "reject" ? "returned" : "submitted"} successfully.` });
       setCurrentFileReviewStatus(action === "approve" ? "approved" : "rejected");
+      setReviewLogKey((k) => k + 1);
       if (action === "reject") setCurrentFileRejectionReason(comment ?? null);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Review Action Failed", description: String(err?.message ?? err) });
@@ -1970,6 +2002,7 @@ export default function TestCasesExecutionProgressPage() {
     setRowReviewBusy(true);
     try {
       await reviewExecutionTestCase(rowId, action, comment);
+      setReviewLogKey((k) => k + 1);
       if (action === "accept") {
         setData((prev) => prev.map((r) =>
           r.id === rowId ? { ...r, reviewState: "accepted" as const } : r,
@@ -2568,6 +2601,17 @@ export default function TestCasesExecutionProgressPage() {
     }
     if (result?.unassignedResultRows?.length) {
       reverted.push(`No QA PIC assigned: ${result.unassignedResultRows.join(", ")}`);
+    }
+    if (result?.contentLockedRows?.length) {
+      reverted.push(`Locked to their owner (draft, in review or returned), your edits to the test case itself were not saved: ${result.contentLockedRows.join(", ")}`);
+    }
+    // Not a failure: the edit was saved, but approved content someone else
+    // changed has to be accepted again by a different person.
+    if (result?.rependedRows?.length) {
+      toast({
+        title: "Sent back for acceptance",
+        description: `You edited approved test case${result.rependedRows.length > 1 ? "s" : ""} ${result.rependedRows.join(", ")}. A different QA must accept the change before it can be executed again.`,
+      });
     }
     if (reverted.length === 0) return;
     toast({
@@ -3624,6 +3668,9 @@ export default function TestCasesExecutionProgressPage() {
         expectedResult={defectRow?.expectedResult ?? undefined}
         parentIssueId={defectParentIssueId}
         executionTcId={typeof defectRow?.id === "number" ? defectRow.id : null}
+        requirementId={defectRow?.requirementId != null ? Number(defectRow.requirementId) : null}
+        milestoneId={currentFileMilestoneId}
+        fileType={currentFileType}
         onSkip={() => {
           setDefectModalOpen(false);
           pendingFailRowIdRef.current = null;
@@ -3997,7 +4044,7 @@ export default function TestCasesExecutionProgressPage() {
                 onChange={(e) => setSelectedImportModule(e.target.value)}
               >
                 <option value="">Leave unassigned</option>
-                {availableModules.map((m) => (
+                {moduleOptions.map((m) => (
                   <option key={m.id} value={m.name}>
                     {m.name}
                   </option>
@@ -4005,7 +4052,8 @@ export default function TestCasesExecutionProgressPage() {
               </select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowModuleSelectDialog(false)}>Cancel</Button>
             <Button onClick={handleConfirmImportModule}>Continue Import</Button>
           </DialogFooter>
         </DialogContent>
@@ -4119,20 +4167,22 @@ export default function TestCasesExecutionProgressPage() {
         </div>
       )}
 
+      <ReviewHistory fileId={currentFileId} refreshKey={reviewLogKey} />
+
       {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-sm">Execution is Locked</p>
+              <p className="font-semibold text-sm">Results are locked until this file is approved</p>
               <p className="text-xs text-amber-700 mt-1">
                 This execution file is currently in <strong>{(currentFileReviewStatus || '').replace("_", " ")}</strong> status.
-                You cannot execute test cases (Pass/Fail/Block) until it is approved. Sign-off is reserved for a
+                You cannot record results (Pass/Fail/Blocked) until it is approved. Approval is reserved for a
                 QA Lead, QA Manager, or HOD QA other than the person who submitted it.
               </p>
               {(currentFileReviewStatus || '') === "rejected" && currentFileRejectionReason && (
                 <div className="mt-2 bg-red-50 text-red-800 p-2 rounded border border-red-200 text-xs">
-                  <strong>Rejection Reason:</strong> <br/>
+                  <strong>Return Reason:</strong> <br/>
                   <span className="whitespace-pre-wrap">{currentFileRejectionReason}</span>
                 </div>
               )}
@@ -4141,13 +4191,29 @@ export default function TestCasesExecutionProgressPage() {
           {(currentFileReviewStatus || '') === "in_review" && canApproveExecutionFile && currentFileQaPicSetBy !== currentUser?.id && currentFileQaPic !== currentUser?.name && (
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" onClick={() => setRejectDialogOpen(true)}>
-                <XCircle className="w-4 h-4 mr-2" /> Reject
+                <XCircle className="w-4 h-4 mr-2" /> Return
               </Button>
-              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleReviewAction("approve")}>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => setApproveDialogOpen(true)}>
                 <CheckCircle className="w-4 h-4 mr-2" /> Approve
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {(currentFileReviewStatus || '') && (currentFileReviewStatus || '') !== "approved" &&
+        currentFileQaPicSetBy != null && currentFileQaPicSetBy !== currentUser?.id && (
+        <div className="bg-slate-50 border border-slate-200 text-slate-800 dark:bg-slate-900/40 dark:border-slate-700 dark:text-slate-200 rounded-lg p-3 flex items-start gap-3">
+          <Lock className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm">
+              Editing is locked to the owner{currentFileQaPic ? ` (${currentFileQaPic})` : ""}
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+              While this file is {(currentFileReviewStatus || "").replace("_", " ")}, only its owner can change the test cases in it.
+              You can still read and review them. Once the file is approved, QA roles can edit a test case, and the edit goes back for acceptance.
+            </p>
+          </div>
         </div>
       )}
 
@@ -4207,7 +4273,7 @@ export default function TestCasesExecutionProgressPage() {
                         size="sm"
                         className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
                         disabled={rowReviewBusy}
-                        onClick={() => handleRowReview(Number(row.id), "accept")}
+                        onClick={() => setAcceptRowTarget(row)}
                       >
                         Accept
                       </Button>
@@ -4442,6 +4508,7 @@ export default function TestCasesExecutionProgressPage() {
                 {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 Import
               </Button>
+              <ProgressDialog open={isImporting} title="Importing test cases" message="Reading the Excel file and saving its test cases into this file." hint="This can take a few seconds" />
               <Button
                 variant="outline"
                 size="sm"
@@ -4452,6 +4519,7 @@ export default function TestCasesExecutionProgressPage() {
                 {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isDownloading ? "Downloading..." : "Download"}
               </Button>
+              <ProgressDialog open={isDownloading} title="Preparing the download" message="Building the execution file for download." hint="Usually a few seconds" />
               <Button
                 variant="outline"
                 size="sm"
@@ -4742,7 +4810,7 @@ export default function TestCasesExecutionProgressPage() {
                           onUpdateLibrary={handleUpdateLibraryFromExecution}
                           onPullLatest={handlePullLatestFromLibrary}
                           libraryDrift={getLibraryDrift(row, row.libraryTcId ? libraryTcById.get(row.libraryTcId) : null)}
-                          availableModules={availableModules}
+                          availableModules={moduleOptions}
                           availableTrackers={availableTrackers}
                           qaUsers={qaUsers}
                           mode={mode}
@@ -4986,7 +5054,7 @@ export default function TestCasesExecutionProgressPage() {
                           {mode === "edit"
                             ? <select className="flex h-8 w-full rounded-md border border-input bg-popover text-popover-foreground px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1" value={row.moduleName || ""} onChange={e => updateCell(row.id as string | number, "moduleName", e.target.value)}>
                                 <option value="">Select...</option>
-                                {withCurrentModuleOption(availableModules, row.moduleName).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                {withCurrentModuleOption(moduleOptions, row.moduleName).map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
                               </select>
                             : <p className="text-sm">{row.moduleName || "—"}</p>
                           }
@@ -5601,7 +5669,7 @@ export default function TestCasesExecutionProgressPage() {
                 onValueChange={(v) => setPromoteForm(f => ({ ...f, module: v }))}
                 options={[
                   { value: "", label: "Select module..." },
-                  ...withCurrentModuleOption(availableModules, promoteForm.module).map((m) => ({ value: m.name, label: m.name })),
+                  ...withCurrentModuleOption(moduleOptions, promoteForm.module).map((m) => ({ value: m.name, label: m.name })),
                 ]}
                 placeholder="Select module..."
                 searchPlaceholder="Search module..."
@@ -5626,6 +5694,32 @@ export default function TestCasesExecutionProgressPage() {
         </DialogContent>
       </Dialog>
 
+      <ReviewRemarkDialog
+        open={approveDialogOpen}
+        onOpenChange={setApproveDialogOpen}
+        title="Approve Execution File"
+        description="Add a remark for the author if there is anything they should know. It is saved in the review history."
+        confirmLabel="Approve"
+        onConfirm={(remark) => {
+          setApproveDialogOpen(false);
+          handleReviewAction("approve", remark || undefined);
+        }}
+      />
+
+      <ReviewRemarkDialog
+        open={acceptRowTarget !== null}
+        onOpenChange={(open) => { if (!open) setAcceptRowTarget(null); }}
+        title="Accept Test Case"
+        description={acceptRowTarget ? `${acceptRowTarget.testCaseId ?? ""} ${acceptRowTarget.caseName ?? ""}`.trim() : undefined}
+        confirmLabel="Accept"
+        busy={rowReviewBusy}
+        onConfirm={(remark) => {
+          const target = acceptRowTarget;
+          setAcceptRowTarget(null);
+          if (target) handleRowReview(Number(target.id), "accept", remark || undefined);
+        }}
+      />
+
       {/* Reject Reason Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => {
         setRejectDialogOpen(open);
@@ -5635,12 +5729,12 @@ export default function TestCasesExecutionProgressPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <X className="w-5 h-5 text-red-500" />
-              Reject Execution File
+              Return Execution File
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="reject-reason" className="mb-2 block text-sm font-medium">
-              Reason for rejection <span className="text-red-500">*</span>
+              Reason for returning <span className="text-red-500">*</span>
             </Label>
             <Textarea
               id="reject-reason"
@@ -5661,7 +5755,7 @@ export default function TestCasesExecutionProgressPage() {
                 setRejectReason("");
               }}
             >
-              Reject
+              Return
             </Button>
           </DialogFooter>
         </DialogContent>

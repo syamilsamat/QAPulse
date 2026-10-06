@@ -35,6 +35,8 @@ function StatusBadge({ status, isDataPrep }: { status: string; isDataPrep?: bool
       return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> {isDataPrep ? "In Progress" : "Active"}</Badge>;
     case "verified":
       return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
+    case "sit":
+      return <Badge className="gap-1 bg-indigo-100 text-indigo-700 border-indigo-200"><Clock className="w-3 h-3" /> SIT</Badge>;
     case "uat":
       return <Badge className="gap-1 bg-violet-100 text-violet-700 border-violet-200"><Clock className="w-3 h-3" /> UAT</Badge>;
     case "cancelled":
@@ -71,6 +73,7 @@ const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
+  { value: "sit", label: "SIT" },
   { value: "uat", label: "UAT" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
@@ -144,13 +147,13 @@ const stepStateLabel = (stepId: number, state: StepState) =>
 
 // Placeholder Steps for the 8-step wizard
 const PIPELINE_STEPS = [
-  { id: 1, title: "Milestone & UAT", desc: "Create milestone & configure UAT" },
+  { id: 1, title: "Milestone, SIT & UAT", desc: "Create milestone & configure SIT and UAT" },
   { id: 2, title: "Sync Requirements", desc: "Pull from Redmine & AI analyze" },
   { id: 3, title: "Create Test Cases", desc: "Generate TCs with Risk-Based Testing" },
   { id: 4, title: "Approve Test Cases", desc: "QA Lead approval gate" },
   { id: 5, title: "Execute Testing", desc: "Run TCs & log defects" },
   { id: 6, title: "Sign Off Functional", desc: "Formal QA sign-off" },
-  { id: 7, title: "UAT Sign-offs", desc: "Upload UAT packs (if required)" },
+  { id: 7, title: "SIT & UAT Sign-offs", desc: "Upload SIT and UAT packs (if required)" },
   { id: 8, title: "Update Milestone", desc: "Generate RTM & Release Notes" }
 ];
 
@@ -210,8 +213,8 @@ export default function QAPipeline() {
   const [editingMilestone, setEditingMilestone] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({
     name: "", type: "cr", status: "planned", priority: "none", environment: "none",
-    targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "",
-    description: "", requiresUat: false,
+    targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", sitTargetDate: "", uatTargetDate: "", goLiveDate: "",
+    description: "", requiresUat: false, requiresSit: false,
   });
   // The same edit form is shown either in the dialog (picker cards, locked
   // banner) or inline on Step 1's details panel.
@@ -233,10 +236,12 @@ export default function QAPipeline() {
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      sitTargetDate: m.sitTargetDate ? m.sitTargetDate.slice(0, 10) : "",
       uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       description: m.description ?? "",
       requiresUat: !!m.requiresUat,
+      requiresSit: !!m.requiresSit,
     });
   };
 
@@ -276,10 +281,12 @@ export default function QAPipeline() {
           reqTargetDate: editForm.reqTargetDate || null,
           devTargetDate: editForm.devTargetDate || null,
           qaTargetDate: editForm.qaTargetDate || null,
-          uatTargetDate: editForm.uatTargetDate || null,
+          sitTargetDate: editForm.requiresSit ? editForm.sitTargetDate || null : null,
+          uatTargetDate: editForm.requiresUat ? editForm.uatTargetDate || null : null,
           goLiveDate: editForm.goLiveDate || null,
           description: editForm.description.trim() || null,
           requiresUat: editForm.requiresUat,
+          requiresSit: editForm.requiresSit,
         }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? "Failed to update milestone"); }
@@ -380,7 +387,7 @@ export default function QAPipeline() {
     if (fromServer && fromServer in STEP_STATE_LABEL) return fromServer as StepState;
     // Still loading — show a neutral rail rather than a wrong one.
     if (!milestone) return "not_started";
-    if (stepId === 7 && !milestone.requiresUat) return "skipped";
+    if (stepId === 7 && !milestone.requiresUat && !milestone.requiresSit) return "skipped";
     return stepId <= currentStep ? "in_progress" : "not_started";
   };
 
@@ -436,8 +443,9 @@ export default function QAPipeline() {
           ["Start", milestone.startDate],
           ["Requirements by", milestone.reqTargetDate],
           ["Dev done by", milestone.devTargetDate],
-          ["QA done by", milestone.qaTargetDate],
-          ...(milestone.requiresUat ? [["UAT target date", milestone.uatTargetDate] as [string, string | null]] : []),
+          ["System Testing done by", milestone.qaTargetDate],
+          ...(milestone.requiresSit ? [["SIT done by", milestone.sitTargetDate] as [string, string | null]] : []),
+          ...(milestone.requiresUat ? [["UAT done by", milestone.uatTargetDate] as [string, string | null]] : []),
           // Target Date tracks Go-Live on the server (DEF-0013).
           ["Go-Live", milestone.goLiveDate ?? milestone.targetDate],
         ];
@@ -462,6 +470,12 @@ export default function QAPipeline() {
         </div>
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 rounded-lg border p-4 text-sm">
+          {!isDataPrep && (
+            <div>
+              <dt className="text-muted-foreground">SIT sign-off</dt>
+              <dd className="font-medium mt-0.5">{milestone.requiresSit ? "Required (Step 7)" : "Not required"}</dd>
+            </div>
+          )}
           {!isDataPrep && (
             <div>
               <dt className="text-muted-foreground">UAT sign-off</dt>
@@ -663,12 +677,18 @@ export default function QAPipeline() {
                   <Input type="date" value={editForm.devTargetDate} onChange={(e) => setEditForm({ ...editForm, devTargetDate: e.target.value })} />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">QA done by</Label>
+                  <Label className="text-xs">System Testing done by</Label>
                   <Input type="date" value={editForm.qaTargetDate} onChange={(e) => setEditForm({ ...editForm, qaTargetDate: e.target.value })} />
                 </div>
+                {editForm.requiresSit && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">SIT done by</Label>
+                    <Input type="date" value={editForm.sitTargetDate} onChange={(e) => setEditForm({ ...editForm, sitTargetDate: e.target.value })} />
+                  </div>
+                )}
                 {editForm.requiresUat && (
                   <div className="space-y-1">
-                    <Label className="text-xs">UAT target date</Label>
+                    <Label className="text-xs">UAT done by</Label>
                     <Input type="date" value={editForm.uatTargetDate} onChange={(e) => setEditForm({ ...editForm, uatTargetDate: e.target.value })} />
                   </div>
                 )}
@@ -688,6 +708,16 @@ export default function QAPipeline() {
               rows={editForm.type === "data_prep" ? 6 : undefined}
             />
           </div>
+          {editForm.type !== "data_prep" && (
+            <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
+              <Checkbox
+                id="editSitToggle"
+                checked={editForm.requiresSit}
+                onCheckedChange={(checked) => setEditForm({ ...editForm, requiresSit: !!checked, sitTargetDate: checked ? editForm.sitTargetDate : "" })}
+              />
+              <Label htmlFor="editSitToggle" className="text-sm">Requires SIT Sign-off?</Label>
+            </div>
+          )}
           {editForm.type !== "data_prep" && (
             <div className="flex flex-row items-center space-x-3 p-3 border rounded-lg bg-muted/50">
               <Checkbox

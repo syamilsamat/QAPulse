@@ -51,7 +51,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
   const handleSignOff = async () => {
     setSigningOff(true);
     try {
-      const nextStep = milestone?.requiresUat ? 7 : 8;
+      const nextStep = milestone?.requiresSit || milestone?.requiresUat ? 7 : 8;
 
       // The server records the signer (the logged-in user), the time, and
       // whether this is a Full or Conditional sign-off from its own counts.
@@ -200,7 +200,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
               <div>
                 <dt className="text-muted-foreground">What happens next</dt>
                 <dd className="font-medium mt-0.5">
-                  {milestone.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone — no UAT required"}
+                  {milestone.requiresSit && milestone.requiresUat ? "SIT and User Acceptance Testing (UAT)" : milestone.requiresSit ? "System Integration Testing (SIT)" : milestone.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone — no SIT or UAT required"}
                 </dd>
               </div>
             </dl>
@@ -272,7 +272,7 @@ export function Step6SignOff({ milestoneId, onNext, onSkipUat, locked = false }:
         <CardContent className="p-4 sm:pt-6 sm:pb-6 bg-muted/30">
           <div className="flex flex-col items-center gap-4">
             <p className="text-sm font-medium">
-              Next Step: {milestone?.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone (No UAT Required)"}
+              Next Step: {milestone?.requiresSit && milestone?.requiresUat ? "SIT and User Acceptance Testing (UAT)" : milestone?.requiresSit ? "System Integration Testing (SIT)" : milestone?.requiresUat ? "User Acceptance Testing (UAT)" : "Update Milestone (No SIT or UAT Required)"}
             </p>
             <Button size="lg" className={`w-full sm:w-auto whitespace-normal h-auto py-3 ${isConditional ? "bg-amber-600 hover:bg-amber-700" : ""}`} onClick={() => setConfirmOpen(true)} disabled={!canSignOff || locked || !readyToSign}>
               {isConditional ? <AlertTriangle className="w-4 h-4 mr-2 shrink-0" /> : <CheckCircle2 className="w-4 h-4 mr-2 shrink-0" />}

@@ -18,14 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,7 +99,7 @@ const NAV_PERMISSION_ITEMS = [
   { key: "nav:defects",        label: "Defects" },
   { key: "nav:resources",      label: "Resources" },
   { key: "nav:risk-register",  label: "Risk Register" },
-  { key: "nav:uat-signoffs",   label: "UAT Sign-offs" }, // CR054 — was missing from this map since that CR never touched Roles.tsx
+  { key: "nav:uat-signoffs",   label: "SIT & UAT Sign-offs" }, // CR054 — was missing from this map since that CR never touched Roles.tsx
 ];
 
 const NAV_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
@@ -810,7 +803,7 @@ export default function Roles() {
               </Table>
             </div>
           )}
-        </DialogContent>
+        <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );

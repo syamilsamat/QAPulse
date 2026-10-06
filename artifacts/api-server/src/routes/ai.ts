@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { execSync } from "child_process";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import {
@@ -28,9 +28,12 @@ import { logActivity } from "./_audit";
 import { MAX_SUGGESTION_CHARS, REPHRASE_SYSTEM_PROMPT, buildRephrasePrompt, cleanRephrased } from "./ai-rephrase";
 import { actorFromReq } from "./auth";
 import { getAuthContext, canAccessProject, scopeToUserProjects } from "../middleware/access";
+import { aiGuard } from "../lib/ai-guard";
+import { storeDocument, getDocument, getCachedResult, setCachedResult, fingerprintRows, sha256, type CachedDocument } from "../lib/ai-cache";
 import { computeRequirementTimelines, summarizeTimelines, computeKpiMetrics, rollupExecutionByMilestone } from "./dashboard";
 
 const router: IRouter = Router();
+const RISK_PRIORITIES = ["Critical", "High", "Medium", "Low"];
 const ai = new GoogleGenAI({});
 
 /**
@@ -277,7 +280,7 @@ async function reconcileSuggestions<T>(
 // ==========================================
 // 1. ANALYZE REQUIREMENT
 // ==========================================
-router.post("/ai/rephrase-suggestion", async (req, res): Promise<void> => {
+router.post("/ai/rephrase-suggestion", aiGuard("rephrase-suggestion"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -312,7 +315,7 @@ router.post("/ai/rephrase-suggestion", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/ai/analyze-requirement", async (req, res): Promise<void> => {
+router.post("/ai/analyze-requirement", aiGuard("analyze-requirement"), async (req, res): Promise<void> => {
   const fallback = {
     score: 0,
     issues: [],
@@ -432,7 +435,7 @@ router.patch("/ai/requirement-suggestions/:id", async (req, res): Promise<void> 
 // ==========================================
 // 2. ENHANCED EDGE CASES
 // ==========================================
-router.post("/ai/edge-cases", async (req, res): Promise<void> => {
+router.post("/ai/edge-cases", aiGuard("edge-cases"), async (req, res): Promise<void> => {
   const fallback = {
     edgeCases: [
       {
@@ -473,7 +476,7 @@ router.post("/ai/edge-cases", async (req, res): Promise<void> => {
 // ==========================================
 // 3. ENHANCED DUPLICATE CHECK
 // ==========================================
-router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
+router.post("/ai/duplicate-detection", aiGuard("duplicate-detection"), async (req, res): Promise<void> => {
   const fallback = {
     duplicates: [],
     recommendation: "Analysis failed. Could not verify duplicates.",
@@ -543,7 +546,7 @@ router.post("/ai/duplicate-detection", async (req, res): Promise<void> => {
 // ==========================================
 // 4. WEEKLY SUMMARY
 // ==========================================
-router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
+router.post("/ai/weekly-summary", aiGuard("weekly-summary"), async (req, res): Promise<void> => {
   try {
     const { projectId } = req.body;
     const oneWeekAgo = new Date();
@@ -615,9 +618,38 @@ router.post("/ai/weekly-summary", async (req, res): Promise<void> => {
 });
 
 // ==========================================
+// DOCUMENT CACHE — upload a spec once, reuse it across AI calls
+// ==========================================
+// Not a model call, so it is authenticated but not metered. The documentId is
+// the SHA-256 of the file's bytes and is only valid for the user who uploaded
+// it; the cache is memory-only and expires, so a 404/410 just means "choose
+// the file again".
+router.post("/ai/documents", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const stored = storeDocument(ctx.userId, req.body ?? {});
+  if (!stored.ok) { res.status(400).json({ error: stored.error }); return; }
+  res.json({
+    documentId: stored.documentId,
+    fileName: stored.doc.fileName,
+    size: stored.doc.size,
+    kind: stored.doc.kind,
+    cached: stored.cached,
+  });
+});
+
+router.get("/ai/documents/:id", (req, res): void => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const doc = getDocument(ctx.userId, req.params.id);
+  if (!doc) { res.status(404).json({ error: "Document is not cached" }); return; }
+  res.json({ documentId: req.params.id, fileName: doc.fileName, size: doc.size, kind: doc.kind, cached: true });
+});
+
+// ==========================================
 // 5. COVERAGE GAP
 // ==========================================
-router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
+router.post("/ai/coverage-gap", aiGuard("coverage-gap"), async (req, res): Promise<void> => {
   try {
     const ctx = getAuthContext(req);
     if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -683,27 +715,45 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
       .map((r) => r.title)
       .join(", ")}\n\nAnalyze gaps and return ONLY JSON.`;
 
-    let documentText = "";
-    let pdfAttachment: { mimeType: string; dataBase64: string } | null = null;
-    if (attachment != null) {
-      const fileName = typeof attachment.fileName === "string" ? attachment.fileName.slice(0, 255) : "";
-      const mimeType = typeof attachment.mimeType === "string" ? attachment.mimeType : "application/octet-stream";
-      const dataBase64 = typeof attachment.dataBase64 === "string" ? attachment.dataBase64 : "";
-      const buffer = Buffer.from(dataBase64, "base64");
-      if (!fileName || buffer.length === 0 || buffer.length > 8 * 1024 * 1024) {
-        res.status(400).json({ error: "Coverage document must be between 1 byte and 8 MB" }); return;
+    // The spec document arrives either as a documentId from POST /ai/documents
+    // (uploaded once, already parsed, held in the server cache) or, for older
+    // clients, inline as `attachment` — which is stored into the same cache.
+    let doc: CachedDocument | undefined;
+    let documentId: string | null = null;
+    if (typeof req.body.documentId === "string" && req.body.documentId) {
+      doc = getDocument(ctx.userId, req.body.documentId);
+      if (!doc) {
+        res.status(410).json({ error: "The uploaded document is no longer cached — please choose the file again.", code: "document_expired" }); return;
       }
-      if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
-        pdfAttachment = { mimeType: "application/pdf", dataBase64 };
-      } else if (/\.(xlsx|xls)$/i.test(fileName)) {
-        const workbook = XLSX.read(buffer, { type: "buffer" });
-        documentText = workbook.SheetNames.map((name) =>
-          `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`,
-        ).join("\n\n").slice(0, 40_000);
-      } else {
-        res.status(400).json({ error: "Coverage document must be PDF, XLSX, or XLS" }); return;
+      documentId = req.body.documentId;
+    } else if (attachment != null) {
+      const stored = storeDocument(ctx.userId, attachment);
+      if (!stored.ok) { res.status(400).json({ error: stored.error }); return; }
+      doc = stored.doc;
+      documentId = stored.documentId;
+    }
+
+    // An identical analysis (same document, same requirement/test-case data)
+    // is served from memory instead of calling the model again. Any change to
+    // the underlying rows changes the fingerprint, so a stale answer is never
+    // returned; `refresh` forces a fresh run.
+    const cacheKey = sha256(JSON.stringify({
+      feature: "coverage-gap",
+      documentId,
+      requirements: fingerprintRows(requirements),
+      testCases: fingerprintRows(testCases),
+    }));
+    if (!req.body.refresh) {
+      const hit = getCachedResult<Record<string, unknown>>(cacheKey);
+      if (hit) {
+        res.locals.aiCacheHit = true;
+        res.json({ ...hit.value, cached: true, cachedAt: new Date(hit.at).toISOString() });
+        return;
       }
     }
+
+    const documentText = doc?.kind === "sheet" ? doc.text ?? "" : "";
+    const pdfAttachment = doc?.kind === "pdf" && doc.base64 ? { mimeType: doc.mimeType, dataBase64: doc.base64 } : null;
 
     const promptWithDocument = documentText
       ? `${userPrompt}\n\nUploaded specification contents:\n${documentText}`
@@ -723,7 +773,10 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
       content = await executeAiTask(systemPrompt, promptWithDocument);
     }
     const parsedData = safeParseJSON(content, fallback);
-    res.json({ ...parsedData, stats: fallback.stats });
+    const body = { ...parsedData, stats: fallback.stats };
+    // A failed parse returns the empty fallback; never cache that.
+    if (parsedData !== fallback) setCachedResult(cacheKey, body);
+    res.json({ ...body, cached: false });
   } catch (error) {
     console.error("Coverage Gap Error:", error);
     res.json({
@@ -739,7 +792,7 @@ router.post("/ai/coverage-gap", async (req, res): Promise<void> => {
 // ==========================================
 // 6. RISK SCORE
 // ==========================================
-router.post("/ai/risk-score", async (req, res): Promise<void> => {
+router.post("/ai/risk-score", aiGuard("risk-score"), async (req, res): Promise<void> => {
   const fallback = {
     modules: [],
     overallRisk: "high",
@@ -831,7 +884,7 @@ router.post("/ai/risk-score", async (req, res): Promise<void> => {
 // ==========================================
 // 7. RELEASE READINESS
 // ==========================================
-router.post("/ai/release-readiness", async (req, res): Promise<void> => {
+router.post("/ai/release-readiness", aiGuard("release-readiness"), async (req, res): Promise<void> => {
   try {
     const { projectId, redmineData } = req.body;
     let userPrompt = "";
@@ -960,7 +1013,7 @@ router.post("/ai/release-readiness", async (req, res): Promise<void> => {
 // ==========================================
 // 12. QA COPILOT CHAT
 // ==========================================
-router.post("/ai/chat", async (req, res): Promise<void> => {
+const chatHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { message, conversationHistory } = req.body;
 
@@ -1003,13 +1056,17 @@ router.post("/ai/chat", async (req, res): Promise<void> => {
       error: error.message || "An error occurred while communicating with the AI." 
     });
   }
-});
+};
+router.post("/ai/chat", aiGuard("chat"), chatHandler);
+// Inline typing suggestions fire on every pause while a tester types, so they
+// are metered separately from real assistant use (see separateDailyCap).
+router.post("/ai/autocomplete", aiGuard("autocomplete"), chatHandler);
 
 
 // ==========================================
 // 9. TEST DATA SPECIALIST
 // ==========================================
-router.post("/ai/test-data", async (req, res): Promise<void> => {
+router.post("/ai/test-data", aiGuard("test-data"), async (req, res): Promise<void> => {
   const fallback = {
     data: [],
     notes: ["Failed to generate test data. Please try again."],
@@ -1039,7 +1096,7 @@ router.post("/ai/test-data", async (req, res): Promise<void> => {
 // ==========================================
 // 10. REGRESSION SELECTION
 // ==========================================
-router.post("/ai/regression-selection", async (req, res): Promise<void> => {
+router.post("/ai/regression-selection", aiGuard("regression-selection"), async (req, res): Promise<void> => {
   const fallback = {
     selected: [],
     skipped: [],
@@ -1080,7 +1137,7 @@ router.post("/ai/regression-selection", async (req, res): Promise<void> => {
 // ==========================================
 // 11. NATURAL LANGUAGE SEARCH
 // ==========================================
-router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
+router.post("/ai/natural-language-search", aiGuard("natural-language-search"), async (req, res): Promise<void> => {
   const fallback = {
     results: [],
     interpretation: "Failed to process search query.",
@@ -1126,7 +1183,7 @@ router.post("/ai/natural-language-search", async (req, res): Promise<void> => {
 // ==========================================
 // CAPA INTELLIGENCE
 // ==========================================
-router.post("/ai/capa-analysis", async (req, res): Promise<void> => {
+router.post("/ai/capa-analysis", aiGuard("capa-analysis"), async (req, res): Promise<void> => {
   const fallback = { items: [], summary: "Analysis unavailable." };
   try {
     const { ticketId, testCases } = req.body as {
@@ -1190,7 +1247,7 @@ Rules:
 // ==========================================
 // NL SEARCH — TC LIBRARY
 // ==========================================
-router.post("/ai/search-tcs", async (req, res): Promise<void> => {
+router.post("/ai/search-tcs", aiGuard("search-tcs"), async (req, res): Promise<void> => {
   try {
     const { query, testCases } = req.body as {
       query: string;
@@ -1252,7 +1309,7 @@ function fmtAssessment(a: typeof milestoneRiskAssessmentsTable.$inferSelect) {
   };
 }
 
-router.post("/ai/milestone-risk", async (req, res): Promise<void> => {
+router.post("/ai/milestone-risk", aiGuard("milestone-risk"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!MILESTONE_RISK_ROLES.includes(ctx.role)) { res.status(403).json({ error: "PM role required" }); return; }
@@ -1540,7 +1597,7 @@ router.get("/ai/execution-risk/:milestoneId", async (req, res): Promise<void> =>
   res.json(row ? fmtExecutionRisk(row) : null);
 });
 
-router.post("/ai/execution-risk", async (req, res): Promise<void> => {
+router.post("/ai/execution-risk", aiGuard("execution-risk"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -1769,7 +1826,7 @@ Project: ${projectName ?? "Unknown"}
 Module: ${req.module ?? "Unspecified"}
 Description: ${req.description ?? "Not provided"}
 Acceptance Criteria: ${req.acceptanceCriteria ?? "Not provided"}
-Review Status: ${req.reviewStatus}${req.approvedBy ? ` (approved by ${nameOf(req.approvedBy)})` : ""}${req.rejectedBy ? ` (rejected by ${nameOf(req.rejectedBy)})` : ""}
+Review Status: ${req.reviewStatus}${req.approvedBy ? ` (approved by ${nameOf(req.approvedBy)})` : ""}${req.rejectedBy ? ` (returned by ${nameOf(req.rejectedBy)})` : ""}
 Dev Status: ${req.devStatus ?? "Not started"}${req.devAssigneeId ? ` (assigned to ${nameOf(req.devAssigneeId)})` : ""}
 
 Linked Test Cases:
@@ -1857,16 +1914,37 @@ function composeMultiRequirementAnswer(
 ): string {
   const subject = answered.find((a) => a.subject)?.subject || "answer";
 
-  const groups: { valueKey: string; value: string; projects: string[] }[] = [];
+  // "20" and "20 characters" are the same fact — compare without a trailing unit word.
+  const normalize = (v: string) => v.toLowerCase().replace(/\s*(characters?|chars?)\.?$/, "").trim();
+
+  // Several requirements can belong to the same project (duplicates or
+  // re-specified rows). The user asks per project, so collapse each project to
+  // one value first: the most frequent, ties going to the most descriptive.
+  const byProject = new Map<string, { value: string; count: number }[]>();
   for (const a of answered) {
-    const valueKey = a.value.toLowerCase();
     const projectName = a.candidate.projectName ?? "an unspecified project";
+    const key = normalize(a.value);
+    const entries = byProject.get(projectName) ?? [];
+    const entry = entries.find((e) => normalize(e.value) === key);
+    if (entry) {
+      entry.count++;
+      if (a.value.length > entry.value.length) entry.value = a.value;
+    } else {
+      entries.push({ value: a.value, count: 1 });
+    }
+    byProject.set(projectName, entries);
+  }
+
+  const groups: { valueKey: string; value: string; projects: string[] }[] = [];
+  for (const [projectName, entries] of byProject) {
+    const best = [...entries].sort((x, y) => y.count - x.count || y.value.length - x.value.length)[0];
+    const valueKey = normalize(best.value);
     let group = groups.find((g) => g.valueKey === valueKey);
     if (!group) {
-      group = { valueKey, value: a.value, projects: [] };
+      group = { valueKey, value: best.value, projects: [] };
       groups.push(group);
     }
-    if (!group.projects.includes(projectName)) group.projects.push(projectName);
+    group.projects.push(projectName);
   }
 
   let answerSentence: string;
@@ -1879,14 +1957,17 @@ function composeMultiRequirementAnswer(
     answerSentence = `${body.charAt(0).toUpperCase()}${body.slice(1)}.`;
   }
 
-  const sources = answered
-    .map((a) => `${a.candidate.title}${a.candidate.projectName ? ` (${a.candidate.projectName})` : ""}`)
-    .join(", ");
+  // A single project needs no source list; otherwise list each source once.
+  if (byProject.size === 1) return answerSentence;
+
+  const sources = [...new Set(
+    answered.map((a) => `${a.candidate.title}${a.candidate.projectName ? ` (${a.candidate.projectName})` : ""}`),
+  )].join(", ");
 
   return `${answerSentence}\n\nI found it in: ${sources}.`;
 }
 
-router.post("/ai/requirement-chat", async (req, res): Promise<void> => {
+router.post("/ai/requirement-chat", aiGuard("requirement-chat"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -2095,31 +2176,6 @@ router.get("/ai/requirement-chat/conversations/:id/messages", async (req, res): 
 // PHASE 4 QA PIPELINE ENHANCEMENTS: AI ENDPOINTS
 // =========================================================================
 
-// 1. Analyze Milestone Requirements (Enhancement 10 / Step 2)
-router.post("/ai/analyze-milestone-requirements", async (req, res): Promise<void> => {
-  const ctx = getAuthContext(req);
-  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const { milestoneId } = req.body;
-  if (!milestoneId) { res.status(400).json({ error: "Missing milestoneId" }); return; }
-
-  try {
-    // We would normally pass requirements to AI here and store insights.
-    // For now, we simulate success by updating status of milestone's requirements.
-    const reqs = await db.select().from(requirementsTable).where(eq(requirementsTable.milestoneId, milestoneId));
-    
-    for (const r of reqs) {
-      await db.update(requirementsTable)
-        .set({ aiAnalysisStatus: "completed" } as any) // assuming aiAnalysisStatus exists or we just mock success
-        .where(eq(requirementsTable.id, r.id));
-    }
-    
-    res.json({ success: true, message: "Requirements analyzed successfully." });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // 2. Risk-Based Testing Priority Tagging (Enhancement 7 / Step 3)
 //
 // testCasesTable has no milestoneId column of its own — a test case is
@@ -2129,7 +2185,7 @@ router.post("/ai/analyze-milestone-requirements", async (req, res): Promise<void
 // executionTestCasesTable rows (a different table entirely — per-execution
 // results, not the reusable library) with a RANDOM priority; that produced
 // output uncorrelated with any real risk assessment.
-router.post("/ai/tag-risk-priority", async (req, res): Promise<void> => {
+router.post("/ai/tag-risk-priority", aiGuard("tag-risk-priority"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -2155,24 +2211,76 @@ router.post("/ai/tag-risk-priority", async (req, res): Promise<void> => {
     const rawPriorities: { id: number; priority: string }[] = Array.isArray(parsed?.priorities) ? parsed.priorities : [];
     const priorityById = new Map<number, string>(rawPriorities.map((p) => [Number(p.id), String(p.priority)]));
 
-    const VALID_PRIORITIES = ["Critical", "High", "Medium", "Low"];
-    let tagged = 0;
-    for (const tc of tcs) {
-      const priority: string | undefined = priorityById.get(tc.id);
-      if (priority && VALID_PRIORITIES.includes(priority)) {
-        await db.update(testCasesTable).set({ priority }).where(eq(testCasesTable.id, tc.id));
-        tagged++;
-      }
+    // Suggest only: nothing is written here. A QA user reviews the list and
+    // applies the ones they agree with via POST /ai/tag-risk-priority/apply.
+    const suggestions = tcs
+      .map((tc) => ({
+        id: tc.id,
+        title: tc.title,
+        current: tc.priority ?? null,
+        suggested: priorityById.get(tc.id) ?? null,
+      }))
+      .filter((s): s is typeof s & { suggested: string } => s.suggested != null && RISK_PRIORITIES.includes(s.suggested));
+
+    res.json({
+      success: true,
+      message: `${suggestions.length} priority suggestion(s) ready to review.`,
+      suggestions,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Applies priorities a QA user confirmed from the suggestions above. Only
+// test cases that belong to the given milestone (via their requirement) can
+// be changed, and every change is written to the activity log with the old
+// value, so an applied AI suggestion is always traceable and reversible.
+router.post("/ai/tag-risk-priority/apply", aiGuard("tag-risk-priority-apply"), async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { milestoneId, priorities } = req.body as { milestoneId?: number; priorities?: { id: number; priority: string }[] };
+  if (!milestoneId || !Array.isArray(priorities) || priorities.length === 0) {
+    res.status(400).json({ error: "milestoneId and a non-empty priorities list are required" }); return;
+  }
+  if (priorities.length > 500) { res.status(400).json({ error: "Too many test cases in one request" }); return; }
+
+  try {
+    const reqRows = await db.select({ id: requirementsTable.id })
+      .from(requirementsTable)
+      .where(eq(requirementsTable.milestoneId, Number(milestoneId)));
+    const reqIds = reqRows.map((r) => r.id);
+    const tcs = reqIds.length ? await db.select().from(testCasesTable).where(inArray(testCasesTable.requirementId, reqIds)) : [];
+    const tcById = new Map(tcs.map((tc) => [tc.id, tc]));
+
+    let applied = 0;
+    let skipped = 0;
+    for (const p of priorities) {
+      const tc = tcById.get(Number(p.id));
+      if (!tc || !RISK_PRIORITIES.includes(p.priority)) { skipped++; continue; }
+      if (tc.priority === p.priority) { skipped++; continue; }
+      await db.update(testCasesTable).set({ priority: p.priority }).where(eq(testCasesTable.id, tc.id));
+      await logActivity({
+        type: "test_case_priority_ai_applied",
+        description: `Test case "${tc.title}" priority set to ${p.priority} from an AI suggestion (was ${tc.priority ?? "unset"})`,
+        userId: ctx.userId,
+        entityId: tc.id,
+        entityType: "test_case",
+        oldValue: { priority: tc.priority ?? null },
+        newValue: { priority: p.priority },
+      });
+      applied++;
     }
 
-    res.json({ success: true, message: `Risk priorities assigned to ${tagged} test case(s).`, tagged });
+    res.json({ success: true, message: `Priority applied to ${applied} test case(s).`, applied, skipped });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // 3. Generate Test Cases from BDD Gherkin (Enhancement 12 / Step 7)
-router.post("/ai/generate-bdd-test-cases", async (req, res): Promise<void> => {
+router.post("/ai/generate-bdd-test-cases", aiGuard("generate-bdd-test-cases"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -2355,7 +2463,7 @@ ${body}
   }
 }
 
-router.post("/ai/generate-release-notes", async (req, res): Promise<void> => {
+router.post("/ai/generate-release-notes", aiGuard("generate-release-notes"), async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 

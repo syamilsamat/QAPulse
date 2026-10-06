@@ -1,5 +1,6 @@
-import { useSearch } from "wouter";
-import { useState, useEffect } from "react";
+import { ProgressDialog } from "@/components/ProgressDialog";
+import { Link, useSearch } from "wouter";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/api";
@@ -16,6 +17,7 @@ import {
   XCircle,
   Loader2,
   Flag,
+  Search,
   Users,
   X,
   FileDown,
@@ -36,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -45,10 +48,12 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { format } from "date-fns";
+import { MilestoneModulePicker, EMPTY_MODULE_SELECTION, selectionFromMilestone, isModuleSelectionValid, useProjectModules, type ModuleSelection } from "@/components/MilestoneModulePicker";
 
 interface Milestone {
   id: number;
   projectId: number;
+  projectName?: string | null;
   name: string;
   type: string;
   status: string;
@@ -58,7 +63,10 @@ interface Milestone {
   reqTargetDate: string | null;
   devTargetDate: string | null;
   qaTargetDate: string | null;
+  sitTargetDate?: string | null;
   uatTargetDate: string | null;
+  requiresSit?: boolean;
+  requiresUat?: boolean;
   goLiveDate: string | null;
   environment: string | null;
   lessonsLearned: string | null;
@@ -67,6 +75,9 @@ interface Milestone {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  modules?: { id: number; name: string }[];
+  can?: { edit: boolean; staff: boolean; createRequirement: boolean };
+  assigned?: boolean;
   requirementCount?: number;
   approvedCount?: number;
   executionFileCount?: number;
@@ -111,6 +122,7 @@ const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
+  { value: "sit", label: "SIT" },
   { value: "uat", label: "UAT" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
@@ -155,6 +167,8 @@ function StatusBadge({ status, isDataPrep }: { status: string; isDataPrep?: bool
       return <Badge className="gap-1 bg-blue-100 text-blue-700 border-blue-200"><Clock className="w-3 h-3" /> {isDataPrep ? "In Progress" : "Active"}</Badge>;
     case "verified":
       return <Badge className="gap-1 bg-teal-100 text-teal-700 border-teal-200"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>;
+    case "sit":
+      return <Badge className="gap-1 bg-indigo-100 text-indigo-700 border-indigo-200"><Clock className="w-3 h-3" /> SIT</Badge>;
     case "uat":
       return <Badge className="gap-1 bg-violet-100 text-violet-700 border-violet-200"><Clock className="w-3 h-3" /> UAT</Badge>;
     case "cancelled":
@@ -171,14 +185,19 @@ export default function Milestones() {
 
   const activitySearch = useSearch();
   const linkedProject = new URLSearchParams(activitySearch).get("projectId");
+  // "all" = nothing chosen yet; "everywhere" = every project the user can access (CR094).
   const [filterProject, setFilterProject] = useState<string>(linkedProject ?? "all");
+  const [search, setSearch] = useState("");
+  const projectChosen = filterProject !== "all" && filterProject !== "everywhere";
   useEffect(() => {
     if (linkedProject && /^[1-9]\d*$/.test(linkedProject)) setFilterProject(linkedProject);
   }, [linkedProject]);
   useHighlightRow(); // CR051 — focus a milestone card from a ?highlight= deep-link
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
-  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+  const [form, setForm] = useState({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", sitTargetDate: "", uatTargetDate: "", requiresSit: true, requiresUat: true, goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+  const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
+  const { data: projectModules = [] } = useProjectModules(projectChosen ? filterProject : null, token);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -194,11 +213,33 @@ export default function Milestones() {
     queryKey: ["milestones", filterProject],
     queryFn: async () => {
       if (filterProject === "all" || !filterProject) return [];
-      const res = await api(`/milestones?projectId=${filterProject}`, token);
+      const res = await api(`/milestones?projectId=${filterProject === "everywhere" ? "all" : filterProject}`, token);
       return res.ok ? res.json() : [];
     },
     enabled: filterProject !== "all",
   });
+
+  const visibleMilestones = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return milestones;
+    return milestones.filter((m) => {
+      const typeLabel = TYPE_OPTIONS.find((t) => t.value === m.type)?.label ?? m.type;
+      const statusLabel = (m.type === "data_prep" ? DATA_PREP_STATUS_OPTIONS : STATUS_OPTIONS).find((x) => x.value === m.status)?.label ?? m.status;
+      return [m.name, typeLabel, statusLabel, m.projectName ?? ""].some((v) => v.toLowerCase().includes(q));
+    });
+  }, [milestones, search]);
+
+  // The milestone page links here with ?edit=<id>; open that milestone's form
+  // once, if the person is allowed to edit it.
+  const editParam = new URLSearchParams(activitySearch).get("edit");
+  const [editHandled, setEditHandled] = useState(false);
+  useEffect(() => {
+    if (editHandled || !editParam || milestones.length === 0) return;
+    const target = milestones.find((x) => String(x.id) === editParam);
+    if (target?.can?.edit) openEdit(target);
+    setEditHandled(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, milestones, editHandled]);
 
   const canWrite = ["admin", "qa_lead", "fa_lead", "hod_qa", "hod_fa", "hod_pm", "pm_lead", "pm_member", "cto"].includes(user?.role ?? "");
   // dev_lead gets Team access only (DEF-0012) — not create/edit-other-fields/delete,
@@ -208,7 +249,7 @@ export default function Milestones() {
 
   const [exportingLessons, setExportingLessons] = useState(false);
   const handleExportLessonsLearned = async () => {
-    if (!filterProject || filterProject === "all") return;
+    if (!projectChosen) return;
     setExportingLessons(true);
     try {
       const res = await api(`/milestones/lessons-learned/export?projectId=${filterProject}`, token);
@@ -277,7 +318,7 @@ export default function Milestones() {
       const res = await api(`/milestones/assignable-users?projectId=${filterProject}`, token);
       return res.ok ? res.json() : [];
     },
-    enabled: dialogOpen && !editing && filterProject !== "all",
+    enabled: dialogOpen && !editing && projectChosen,
   });
   const addPendingAssignee = (userId: string) => {
     setPendingAssigneePick("");
@@ -288,12 +329,15 @@ export default function Milestones() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", uatTargetDate: "", goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
+    setForm({ name: "", type: "cr", status: "planned", priority: "none", targetDate: "", startDate: "", reqTargetDate: "", devTargetDate: "", qaTargetDate: "", sitTargetDate: "", uatTargetDate: "", requiresSit: true, requiresUat: true, goLiveDate: "", environment: "none", lessonsLearned: "", lessonsLearnedType: "none", description: "" });
     setPendingAssignees([]);
+    setModuleSel(EMPTY_MODULE_SELECTION);
     setDialogOpen(true);
   };
 
   const openEdit = (m: Milestone) => {
+    // Editing needs that milestone's project (module list, team), so leave the all-projects view.
+    if (filterProject === "everywhere") setFilterProject(String(m.projectId));
     setEditing(m);
     setForm({
       name: m.name,
@@ -305,13 +349,18 @@ export default function Milestones() {
       reqTargetDate: m.reqTargetDate ? m.reqTargetDate.slice(0, 10) : "",
       devTargetDate: m.devTargetDate ? m.devTargetDate.slice(0, 10) : "",
       qaTargetDate: m.qaTargetDate ? m.qaTargetDate.slice(0, 10) : "",
+      sitTargetDate: m.sitTargetDate ? m.sitTargetDate.slice(0, 10) : "",
       uatTargetDate: m.uatTargetDate ? m.uatTargetDate.slice(0, 10) : "",
+      // An existing milestone keeps what it had: UAT counts as used when it has a UAT date, SIT starts off.
+      requiresSit: !!m.requiresSit,
+      requiresUat: !!m.requiresUat || !!m.uatTargetDate,
       goLiveDate: m.goLiveDate ? m.goLiveDate.slice(0, 10) : "",
       environment: m.environment ?? "none",
       lessonsLearned: m.lessonsLearned ?? "",
       lessonsLearnedType: m.lessonsLearnedType ?? "none",
       description: m.description ?? "",
     });
+    setModuleSel(selectionFromMilestone(m.modules));
     setDialogOpen(true);
   };
 
@@ -334,7 +383,8 @@ export default function Milestones() {
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast({ variant: "destructive", title: "Name is required" }); return; }
-    if (!filterProject || filterProject === "all") { toast({ variant: "destructive", title: "Select a project first" }); return; }
+    if (!projectChosen) { toast({ variant: "destructive", title: "Select a project first" }); return; }
+    if (!isModuleSelectionValid(moduleSel, projectModules.length, form.type)) { toast({ variant: "destructive", title: "Select at least one module, or choose All modules" }); return; }
     setSaving(true);
     try {
       const body = {
@@ -349,12 +399,22 @@ export default function Milestones() {
         reqTargetDate: form.reqTargetDate || null,
         devTargetDate: form.devTargetDate || null,
         qaTargetDate: form.qaTargetDate || null,
-        uatTargetDate: form.uatTargetDate || null,
+        sitTargetDate: form.requiresSit ? form.sitTargetDate || null : null,
+        uatTargetDate: form.requiresUat ? form.uatTargetDate || null : null,
+        // CR106 — a new milestone sends both switches; an edit sends one only when it was changed.
+        ...(editing
+          ? {
+              ...(form.requiresSit !== !!editing.requiresSit ? { requiresSit: form.requiresSit } : {}),
+              ...(form.requiresUat !== !!editing.requiresUat ? { requiresUat: form.requiresUat } : {}),
+            }
+          : form.type === "data_prep" ? { requiresSit: false, requiresUat: false } : { requiresSit: form.requiresSit, requiresUat: form.requiresUat }),
         goLiveDate: form.goLiveDate || null,
         environment: form.environment === "none" ? null : form.environment,
         lessonsLearned: form.lessonsLearned.trim() || null,
         lessonsLearnedType: form.lessonsLearnedType === "none" ? null : form.lessonsLearnedType,
         description: form.description.trim() || null,
+        moduleIds: form.type === "data_prep" ? [] : moduleSel.moduleIds,
+        allModules: form.type === "data_prep" ? false : moduleSel.allModules,
         ...(editing ? {} : { assigneeUserIds: pendingAssignees.map((a) => a.id) }),
       };
       const res = editing
@@ -363,7 +423,7 @@ export default function Milestones() {
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
       toast({ title: editing ? "Milestone updated" : "Milestone created" });
       setDialogOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["milestones", filterProject] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
     } catch (e: any) {
       toast({ variant: "destructive", title: e.message ?? "Failed to save milestone" });
     } finally {
@@ -377,7 +437,7 @@ export default function Milestones() {
       if (!res.ok) throw new Error("Failed");
       toast({ title: "Milestone deleted" });
       setDeleteId(null);
-      queryClient.invalidateQueries({ queryKey: ["milestones", filterProject] });
+      queryClient.invalidateQueries({ queryKey: ["milestones"] });
     } catch {
       toast({ variant: "destructive", title: "Failed to delete milestone" });
     }
@@ -391,12 +451,15 @@ export default function Milestones() {
           <p className="text-muted-foreground text-sm mt-1">Manage project milestones, CRs, and sprints</p>
         </div>
         <div className="flex gap-2">
-          {filterProject !== "all" && (
+          {projectChosen && (
+            <>
             <Button variant="outline" onClick={handleExportLessonsLearned} disabled={exportingLessons} className="gap-2">
               <FileDown className="w-4 h-4" /> {exportingLessons ? "Exporting…" : "Export Lessons Learnt"}
             </Button>
+            <ProgressDialog open={exportingLessons} title="Exporting lessons learnt" message="Building the lessons learnt file for this project." hint="Usually a few seconds" />
+            </>
           )}
-          {canWrite && filterProject !== "all" && (
+          {canWrite && projectChosen && (
             <Button onClick={openCreate} className="gap-2">
               <Plus className="w-4 h-4" /> New Milestone
             </Button>
@@ -409,11 +472,17 @@ export default function Milestones() {
         <SearchableSelect
           value={filterProject}
           onValueChange={setFilterProject}
-          options={[{ value: "all", label: "Select a project…" }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
+          options={[{ value: "all", label: "Select a project…" }, { value: "everywhere", label: "All projects" }, ...projects.map(p => ({ value: String(p.id), label: p.name }))]}
           placeholder="Select project"
           searchPlaceholder="Search projects…"
           className="w-64"
         />
+        {filterProject !== "all" && (
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, type or status…" className="pl-8" aria-label="Search milestones" />
+          </div>
+        )}
       </div>
 
       {filterProject === "all" && (
@@ -429,11 +498,18 @@ export default function Milestones() {
         </div>
       )}
 
+      {filterProject !== "all" && !isLoading && milestones.length > 0 && visibleMilestones.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground">
+          <Flag className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p>No milestones match "{search}".</p>
+        </div>
+      )}
+
       {filterProject !== "all" && !isLoading && milestones.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Flag className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p>No milestones yet for this project.</p>
-          {canWrite && (
+          <p>{filterProject === "everywhere" ? "No milestones yet in the projects you can access." : "No milestones yet for this project."}</p>
+          {canWrite && projectChosen && (
             <Button onClick={openCreate} variant="outline" className="mt-4 gap-2">
               <Plus className="w-4 h-4" /> Create first milestone
             </Button>
@@ -441,14 +517,15 @@ export default function Milestones() {
         </div>
       )}
 
-      {milestones.length > 0 && (
+      {visibleMilestones.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {milestones.map((m) => (
+          {visibleMilestones.map((m) => (
             <Card key={m.id} id={highlightRowId(m.id)} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <CardTitle className="text-base font-semibold">{m.name}</CardTitle>
+                    {filterProject === "everywhere" && m.projectName && <p className="text-xs text-muted-foreground mt-0.5">{m.projectName}</p>}
                     <p className="text-xs text-muted-foreground capitalize mt-0.5">
                       {TYPE_OPTIONS.find(t => t.value === m.type)?.label ?? m.type}
                     </p>
@@ -466,6 +543,15 @@ export default function Milestones() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
+                {m.type !== "data_prep" && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {m.modules && m.modules.length > 0
+                      ? m.modules.map((mod) => (
+                          <Badge key={mod.id} variant="secondary" className="text-[10px]">{mod.name}</Badge>
+                        ))
+                      : <Badge variant="outline" className="text-[10px] text-muted-foreground">All modules</Badge>}
+                  </div>
+                )}
                 {(m.targetDate || m.environment) && (
                   <div className="flex items-center justify-between gap-2">
                     {m.targetDate ? (
@@ -497,18 +583,22 @@ export default function Milestones() {
                     </div>
                   </div>
                 )}
-                {canManageTeam && (
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </Button>
-                    {canWrite && (
-                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(m.id)}>
+                <div className="flex gap-2 pt-1">
+                  <Button asChild size="sm" variant="outline" className="flex-1 gap-1.5">
+                    <Link href={`/milestones/${m.id}`}>Open</Link>
+                  </Button>
+                  {/* Only the milestone's author, a PM Lead (or admin/CTO) edit or delete it. */}
+                  {m.can?.edit && (
+                    <>
+                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(m)}>
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" aria-label={`Delete ${m.name}`} onClick={() => setDeleteId(m.id)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -550,6 +640,7 @@ export default function Milestones() {
                 </Select>
               </div>
             </div>
+            <MilestoneModulePicker projectId={filterProject} token={token} value={moduleSel} onChange={setModuleSel} type={form.type} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Priority</Label>
@@ -597,12 +688,26 @@ export default function Milestones() {
                     <Input type="date" value={form.devTargetDate} onChange={(e) => setForm({ ...form, devTargetDate: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">QA done by</Label>
+                    <Label className="text-xs">System Testing done by</Label>
                     <Input type="date" value={form.qaTargetDate} onChange={(e) => setForm({ ...form, qaTargetDate: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">UAT done by</Label>
-                    <Input type="date" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                    <label className="flex items-center gap-2 text-xs font-medium">
+                      <Checkbox checked={form.requiresSit} onCheckedChange={(c) => setForm({ ...form, requiresSit: !!c, ...(c ? {} : { sitTargetDate: "" }) })} />
+                      Requires SIT
+                    </label>
+                    {form.requiresSit
+                      ? <Input type="date" aria-label="SIT done by" value={form.sitTargetDate} onChange={(e) => setForm({ ...form, sitTargetDate: e.target.value })} />
+                      : <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">SIT not required. Its date is cleared.</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 text-xs font-medium">
+                      <Checkbox checked={form.requiresUat} onCheckedChange={(c) => setForm({ ...form, requiresUat: !!c, ...(c ? {} : { uatTargetDate: "" }) })} />
+                      Requires UAT
+                    </label>
+                    {form.requiresUat
+                      ? <Input type="date" aria-label="UAT done by" value={form.uatTargetDate} onChange={(e) => setForm({ ...form, uatTargetDate: e.target.value })} />
+                      : <p className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">UAT not required. Its date is cleared.</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Go-Live</Label>

@@ -1,12 +1,16 @@
 import { Router, type IRouter } from "express";
-import { eq, and, ne, inArray, sql, desc } from "drizzle-orm";
-import { db, milestonesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
+import { eq, and, ne, inArray, sql, desc, or } from "drizzle-orm";
+import { db, activityTable, milestonesTable, milestoneModulesTable, milestoneAssigneesTable, usersTable, projectMembersTable, projectsTable, requirementsTable, executionFilesTable, executionTestCasesTable, uatSignoffsTable, dataPrepFilesTable, risksTable } from "@workspace/db";
 import { getAuthContext, canAccessProject, getRoleDepartment } from "../middleware/access";
 import { verifyToken } from "./auth";
 import { logActivity } from "./_audit";
 import { notifyRolesInProject, notifyUser } from "./_notify";
 import { buildLessonsLearnedExcel, type LessonLogRow, type LessonLogHistoryRow } from "./lessons-learned-excel";
 import { syncMilestoneStatus } from "../lib/milestone-status";
+import { loadMilestoneModules, parseModuleIds, validateMilestoneModules, setMilestoneModules } from "../lib/milestone-modules";
+import { loadTypeTrackerMap } from "../lib/milestone-trackers";
+import { milestonePermissions, canEditMilestone, canStaffMilestone } from "../lib/milestone-permissions";
+import { describeMilestoneChanges, summariseChanges } from "../lib/milestone-changes";
 import { loadPipelineFacts, executionOutcome, isConditionalSignoff, computeDeployChecks } from "../lib/pipeline-facts";
 
 const router: IRouter = Router();
@@ -45,13 +49,14 @@ function canManageTeam(role: string) {
 // HOD/CTO/admin are unrestricted. Shared by the milestone-create staffing
 // loop and the POST/DELETE assignee endpoints so none of them can drift out
 // of sync with each other again.
-const SINGLE_DEPT_LEADS: Record<string, string> = { qa_lead: "qa", dev_lead: "dev", fa_lead: "fa" };
+const SINGLE_DEPT_LEADS: Record<string, string> = { qa_lead: "qa", qa_manager: "qa", dev_lead: "dev", fa_lead: "fa" };
+const ROLE_LABEL: Record<string, string> = { qa_lead: "QA Lead", qa_manager: "QA Manager", dev_lead: "Dev Lead", fa_lead: "FA Lead" };
 const PM_TIER = ["pm_lead", "pm_member"];
 async function checkDepartmentAssignment(actorRole: string, targetRole: string): Promise<string | null> {
   if (actorRole in SINGLE_DEPT_LEADS) {
     const targetDept = await getRoleDepartment(targetRole);
     if (targetDept !== SINGLE_DEPT_LEADS[actorRole]) {
-      return `${actorRole.replace("_lead", "").toUpperCase()} Lead can only assign ${SINGLE_DEPT_LEADS[actorRole]} department members`;
+      return `${ROLE_LABEL[actorRole] ?? actorRole} can only assign ${SINGLE_DEPT_LEADS[actorRole]} department members`;
     }
     return null;
   }
@@ -93,7 +98,7 @@ function canWritePipeline(role: string, pipelineEnabled: boolean) {
 }
 
 const VALID_ENVIRONMENTS = ["ENV1", "ENV2", "ENV3", "ENV4", "ENV5", "ENV6"];
-const VALID_STATUSES = ["planned", "active", "verified", "uat", "completed", "cancelled"];
+const VALID_STATUSES = ["planned", "active", "verified", "sit", "uat", "completed", "cancelled"];
 // Matches the "Lessons Learnt Type" dropdown in Bestinet's export template exactly.
 const VALID_LESSON_TYPES = ["what_went_wrong", "what_went_right", "best_practice"];
 const LESSON_TYPE_LABEL: Record<string, string> = {
@@ -145,11 +150,14 @@ function computePipelineStepStates(input: {
   conditionalSignoff: boolean;
   requiresUat: boolean;
   uatDocCount: number;
+  // CR106 — step 7 now covers SIT and UAT sign-offs
+  requiresSit: boolean;
+  sitDocCount: number;
   deployed: boolean;
 }): Record<number, PipelineStepState> {
   const {
     requirementCount, execFileCount, approvedFileCount,
-    totalExecRows, executedRows, failedRows, signedOff, conditionalSignoff, requiresUat, uatDocCount, deployed,
+    totalExecRows, executedRows, failedRows, signedOff, conditionalSignoff, requiresUat, uatDocCount, requiresSit, sitDocCount, deployed,
   } = input;
 
   // Step 5 is "Conditional Pass" when 100% of test cases were executed but
@@ -180,7 +188,14 @@ function computePipelineStepStates(input: {
     6: signedOff
       ? (conditionalSignoff ? "conditional" : "done")
       : "not_started",
-    7: !requiresUat ? "skipped" : uatDocCount > 0 ? "done" : "not_started",
+    // Step 7 holds a sign-off for each phase the milestone requires.
+    7: !requiresUat && !requiresSit
+      ? "skipped"
+      : (!requiresSit || sitDocCount > 0) && (!requiresUat || uatDocCount > 0)
+        ? "done"
+        : (requiresSit && sitDocCount > 0) || (requiresUat && uatDocCount > 0)
+          ? "in_progress"
+          : "not_started",
     8: deployed
       ? (conditionalSignoff ? "conditional" : "done")
       : "not_started",
@@ -228,6 +243,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     reqTargetDate: m.reqTargetDate?.toISOString() ?? null,
     devTargetDate: m.devTargetDate?.toISOString() ?? null,
     qaTargetDate: m.qaTargetDate?.toISOString() ?? null,
+    sitTargetDate: m.sitTargetDate?.toISOString() ?? null,
     uatTargetDate: m.uatTargetDate?.toISOString() ?? null,
     goLiveDate: m.goLiveDate?.toISOString() ?? null,
     environment: m.environment ?? null,
@@ -240,6 +256,7 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
     requiresUat: m.requiresUat ?? false,
+    requiresSit: m.requiresSit ?? false,
     pipelineEnabled: m.pipelineEnabled ?? false,
     pipelineStep: m.pipelineStep ?? null,
     signedOffAt: m.signedOffAt?.toISOString() ?? null,
@@ -250,20 +267,31 @@ function fmt(m: typeof milestonesTable.$inferSelect) {
   };
 }
 
-// GET /milestones?projectId=X
+// GET /milestones?projectId=X  (or projectId=all for every project the caller can access, CR094)
 router.get("/milestones", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const projectId = req.query.projectId ? Number(req.query.projectId) : null;
-  if (!projectId) { res.status(400).json({ error: "projectId is required" }); return; }
+  const allProjects = req.query.projectId === "all";
+  const projectId = !allProjects && req.query.projectId ? Number(req.query.projectId) : null;
+  if (!allProjects && !projectId) { res.status(400).json({ error: "projectId is required" }); return; }
 
-  const ok = await canAccessProject(ctx.userId, ctx.role, projectId);
-  if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
+  let projectIds: number[] = projectId ? [projectId] : [];
+  const projectNames = new Map<number, string>();
+  if (allProjects) {
+    const every = await db.select({ id: projectsTable.id, name: projectsTable.name }).from(projectsTable);
+    const checks = await Promise.all(every.map(async (p) => ((await canAccessProject(ctx.userId, ctx.role, p.id)) ? p : null)));
+    for (const p of checks) if (p) { projectIds.push(p.id); projectNames.set(p.id, p.name); }
+  } else {
+    const ok = await canAccessProject(ctx.userId, ctx.role, projectId!);
+    if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
+  }
 
-  const rows = await db.select().from(milestonesTable)
-    .where(eq(milestonesTable.projectId, projectId))
-    .orderBy(desc(milestonesTable.createdAt));
+  const rows = projectIds.length
+    ? await db.select().from(milestonesTable)
+        .where(inArray(milestonesTable.projectId, projectIds))
+        .orderBy(desc(milestonesTable.createdAt))
+    : [];
 
   const ids = rows.map(m => m.id);
   const reqs = ids.length
@@ -280,14 +308,28 @@ router.get("/milestones", async (req, res): Promise<void> => {
         .from(dataPrepFilesTable).where(inArray(dataPrepFilesTable.milestoneId, ids))
     : [];
 
+  const modulesByMilestone = await loadMilestoneModules(ids);
+  const trackerByType = await loadTypeTrackerMap();
+  const teamRows = ids.length
+    ? await db.select({ milestoneId: milestoneAssigneesTable.milestoneId, userId: milestoneAssigneesTable.userId })
+        .from(milestoneAssigneesTable).where(inArray(milestoneAssigneesTable.milestoneId, ids))
+    : [];
+
   res.json(rows.map(m => {
     const mReqs = reqs.filter(r => r.milestoneId === m.id);
     const mExecFiles = execFiles.filter(f => f.milestoneId === m.id);
     return {
       ...fmt(m),
+      ...(allProjects ? { projectName: projectNames.get(m.projectId) ?? null } : {}),
+      modules: modulesByMilestone.get(m.id) ?? [],
+      tracker: trackerByType[m.type] ?? null,
+      // What the caller may do with this milestone (the UI shows only these).
+      can: milestonePermissions(ctx.role, ctx.userId, m, teamRows.some((t) => t.milestoneId === m.id && t.userId === ctx.userId)),
+      assigned: teamRows.some((t) => t.milestoneId === m.id && t.userId === ctx.userId),
       requirementCount: mReqs.length,
       approvedCount: mReqs.filter(r => r.reviewStatus === "approved").length,
       executionFileCount: mExecFiles.filter(f => f.fileType === "qa").length,
+      sitFileCount: mExecFiles.filter(f => f.fileType === "sit").length,
       uatFileCount: mExecFiles.filter(f => f.fileType === "uat").length,
       dataPrepFileCount: dataFiles.filter(f => f.milestoneId === m.id).length,
     };
@@ -350,7 +392,11 @@ router.post("/milestones", async (req, res): Promise<void> => {
   if (!ctx) return;
   if (!canWritePipeline(ctx.role, Boolean(req.body.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
 
-  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, pipelineEnabled, pipelineStep } = req.body;
+  const { projectId, name, type = "cr", status = "planned", priority, targetDate, startDate, reqTargetDate, devTargetDate, qaTargetDate, sitTargetDate, uatTargetDate, goLiveDate, environment, description, assigneeUserIds, requiresUat, requiresSit, pipelineEnabled, pipelineStep } = req.body;
+  // CR106 — a new milestone starts with SIT and UAT both required unless the caller says otherwise
+  // (data preparation work has neither phase). A phase that is switched off carries no date.
+  const needsUat = type === "data_prep" ? false : requiresUat === undefined ? true : Boolean(requiresUat);
+  const needsSit = type === "data_prep" ? false : requiresSit === undefined ? true : Boolean(requiresSit);
   if (!projectId || !name?.trim()) { res.status(400).json({ error: "projectId and name are required" }); return; }
   if (environment != null && !VALID_ENVIRONMENTS.includes(environment)) {
     res.status(400).json({ error: `environment must be one of ${VALID_ENVIRONMENTS.join(", ")}` }); return;
@@ -369,6 +415,15 @@ router.post("/milestones", async (req, res): Promise<void> => {
   const ok = await canAccessProject(ctx.userId, ctx.role, Number(projectId));
   if (!ok) { res.status(403).json({ error: "Access denied" }); return; }
 
+  // Module scope — required for every type except data_prep. moduleIds picks
+  // specific modules; allModules explicitly means "the whole project".
+  const moduleIds = parseModuleIds(req.body.moduleIds ?? []);
+  if (moduleIds == null) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
+  const moduleError = await validateMilestoneModules({
+    projectId: Number(projectId), type, moduleIds, allModules: req.body.allModules === true,
+  });
+  if (moduleError) { res.status(400).json({ error: moduleError }); return; }
+
   const [m] = await db.insert(milestonesTable).values({
     projectId: Number(projectId),
     name: name.trim(),
@@ -382,32 +437,42 @@ router.post("/milestones", async (req, res): Promise<void> => {
     reqTargetDate: reqTargetDate ? new Date(reqTargetDate) : null,
     devTargetDate: devTargetDate ? new Date(devTargetDate) : null,
     qaTargetDate: qaTargetDate ? new Date(qaTargetDate) : null,
-    uatTargetDate: uatTargetDate ? new Date(uatTargetDate) : null,
+    sitTargetDate: needsSit && sitTargetDate ? new Date(sitTargetDate) : null,
+    uatTargetDate: needsUat && uatTargetDate ? new Date(uatTargetDate) : null,
     goLiveDate: goLiveDate ? new Date(goLiveDate) : null,
     environment: environment ?? null,
     description: description ? String(description).trim() || null : null,
     createdBy: (ctx as any).id ?? ctx.userId,
     // Edge case: importing a historical milestone already marked completed.
     completedAt: status === "completed" ? new Date() : null,
-    requiresUat: Boolean(requiresUat),
+    requiresUat: needsUat,
+    requiresSit: needsSit,
     pipelineEnabled: Boolean(pipelineEnabled),
     pipelineStep: pipelineStep ? Number(pipelineStep) : null,
   }).returning();
 
+  await setMilestoneModules(m.id, moduleIds);
+
   await logActivity({ type: "milestone_created", description: `Milestone "${m.name}" created`, userId: (ctx as any).id ?? ctx.userId, entityId: m.id, entityType: "milestone" });
 
-  // CR045 — FAs on this project kick off requirement writing when a milestone
-  // opens, so they're the ones told about it (lead + member; HODs excluded
-  // per the notification matrix).
+  // CR102 — every lead (QA, FA, Dev, PM) with access to the project is told a
+  // milestone opened; when it is limited to some modules, only leads whose
+  // access covers one of them. People put on the team are told separately that
+  // they were assigned, so they are not sent this one as well. (Before, only FA
+  // Leads and FA Members were told.)
+  const createdModules = ((await loadMilestoneModules([m.id])).get(m.id) ?? []).map((x) => x.name);
+  const assignedAtCreate = Array.isArray(assigneeUserIds) ? assigneeUserIds.map(Number).filter(Boolean) : [];
   await notifyRolesInProject({
-    roles: ["fa_lead", "fa_member"],
+    roles: ["qa_lead", "fa_lead", "dev_lead", "pm_lead"],
     projectId: m.projectId,
+    module: createdModules,
     title: "New milestone created",
-    message: `Milestone "${m.name}" was created — requirements can now be raised against it.`,
+    message: `Milestone "${m.name}" was created${createdModules.length ? ` for ${createdModules.join(", ")}` : ""}.`,
     type: "milestone_created",
     entityType: "milestone",
     entityId: m.id,
     actorId: (ctx as any).id ?? ctx.userId,
+    excludeUserIds: assignedAtCreate,
   }).catch(() => {});
 
   // Apply the same department and lead-membership rules as later staffing.
@@ -428,7 +493,7 @@ router.post("/milestones", async (req, res): Promise<void> => {
     if (staffed) await ensureAssigningLead(m.id, ctx.role, ctx.userId);
   }
 
-  res.status(201).json(fmt(m));
+  res.status(201).json({ ...fmt(m), modules: (await loadMilestoneModules([m.id])).get(m.id) ?? [] });
 });
 
 // GET /milestones/assignable-users?projectId=N — same staffing-candidate
@@ -484,6 +549,11 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
   const dataFiles = await db.select({ id: dataPrepFilesTable.id })
     .from(dataPrepFilesTable).where(eq(dataPrepFilesTable.milestoneId, id));
 
+  const detailAssigned = (await db.select({ id: milestoneAssigneesTable.id }).from(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, ctx.userId)))).length > 0;
+  const createdByName = m.createdBy
+    ? (await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, m.createdBy)))[0]?.name ?? null
+    : null;
   const conditionalSignoff = isConditionalSignoff(m, facts);
   const pipelineStepStates = m.type === "data_prep"
     ? computeDataPrepStepStates({
@@ -501,6 +571,8 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
         conditionalSignoff,
         requiresUat: !!m.requiresUat,
         uatDocCount: facts.uatDocCount,
+        requiresSit: !!m.requiresSit,
+        sitDocCount: facts.sitDocCount,
         deployed: m.status === "completed",
       });
 
@@ -519,12 +591,19 @@ router.get("/milestones/:id", async (req, res): Promise<void> => {
 
   res.json({
     ...fmt(m),
+    modules: (await loadMilestoneModules([id])).get(id) ?? [],
+    tracker: (await loadTypeTrackerMap())[m.type] ?? null,
+    can: milestonePermissions(ctx.role, ctx.userId, m, detailAssigned),
+    assigned: detailAssigned,
+    createdByName,
     signedOffByName,
     signedOffByRole,
     requirementCount: reqs.length,
     approvedCount: reqs.filter(r => r.reviewStatus === "approved").length,
     executionFileCount: execFiles.filter(f => f.fileType === "qa").length,
+    sitFileCount: execFiles.filter(f => f.fileType === "sit").length,
     uatFileCount: execFiles.filter(f => f.fileType === "uat").length,
+    sitSignoffCount: facts.sitDocCount,
     uatSignoffCount: facts.uatDocCount,
     dataPrepFileCount: dataFiles.length,
     execRowCount: facts.totalExecRows,
@@ -546,7 +625,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
-  if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canEditMilestone(ctx.role, ctx.userId, m)) { res.status(403).json({ error: "Only the milestone's author or a PM Lead can edit it" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
   const isPipeline = !!m.pipelineEnabled;
@@ -563,7 +642,8 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     // be rewritten. Milestone details and dates stay editable.
     // requiresUat decides whether Step 7 gated the deployment, so flipping it
     // afterwards would rewrite what the pipeline was closed against.
-    const changesUat = req.body.requiresUat !== undefined && Boolean(req.body.requiresUat) !== !!m.requiresUat;
+    const changesUat = (req.body.requiresUat !== undefined && Boolean(req.body.requiresUat) !== !!m.requiresUat)
+      || (req.body.requiresSit !== undefined && Boolean(req.body.requiresSit) !== !!m.requiresSit);
     if (isDeployed && !reopening && (req.body.pipelineStep !== undefined || touchesSignoff || changesUat)) {
       res.status(409).json({ error: "This pipeline is completed and locked" }); return;
     }
@@ -577,6 +657,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (req.body.reqTargetDate !== undefined) update.reqTargetDate = req.body.reqTargetDate ? new Date(req.body.reqTargetDate) : null;
   if (req.body.devTargetDate !== undefined) update.devTargetDate = req.body.devTargetDate ? new Date(req.body.devTargetDate) : null;
   if (req.body.qaTargetDate !== undefined) update.qaTargetDate = req.body.qaTargetDate ? new Date(req.body.qaTargetDate) : null;
+  if (req.body.sitTargetDate !== undefined) update.sitTargetDate = req.body.sitTargetDate ? new Date(req.body.sitTargetDate) : null;
   if (req.body.uatTargetDate !== undefined) update.uatTargetDate = req.body.uatTargetDate ? new Date(req.body.uatTargetDate) : null;
   if (req.body.goLiveDate !== undefined) {
     const newGoLiveDate = req.body.goLiveDate ? new Date(req.body.goLiveDate) : null;
@@ -600,6 +681,10 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     update.environment = req.body.environment ?? null;
   }
   if (req.body.requiresUat !== undefined) update.requiresUat = Boolean(req.body.requiresUat);
+  if (req.body.requiresSit !== undefined) update.requiresSit = Boolean(req.body.requiresSit);
+  // CR106 — switching a phase off clears its date, so a stale date never lingers on a hidden field.
+  if (update.requiresUat === false) update.uatTargetDate = null;
+  if (update.requiresSit === false) update.sitTargetDate = null;
   if (req.body.lessonsLearned !== undefined) update.lessonsLearned = req.body.lessonsLearned;
   if (req.body.description !== undefined) update.description = req.body.description ? String(req.body.description).trim() || null : null;
   if (req.body.lessonsLearnedType !== undefined) {
@@ -700,7 +785,20 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     }
   }
 
+  // Only touched when the caller sends moduleIds (the edit form always does).
+  let newModuleIds: number[] | null = null;
+  if (req.body.moduleIds !== undefined) {
+    newModuleIds = parseModuleIds(req.body.moduleIds);
+    if (newModuleIds == null) { res.status(400).json({ error: "moduleIds must be an array of module IDs" }); return; }
+    const moduleError = await validateMilestoneModules({
+      projectId: m.projectId, type: update.type ?? m.type, moduleIds: newModuleIds, allModules: req.body.allModules === true,
+    });
+    if (moduleError) { res.status(400).json({ error: moduleError }); return; }
+  }
+
+  const modulesBefore = ((await loadMilestoneModules([id])).get(id) ?? []).map((x) => x.name);
   const [updated] = await db.update(milestonesTable).set(update).where(eq(milestonesTable.id, id)).returning();
+  if (newModuleIds) await setMilestoneModules(id, newModuleIds);
 
   // Clicking between pipeline steps only saves where the user is standing —
   // not worth an activity-log entry or a status recompute on every click.
@@ -709,6 +807,23 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
   if (positionOnly) { res.json(fmt(updated)); return; }
 
   await logActivity({ type: "milestone_updated", description: `Milestone "${updated.name}" updated`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
+
+  // CR102 — tell the team what changed. One message per save, listing only the
+  // fields people plan around (status, dates, priority, environment, modules,
+  // name); the person who made the edit is not told about their own change.
+  try {
+    const modulesAfter = ((await loadMilestoneModules([id])).get(id) ?? []).map((x) => x.name);
+    const changes = describeMilestoneChanges(m as any, updated as any, modulesBefore, modulesAfter);
+    if (changes.length > 0) {
+      const team = await db.select({ userId: milestoneAssigneesTable.userId }).from(milestoneAssigneesTable).where(eq(milestoneAssigneesTable.milestoneId, id));
+      const summary = summariseChanges(changes);
+      await Promise.all(team.filter((t) => t.userId !== ctx.userId).map((t) =>
+        notifyUser(t.userId, "Milestone updated", `"${updated.name}" was updated: ${summary}.`, "milestone_updated", "milestone", id, ctx.userId).catch(() => {}),
+      ));
+    }
+  } catch (err) {
+    console.error("[milestone-update-notify]", err);
+  }
 
   // Don't fight a status the caller just set explicitly in this same request —
   // otherwise re-sync (e.g. after signedOffAt changed) so the response
@@ -720,7 +835,7 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
     if (fresh) responseMilestone = fresh;
   }
 
-  res.json(fmt(responseMilestone));
+  res.json({ ...fmt(responseMilestone), modules: (await loadMilestoneModules([id])).get(id) ?? [] });
 });
 
 // ── CR054p2: milestone staffing ─────────────────────────────────────────────
@@ -728,6 +843,31 @@ router.patch("/milestones/:id", async (req, res): Promise<void> => {
 // staffs testers). Distinct from project membership, which governs access.
 
 // GET /milestones/:id/assignees
+// GET /milestones/:id/activity — what has happened on this milestone: its own
+// changes and team moves, plus events on the requirements that belong to it.
+router.get("/milestones/:id/activity", async (req, res): Promise<void> => {
+  const ctx = getAuthContext(req);
+  if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = parsePositiveId(req.params.id);
+  if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
+  const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
+  if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const reqIds = (await db.select({ id: requirementsTable.id }).from(requirementsTable).where(eq(requirementsTable.milestoneId, id))).map((r) => r.id);
+  const rows = await db
+    .select({ id: activityTable.id, type: activityTable.type, description: activityTable.description, createdAt: activityTable.createdAt, userName: usersTable.name })
+    .from(activityTable)
+    .leftJoin(usersTable, eq(usersTable.id, activityTable.userId))
+    .where(or(
+      and(eq(activityTable.entityType, "milestone"), eq(activityTable.entityId, id)),
+      reqIds.length ? and(eq(activityTable.entityType, "requirement"), inArray(activityTable.entityId, reqIds)) : sql`false`,
+    ))
+    .orderBy(desc(activityTable.createdAt), desc(activityTable.id))
+    .limit(60);
+  res.json(rows.map((r) => ({ id: r.id, type: r.type, description: r.description, userName: r.userName ?? null, createdAt: r.createdAt.toISOString() })));
+});
+
 router.get("/milestones/:id/assignees", async (req, res): Promise<void> => {
   const ctx = getAuthContext(req);
   if (!ctx) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -759,7 +899,7 @@ router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> =
   // canWritePipeline, not canWrite: QA Pipeline Step 2 lets a qa_member name
   // the FA/Dev/QA owner per requirement, and qa_member isn't in canWrite — the
   // lead-tier gate would leave them with an empty picker on their own pipeline.
-  if (!canWritePipeline(ctx.role, Boolean(m.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canStaffMilestone(ctx.role, ctx.userId, m) && !canWritePipeline(ctx.role, Boolean(m.pipelineEnabled))) { res.status(403).json({ error: "Insufficient role" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
   const rows = await db
@@ -784,13 +924,13 @@ router.get("/milestones/:id/assignable-users", async (req, res): Promise<void> =
 router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canManageTeam(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
   const id = parsePositiveId(req.params.id);
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = Number(req.body.userId);
   if (!userId) { res.status(400).json({ error: "userId is required" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!canStaffMilestone(ctx.role, ctx.userId, m)) { res.status(403).json({ error: "Only a lead, or the milestone's PM, can add team members" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
   // The assignee must be able to see the project they're being staffed on.
   const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
@@ -822,20 +962,24 @@ router.post("/milestones/:id/assignees", async (req, res): Promise<void> => {
 router.delete("/milestones/:id/assignees/:userId", async (req, res): Promise<void> => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
-  if (!canManageTeam(ctx.role)) { res.status(403).json({ error: "Insufficient role" }); return; }
   const id = parsePositiveId(req.params.id);
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const userId = parseInt(req.params.userId);
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
+  if (!canStaffMilestone(ctx.role, ctx.userId, m)) { res.status(403).json({ error: "Only a lead, or the milestone's PM, can remove team members" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
   const [target] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
   if (target) {
     const deptError = await checkDepartmentAssignment(ctx.role, target.role);
     if (deptError) { res.status(403).json({ error: deptError }); return; }
   }
-  await db.delete(milestoneAssigneesTable)
-    .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)));
+  const removed = await db.delete(milestoneAssigneesTable)
+    .where(and(eq(milestoneAssigneesTable.milestoneId, id), eq(milestoneAssigneesTable.userId, userId)))
+    .returning({ id: milestoneAssigneesTable.id });
+  if (removed.length > 0 && userId !== ctx.userId) {
+    await notifyUser(userId, "Removed from milestone", `You were removed from the team of milestone "${m.name}".`, "milestone_team_removed", "milestone", id, ctx.userId).catch(() => {});
+  }
   await logActivity({ type: "milestone_assignee_removed", description: `User #${userId} removed from milestone "${m.name}"`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.json({ ok: true });
 });
@@ -849,9 +993,10 @@ router.delete("/milestones/:id", async (req, res): Promise<void> => {
   if (id == null) { res.status(400).json({ error: "Invalid milestone ID" }); return; }
   const [m] = await db.select().from(milestonesTable).where(eq(milestonesTable.id, id));
   if (!m) { res.status(404).json({ error: "Milestone not found" }); return; }
-  if (!canWritePipeline(ctx.role, m.pipelineEnabled ?? false)) { res.status(403).json({ error: "Insufficient role" }); return; }
+  if (!canEditMilestone(ctx.role, ctx.userId, m)) { res.status(403).json({ error: "Only the milestone's author or a PM Lead can delete it" }); return; }
   if (!(await canAccessProject(ctx.userId, ctx.role, m.projectId))) { res.status(403).json({ error: "Access denied" }); return; }
 
+  await db.delete(milestoneModulesTable).where(eq(milestoneModulesTable.milestoneId, id));
   await db.delete(milestonesTable).where(eq(milestonesTable.id, id));
   await logActivity({ type: "milestone_deleted", description: `Milestone "${m.name}" deleted`, userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone" });
   res.sendStatus(204);
@@ -889,7 +1034,7 @@ router.patch("/milestones/:id/review", async (req, res): Promise<void> => {
 
   await logActivity({
     type: action === "approve" ? "milestone_approved" : "milestone_rejected",
-    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "rejected"} by user #${(ctx as any).id ?? ctx.userId}`,
+    description: `Milestone "${m.name}" ${action === "approve" ? "signed off" : "returned"} by user #${(ctx as any).id ?? ctx.userId}`,
     userId: (ctx as any).id ?? ctx.userId, entityId: id, entityType: "milestone",
   });
 

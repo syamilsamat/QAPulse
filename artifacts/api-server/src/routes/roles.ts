@@ -56,14 +56,14 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   hod_qa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
   hod_pm:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   hod_fa:     ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:resources"],
-  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
+  hod_dev:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources", "nav:milestones"],
   qa_manager: ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:uat-signoffs"],
   qa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:qa-pipeline", "nav:milestones", "nav:qa-analytics", "nav:defects", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   qa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:qa-pipeline", "nav:milestones", "nav:defects"],
   fa_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:ai-hub", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:milestones", "nav:resources", "nav:risk-register", "nav:defects"],
   fa_member:  ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:milestones", "nav:defects"],
-  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources"],
-  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:defects"],
+  dev_lead:   ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:defects", "nav:resources", "nav:milestones"],
+  dev_member: ["nav:requirements", "nav:test-cases", "nav:report", "nav:inbox", "nav:team-hangouts", "nav:defects", "nav:milestones"],
   pm_lead:    ["nav:requirements", "nav:test-cases", "nav:traceability", "nav:tasks", "nav:report", "nav:inbox", "nav:team", "nav:team-hangouts", "nav:configurations", "nav:milestones", "nav:pm-dashboard", "nav:resources", "nav:risk-register", "nav:uat-signoffs"],
   pm_member:  ["nav:milestones", "nav:pm-dashboard", "nav:risk-register", "nav:report", "nav:inbox", "nav:uat-signoffs"],
 };
@@ -109,6 +109,46 @@ async function migratePipelineOwnerColumns(): Promise<void> {
     }
   } catch (e) {
     console.error("[bootstrap] pipeline owner columns migration skipped:", e);
+  }
+}
+
+// CR106 — the sign-off table predates the SIT phase; existing databases get the
+// phase column here (a brand-new database already has it from its CREATE TABLE).
+async function addSignoffPhaseColumn(): Promise<void> {
+  try {
+    await pool.query(`ALTER TABLE uat_signoffs ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'uat'`);
+  } catch (e) {
+    // No sign-off table yet means a new database, whose CREATE TABLE includes the column.
+    console.warn("[bootstrap] sign-off phase column skipped:", (e as Error)?.message);
+  }
+}
+
+// CR105 — every defect saved as "SIT" so far came from QA execution, which was
+// System Testing. Relabel them once. The guard row is written in the same
+// transaction as the update, so the relabel can never run a second time: after
+// this, "SIT" is a real phase and must not be rewritten on later starts.
+async function relabelOldSitDefectsAsSystemTesting(): Promise<void> {
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`SET lock_timeout = '5s'`);
+      await client.query(`CREATE TABLE IF NOT EXISTS data_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+      await client.query(`ALTER TABLE defects ALTER COLUMN found_in SET DEFAULT 'System Testing'`);
+      await client.query("BEGIN");
+      const guard = await client.query(`INSERT INTO data_migrations (name) VALUES ('cr105_defects_sit_to_system_testing') ON CONFLICT DO NOTHING RETURNING name`);
+      if (guard.rowCount && guard.rowCount > 0) {
+        const res = await client.query(`UPDATE defects SET found_in = 'System Testing' WHERE found_in = 'SIT'`);
+        console.log(`[bootstrap] CR105: relabelled ${res.rowCount ?? 0} SIT defect(s) as System Testing`);
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("[bootstrap] CR105 defect phase relabel skipped:", e);
   }
 }
 
@@ -236,6 +276,8 @@ export async function bootstrap() {
   await Promise.all([
     migratePipelineOwnerColumns(),
     dedupeAndIndexDefectRedmineIds(),
+    relabelOldSitDefectsAsSystemTesting(),
+    addSignoffPhaseColumn(),
     compactExecutionTcNumbering(),
 
     pool.query(`
@@ -379,6 +421,33 @@ export async function bootstrap() {
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`),
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_by INTEGER REFERENCES users(id) ON DELETE SET NULL`),
     pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ`),
+    // CR104 — revision control on requirements
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS draft_owner_id INTEGER`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS last_edited_by INTEGER`),
+    pool.query(`ALTER TABLE requirements ADD COLUMN IF NOT EXISTS last_edited_at TIMESTAMPTZ`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_approved_snapshots (
+        requirement_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL,
+        approved_by INTEGER,
+        approved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_revision_log (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        actor_id INTEGER,
+        actor_name TEXT,
+        remark TEXT,
+        changes TEXT,
+        version INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS req_revision_log_req_idx ON requirement_revision_log (requirement_id, created_at)`),
     // CR030 — native dev assignment on defects (defects table itself predates
     // bootstrap coverage — created via drizzle-kit push in CR019 — so these are
     // the first bootstrap-owned columns on it)
@@ -554,6 +623,9 @@ export async function bootstrap() {
     // QA Pipeline — sign-off snapshot (Full / Conditional and the counts it
     // was based on), frozen at sign-off time. See PATCH /milestones/:id.
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_type TEXT`),
+    // CR106 — SIT phase: its own date and switch (existing milestones start with SIT off).
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS sit_target_date TIMESTAMPTZ`),
+    pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS requires_sit BOOLEAN NOT NULL DEFAULT FALSE`),
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_failed_count INTEGER`),
     pool.query(`ALTER TABLE milestones ADD COLUMN IF NOT EXISTS signoff_total_count INTEGER`),
     // CR054p2 — formal milestone staffing (lead assigns members to a milestone)
@@ -567,12 +639,134 @@ export async function bootstrap() {
         UNIQUE (milestone_id, user_id)
       )
     `),
+    // Milestone type -> default Redmine tracker for new requirements
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_type_trackers (
+        milestone_type TEXT PRIMARY KEY,
+        tracker_name TEXT NOT NULL,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    // Scheduled Redmine sync: state/lock, run history, flagged requirement changes
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS redmine_sync_state (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        interval_minutes INTEGER NOT NULL DEFAULT 15,
+        last_run_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        last_full_at TIMESTAMPTZ,
+        requirements_cursor_at TIMESTAMPTZ,
+        last_status TEXT,
+        last_error TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        running_since TIMESTAMPTZ,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS redmine_sync_runs (
+        id SERIAL PRIMARY KEY,
+        trigger TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMPTZ,
+        defects_refreshed INTEGER NOT NULL DEFAULT 0,
+        defects_failed INTEGER NOT NULL DEFAULT 0,
+        requirements_checked INTEGER NOT NULL DEFAULT 0,
+        requirements_updated INTEGER NOT NULL DEFAULT 0,
+        requirements_flagged INTEGER NOT NULL DEFAULT 0,
+        error TEXT
+      )
+    `),
+    // Existing databases already have the table, so add the column; a fresh one gets it from CREATE above.
+    // Guarded because the CREATE runs concurrently with this in the same stage.
+    pool.query(`DO $ BEGIN IF to_regclass('redmine_sync_state') IS NOT NULL THEN ALTER TABLE redmine_sync_state ADD COLUMN IF NOT EXISTS requirements_cursor_at TIMESTAMPTZ; END IF; END $`),
+    pool.query(`CREATE INDEX IF NOT EXISTS redmine_sync_runs_started_idx ON redmine_sync_runs (started_at)`),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS requirement_redmine_changes (
+        id SERIAL PRIMARY KEY,
+        requirement_id INTEGER NOT NULL,
+        redmine_ticket_id TEXT NOT NULL,
+        changes TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        resolved_by INTEGER,
+        resolved_at TIMESTAMPTZ
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS req_redmine_changes_req_idx ON requirement_redmine_changes (requirement_id, status)`),
+    // AI controls: kill switch / caps, per-feature overrides, usage log
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_global_settings (
+        id INTEGER PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        daily_cap_per_user INTEGER NOT NULL DEFAULT 100,
+        hourly_cap_per_user INTEGER NOT NULL DEFAULT 30,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_feature_settings (
+        feature TEXT PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        allowed_roles TEXT,
+        daily_cap_per_user INTEGER,
+        updated_by INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_usage_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        user_role TEXT,
+        feature TEXT NOT NULL,
+        project_id INTEGER,
+        status TEXT NOT NULL,
+        blocked_reason TEXT,
+        input_chars INTEGER,
+        duration_ms INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS ai_usage_user_time_idx ON ai_usage_log (user_id, created_at)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS ai_usage_feature_time_idx ON ai_usage_log (feature, created_at)`),
+    // Append-only peer-review history with reviewer remarks
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS execution_review_log (
+        id SERIAL PRIMARY KEY,
+        execution_file_id INTEGER NOT NULL REFERENCES execution_files(id) ON DELETE CASCADE,
+        execution_test_case_id INTEGER,
+        row_label TEXT,
+        action TEXT NOT NULL,
+        actor_id INTEGER,
+        actor_name TEXT,
+        remark TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS exec_review_log_file_idx ON execution_review_log (execution_file_id)`),
+    // Modules a milestone covers; no rows = whole project
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS milestone_modules (
+        milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        module_id INTEGER NOT NULL,
+        PRIMARY KEY (milestone_id, module_id)
+      )
+    `),
+    pool.query(`CREATE INDEX IF NOT EXISTS milestone_modules_module_idx ON milestone_modules (module_id)`),
     // CR054p3 — UAT sign-off documents (file bytes stored base64 in-row)
     pool.query(`
       CREATE TABLE IF NOT EXISTS uat_signoffs (
         id SERIAL PRIMARY KEY,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         milestone_id INTEGER NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+        phase TEXT NOT NULL DEFAULT 'uat',
         file_name TEXT NOT NULL,
         mime_type TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,
@@ -790,6 +984,9 @@ export async function bootstrap() {
     // backfill so existing installs pick it up without touching their other
     // customized keys.
     backfillNavKey(["dev_member", "pm_member"], "nav:inbox"),
+    // CR099 — the milestone page is open to Dev roles, so they get the menu
+    // entry too; existing installs pick it up here.
+    backfillNavKey(["hod_dev", "dev_lead", "dev_member"], "nav:milestones"),
   ]);
 
   bootstrapped = true;

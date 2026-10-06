@@ -161,6 +161,7 @@ interface PhaseReport {
     reqTargetDate?: string | null;
     devTargetDate?: string | null;
     qaTargetDate?: string | null;
+    sitTargetDate?: string | null;
     uatTargetDate?: string | null;
     goLiveDate?: string | null;
   };
@@ -591,7 +592,7 @@ function openItemsBreakdown(c: CapacityEntry): string {
 
 function CapacityTable({ capacity }: { capacity: CapacityEntry[] }) {
   if (capacity.length === 0) {
-    return <p className="text-xs text-muted-foreground">No open tasks, pending test cases, or draft/rejected requirements in this project.</p>;
+    return <p className="text-xs text-muted-foreground">No open tasks, pending test cases, or draft/returned requirements in this project.</p>;
   }
   return (
     <table className="w-full text-sm">
@@ -883,7 +884,7 @@ function KpiCards({ kpis, trend }: { kpis: NonNullable<PhaseReport["kpis"]>; tre
           <CardContent className="p-4 space-y-1">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">First-Pass Rate</p>
             <p className={`text-3xl font-bold tabular-nums ${fpColor}`}>{kpis.firstPassPct}%</p>
-            <p className="text-[11px] text-muted-foreground">Approved without rejection</p>
+            <p className="text-[11px] text-muted-foreground">Approved without being returned</p>
             {trendAvgFP !== null && (
               <div className="pt-1 space-y-1">
                 <div className="flex justify-between text-xs">
@@ -957,7 +958,7 @@ function TopBlockersCard({ blockers }: { blockers: TopBlocker[] }) {
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{b.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  {b.reviewStatus === "rejected" ? "Rejected" : "In review"}
+                  {b.reviewStatus === "rejected" ? "Returned" : "In review"}
                   {b.module && ` · ${b.module}`}
                 </p>
               </div>
@@ -1067,7 +1068,7 @@ function statusBadgeClasses(status: string): string {
   if (status === "Approved · awaiting QA" || status === "Awaiting QA") return "bg-slate-100 text-slate-700 dark:bg-slate-950 dark:text-slate-400";
   if (status === "Approved · in development") return "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400";
   if (status === "Approved · awaiting Dev") return "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
-  // Draft / In review / Rejected — awaiting revision — all still Requirements phase
+  // Draft / In review / Returned — awaiting revision — all still Requirements phase
   return "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-400";
 }
 
@@ -1122,7 +1123,7 @@ const GANTT_LEGEND: { key: string; label: string }[] = [
 const GANTT_ONGOING_HATCH = "repeating-linear-gradient(45deg, rgba(255,255,255,0.22) 0 4px, transparent 4px 8px)";
 
 function ganttStatusDot(status: string): string | null {
-  if (status.startsWith("Rejected")) return "bg-red-500";
+  if (status.startsWith("Returned")) return "bg-red-500";
   if (status === "In review" || status === "Draft") return "bg-amber-500";
   return null; // approved rows carry no dot — only exceptions get flagged
 }
@@ -1332,7 +1333,7 @@ function RequirementGanttChart({
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> In review
         </span>
         <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Rejected
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Returned
         </span>
       </div>
     </div>
@@ -1491,7 +1492,8 @@ export default function PmDashboard() {
                     { key: "start", label: "Start", target: phaseReport.milestone.startDate },
                     { key: "requirements", label: "Req by", target: phaseReport.milestone.reqTargetDate },
                     { key: "develop", label: "Dev by", target: phaseReport.milestone.devTargetDate },
-                    { key: "qa", label: "QA by", target: phaseReport.milestone.qaTargetDate },
+                    { key: "qa", label: "System Testing by", target: phaseReport.milestone.qaTargetDate },
+                    { key: "sit", label: "SIT by", target: phaseReport.milestone.sitTargetDate },
                     { key: "uat", label: "UAT by", target: phaseReport.milestone.uatTargetDate },
                     { key: "end", label: "End", target: phaseReport.milestone.targetDate },
                     { key: "golive", label: "Go-Live", target: phaseReport.milestone.goLiveDate },

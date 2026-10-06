@@ -19,6 +19,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { DATA_PREP_TEMPLATE } from "@/components/DataPrepFilesSection";
+import { MilestoneModulePicker, EMPTY_MODULE_SELECTION, isModuleSelectionValid, useProjectModules, type ModuleSelection } from "@/components/MilestoneModulePicker";
 
 const TYPE_OPTIONS = [
   { value: "cr", label: "Change Request" },
@@ -45,6 +46,7 @@ const STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
   { value: "active", label: "Active" },
   { value: "verified", label: "Verified" },
+  { value: "sit", label: "SIT" },
   { value: "uat", label: "UAT" },
   { value: "cancelled", label: "Cancelled" },
 ];
@@ -89,12 +91,17 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
     reqTargetDate: "",
     devTargetDate: "",
     qaTargetDate: "",
+    sitTargetDate: "",
     uatTargetDate: "",
     goLiveDate: "",
     description: "",
-    requiresUat: false,
+    // CR106 — a new milestone starts with both SIT and UAT required.
+    requiresUat: true,
+    requiresSit: true,
   });
   const [saving, setSaving] = useState(false);
+  const [moduleSel, setModuleSel] = useState<ModuleSelection>(EMPTY_MODULE_SELECTION);
+  const { data: projectModules = [] } = useProjectModules(projectId, token);
 
   const { data: projects = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["projects"],
@@ -130,6 +137,10 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
       toast({ variant: "destructive", title: "Milestone name is required" });
       return;
     }
+    if (!isModuleSelectionValid(moduleSel, projectModules.length, form.type)) {
+      toast({ variant: "destructive", title: "Select at least one module, or choose All modules" });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -147,10 +158,14 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
           reqTargetDate: form.reqTargetDate || null,
           devTargetDate: form.devTargetDate || null,
           qaTargetDate: form.qaTargetDate || null,
-          uatTargetDate: form.uatTargetDate || null,
+          sitTargetDate: form.requiresSit ? form.sitTargetDate || null : null,
+          uatTargetDate: form.requiresUat ? form.uatTargetDate || null : null,
           goLiveDate: form.goLiveDate || null,
           description: form.description,
-          requiresUat: form.requiresUat,
+          requiresUat: form.type === "data_prep" ? false : form.requiresUat,
+          requiresSit: form.type === "data_prep" ? false : form.requiresSit,
+          moduleIds: form.type === "data_prep" ? [] : moduleSel.moduleIds,
+          allModules: form.type === "data_prep" ? false : moduleSel.allModules,
           pipelineEnabled: true,
           pipelineStep: 1, // Advance to step 1
         }),
@@ -219,6 +234,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             </Select>
           </div>
         </div>
+        <MilestoneModulePicker projectId={projectId} token={token} value={moduleSel} onChange={setModuleSel} type={form.type} />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Priority</Label>
@@ -266,12 +282,18 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
                 <Input type="date" value={form.devTargetDate} onChange={e => setForm({ ...form, devTargetDate: e.target.value })} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">QA done by</Label>
+                <Label className="text-xs">System Testing done by</Label>
                 <Input type="date" value={form.qaTargetDate} onChange={e => setForm({ ...form, qaTargetDate: e.target.value })} />
               </div>
+              {form.requiresSit && (
+                <div className="space-y-1">
+                  <Label className="text-xs">SIT done by</Label>
+                  <Input type="date" value={form.sitTargetDate} onChange={e => setForm({ ...form, sitTargetDate: e.target.value })} />
+                </div>
+              )}
               {form.requiresUat && (
                 <div className="space-y-1">
-                  <Label className="text-xs">UAT target date</Label>
+                  <Label className="text-xs">UAT done by</Label>
                   <Input type="date" value={form.uatTargetDate} onChange={e => setForm({ ...form, uatTargetDate: e.target.value })} />
                 </div>
               )}
@@ -296,6 +318,21 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
         {form.type !== "data_prep" && (
           <div className="flex flex-row items-center space-x-3 space-y-0 p-4 border rounded-lg bg-muted/50">
             <Checkbox
+              id="sitToggle"
+              checked={form.requiresSit}
+              onCheckedChange={(checked) => setForm({ ...form, requiresSit: !!checked, sitTargetDate: checked ? form.sitTargetDate : "" })}
+            />
+            <div className="space-y-1 leading-none">
+              <Label htmlFor="sitToggle">Requires SIT Sign-off?</Label>
+              <p className="text-sm text-muted-foreground">
+                If enabled, the SIT sign-off in Step 7 will be required before the pipeline can be completed.
+              </p>
+            </div>
+          </div>
+        )}
+        {form.type !== "data_prep" && (
+          <div className="flex flex-row items-center space-x-3 space-y-0 p-4 border rounded-lg bg-muted/50">
+            <Checkbox
               id="uatToggle"
               checked={form.requiresUat}
               onCheckedChange={(checked) => setForm({ ...form, requiresUat: !!checked, uatTargetDate: checked ? form.uatTargetDate : "" })}
@@ -303,7 +340,7 @@ export function Step1Milestone({ defaultProjectId }: { defaultProjectId?: string
             <div className="space-y-1 leading-none">
               <Label htmlFor="uatToggle">Requires UAT Sign-off?</Label>
               <p className="text-sm text-muted-foreground">
-                If enabled, Step 7 (UAT Sign-off) will be required before the pipeline can be completed.
+                If enabled, the UAT sign-off in Step 7 will be required before the pipeline can be completed.
               </p>
             </div>
           </div>
