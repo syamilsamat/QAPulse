@@ -181,7 +181,7 @@ export default function Roles() {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const { data: roles = [], isLoading } = useQuery<Role[]>({
+  const { data: roles = [], isLoading, isError: rolesError, refetch: refetchRoles } = useQuery<Role[]>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
       const res = await fetch(`${getApiUrl()}/roles`, { headers: authHeaders });
@@ -398,11 +398,18 @@ export default function Roles() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">All Roles</CardTitle>
-          <CardDescription>{roles.length} role{roles.length !== 1 ? "s" : ""} defined</CardDescription>
+          <CardDescription>
+            {rolesError ? "Roles could not be loaded" : `${roles.length} role${roles.length !== 1 ? "s" : ""} defined`}
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">Loading roles…</div>
+          ) : rolesError ? (
+            <div className="p-6 text-sm text-destructive">
+              Could not load roles.{" "}
+              <button type="button" className="underline" onClick={() => refetchRoles()}>Retry</button>
+            </div>
           ) : (
             <Table>
               <TableHeader>
