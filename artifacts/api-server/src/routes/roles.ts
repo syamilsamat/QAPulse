@@ -697,7 +697,7 @@ async function runBootstrap() {
     `),
     // Existing databases already have the table, so add the column; a fresh one gets it from CREATE above.
     // Guarded because the CREATE runs concurrently with this in the same stage.
-    pool.query(`DO $ BEGIN IF to_regclass('redmine_sync_state') IS NOT NULL THEN ALTER TABLE redmine_sync_state ADD COLUMN IF NOT EXISTS requirements_cursor_at TIMESTAMPTZ; END IF; END $`),
+    pool.query(`DO $$ BEGIN IF to_regclass('redmine_sync_state') IS NOT NULL THEN ALTER TABLE redmine_sync_state ADD COLUMN IF NOT EXISTS requirements_cursor_at TIMESTAMPTZ; END IF; END $$`),
     pool.query(`CREATE INDEX IF NOT EXISTS redmine_sync_runs_started_idx ON redmine_sync_runs (started_at)`),
     pool.query(`
       CREATE TABLE IF NOT EXISTS requirement_redmine_changes (
