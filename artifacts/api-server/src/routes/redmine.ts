@@ -651,6 +651,23 @@ router.post("/redmine/issues", async (req, res): Promise<void> => {
       }
     }
 
+    // The pre-check above only proves the parent is readable. Redmine can still
+    // refuse it as a parent (other project with cross-project subtasks off,
+    // closed issue, tracker not allowed), so file the defect unparented rather
+    // than losing the report.
+    if (!response.ok && effectiveParentId != null && response.status === 422
+        && firstErrors.some((m) => /parent task/i.test(m))) {
+      const { parent_issue_id: _drop, ...unparented } = baseIssue;
+      const retry = await postIssue({
+        ...unparented,
+        ...(customFields.length > 0 && { custom_fields: toRedmine(customFields) }),
+      });
+      if (retry.ok) {
+        response = retry;
+        parentDropped = `#${effectiveParentId} was rejected by Redmine as the parent task, so the issue was created without one.`;
+      }
+    }
+
     if (!response.ok) {
       // Always the FIRST attempt's errors: the retry deliberately sends a
       // weaker payload, so its complaints describe what we removed, not what

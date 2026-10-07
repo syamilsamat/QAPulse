@@ -71,6 +71,7 @@ const DEFAULT_PERMISSIONS: Record<string, string[]> = {
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
 let bootstrapped = false;
+let bootstrapInFlight: Promise<void> | null = null;
 
 // Runs the pipeline-owner-columns migration on its own connection with a
 // short lock_timeout (see the comment at its call site for why). Extracted
@@ -253,7 +254,19 @@ async function compactExecutionTcNumbering(): Promise<void> {
   }
 }
 
-export async function bootstrap() {
+// Single-flight: the startup run and any early requests (GET /roles etc.) share
+// one execution. Re-running the DDL concurrently races on CREATE INDEX IF NOT
+// EXISTS ("already exists") and turned into 500s. A failed run clears the
+// in-flight promise so the next call retries.
+export function bootstrap(): Promise<void> {
+  if (bootstrapped) return Promise.resolve();
+  if (!bootstrapInFlight) {
+    bootstrapInFlight = runBootstrap().finally(() => { bootstrapInFlight = null; });
+  }
+  return bootstrapInFlight;
+}
+
+async function runBootstrap() {
   if (bootstrapped) return;
 
   // bootstrap() used to run ~104 DDL/seed statements as sequential awaits,
