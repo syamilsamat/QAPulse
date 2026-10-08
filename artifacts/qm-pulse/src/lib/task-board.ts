@@ -4,7 +4,7 @@
 // would quietly contradict the table right next to them.
 
 export interface PhaseTimelineEntry {
-  key: "requirements" | "development" | "qa" | "uat";
+  key: "requirements" | "development" | "qa" | "sit" | "uat";
   label: string;
   plannedStart: string | null;
   plannedEnd: string | null;
@@ -34,7 +34,7 @@ export interface TaskBoardRow {
   // handoff, so their FA/Dev PICs are legitimately empty and their phase comes
   // from the pipeline's gates. Flagged so the board can say so.
   pipelineEnabled?: boolean;
-  phase: "requirements" | "gap" | "develop" | "qa" | "uat";
+  phase: "requirements" | "gap" | "develop" | "qa" | "sit" | "uat";
   phaseLabel: string;
   statusLabel: string;
   assignee: string | null;

@@ -76,3 +76,34 @@ test('batch report routes pipeline records correctly and excludes execution from
   assert.equal(result.timeline[0].days, 7);
   assert.equal(result.actualWorkStartedAt, d('10').toISOString());
 });
+
+// CR120 — SIT is its own segment between System Testing and UAT.
+test('pipeline timeline shows SIT between Testing and UAT when SIT is required', () => {
+  const m = { ...milestone, requiresSit: true, requiresUat: true, completedAt: d('20') };
+  const r = load().computePipelineTimeline([d('10')], [d('17')], m, [d('14')]);
+  assert.equal(r.timeline.map(s => s.key).join(','), 'qa,sit,uat');
+  assert.equal(r.timeline[0].days, 4); // testing ends where SIT starts
+  assert.equal(r.timeline[1].days, 3); // SIT ends where UAT starts
+  assert.equal(r.timeline[2].days, 3);
+});
+test('pipeline timeline ignores SIT runs when the milestone does not require SIT', () => {
+  const m = { ...milestone, requiresSit: false, requiresUat: false, completedAt: d('20') };
+  const r = load().computePipelineTimeline([d('10')], [], m, [d('14')]);
+  assert.equal(r.timeline.map(s => s.key).join(','), 'qa');
+});
+test('normal delivery timeline puts SIT between QA and UAT', () => {
+  const r = load().computeTimelineFromEvents(d('10'), [
+    { type: 'requirement_approve', createdAt: d('11') },
+    { type: 'requirement_dev_assign', createdAt: d('12') },
+    { type: 'requirement_dev_ready_for_qa', createdAt: d('13') },
+  ], [d('14')], [d('18')], d('20'), [d('16')]);
+  assert.equal(r.map(s => s.key).join(','), 'requirements,gap,develop,qa,sit,uat');
+});
+test('old callers without SIT runs still get qa then uat', () => {
+  const r = load().computeTimelineFromEvents(d('10'), [
+    { type: 'requirement_approve', createdAt: d('11') },
+    { type: 'requirement_dev_assign', createdAt: d('12') },
+    { type: 'requirement_dev_ready_for_qa', createdAt: d('13') },
+  ], [d('14')], [d('18')], d('20'));
+  assert.equal(r.map(s => s.key).join(','), 'requirements,gap,develop,qa,uat');
+});

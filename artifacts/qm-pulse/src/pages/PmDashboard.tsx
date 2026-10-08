@@ -166,7 +166,7 @@ interface PhaseReport {
     goLiveDate?: string | null;
   };
   phaseSummary: PhaseSummaryEntry[] | null;
-  plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  plannedPhaseDays: { requirements: number | null; develop: number | null; qa: number | null; sit: number | null; uat: number | null } | null;
   // CR056 — gap between the UAT sign-off pack being uploaded and the PM
   // actually flipping the milestone to "completed". Go-Live itself stays a
   // date marker (no "deployment started" event exists to draw a bar from —
@@ -638,6 +638,7 @@ const PHASE_COLOR: Record<string, string> = {
   develop: "bg-indigo-500",
   awaiting_qa: "bg-slate-400", // synthesized filler, see injectAwaitingSegments
   qa: "bg-teal-500",
+  sit: "bg-violet-500", // CR120
   uat: "bg-blue-500",
 };
 const PHASE_TEXT_COLOR: Record<string, string> = {
@@ -646,6 +647,7 @@ const PHASE_TEXT_COLOR: Record<string, string> = {
   develop: "text-indigo-700 dark:text-indigo-400",
   awaiting_qa: "text-slate-700 dark:text-slate-400",
   qa: "text-teal-700 dark:text-teal-400",
+  sit: "text-violet-700 dark:text-violet-400",
   uat: "text-blue-700 dark:text-blue-400",
 };
 
@@ -666,7 +668,7 @@ function PlanActualTimelineBar({
   onClick,
 }: {
   actualSegments: TimelineBarSegment[];
-  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; sit: number | null; uat: number | null } | null;
   // CR056 — not a bar segment (no duration to draw, see PmDashboard's
   // PhaseReport comment) — just an extra variance pill alongside the phase ones.
   goLiveGap?: { signOffAt: string; completedAt: string; gapDays: number } | null;
@@ -685,6 +687,7 @@ function PlanActualTimelineBar({
         plannedPhaseDays.requirements !== null && { key: "requirements", label: "Requirements", days: plannedPhaseDays.requirements, ongoing: false },
         plannedPhaseDays.develop !== null && { key: "develop", label: "Develop", days: plannedPhaseDays.develop, ongoing: false },
         plannedPhaseDays.qa !== null && { key: "qa", label: "QA", days: plannedPhaseDays.qa, ongoing: false },
+        plannedPhaseDays.sit !== null && plannedPhaseDays.sit !== undefined && { key: "sit", label: "SIT", days: plannedPhaseDays.sit, ongoing: false },
         plannedPhaseDays.uat !== null && { key: "uat", label: "UAT", days: plannedPhaseDays.uat, ongoing: false },
       ].filter((s): s is TimelineBarSegment => Boolean(s)))
     : [];
@@ -1115,6 +1118,7 @@ const GANTT_LEGEND: { key: string; label: string }[] = [
   { key: "develop", label: "Develop" },
   { key: "awaiting_qa", label: "Awaiting QA" },
   { key: "qa", label: "QA testing" },
+  { key: "sit", label: "SIT" },
   { key: "uat", label: "UAT" },
 ];
 
@@ -1163,7 +1167,9 @@ function RequirementGanttChart({
     { key: "requirements", from: milestone.startDate, to: milestone.reqTargetDate },
     { key: "develop", from: milestone.reqTargetDate, to: milestone.devTargetDate },
     { key: "qa", from: milestone.pipelineEnabled ? milestone.startDate : milestone.devTargetDate, to: milestone.qaTargetDate },
-    { key: "uat", from: milestone.qaTargetDate, to: milestone.uatTargetDate },
+    // CR120 — the server clears the SIT date when SIT is not required, so a milestone without SIT has no SIT bar.
+    { key: "sit", from: milestone.qaTargetDate, to: milestone.sitTargetDate },
+    { key: "uat", from: milestone.sitTargetDate ?? milestone.qaTargetDate, to: milestone.uatTargetDate },
   ] as const)
     .filter((p) => p.from && p.to && new Date(p.to) > new Date(p.from))
     .map((p) => ({ key: p.key, start: new Date(p.from!), end: new Date(p.to!) }));
@@ -1345,10 +1351,10 @@ function RequirementTimelineList({
   plannedPhaseDays,
 }: {
   requirements: RequirementPhaseEntry[];
-  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; uat: number | null } | null;
+  plannedPhaseDays?: { requirements: number | null; develop: number | null; qa: number | null; sit: number | null; uat: number | null } | null;
 }) {
   const planTotalDays = plannedPhaseDays
-    ? [plannedPhaseDays.requirements, plannedPhaseDays.develop, plannedPhaseDays.qa, plannedPhaseDays.uat]
+    ? [plannedPhaseDays.requirements, plannedPhaseDays.develop, plannedPhaseDays.qa, plannedPhaseDays.sit, plannedPhaseDays.uat]
         .filter((d): d is number => d !== null)
         .reduce((a, b) => a + b, 0)
     : null;
@@ -1503,9 +1509,10 @@ export default function PmDashboard() {
                       const dt = new Date(p.target!);
                       const past = today > dt;
                       const done = p.key === "start" ? true
-                        : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("uat")
-                        : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("uat")
-                        : p.key === "qa" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
+                        : p.key === "requirements" ? activeKeys.has("develop") || activeKeys.has("qa") || activeKeys.has("sit") || activeKeys.has("uat")
+                        : p.key === "develop" ? activeKeys.has("qa") || activeKeys.has("sit") || activeKeys.has("uat")
+                        : p.key === "qa" ? activeKeys.has("sit") || activeKeys.has("uat") || phaseReport.milestone.status === "completed"
+                        : p.key === "sit" ? activeKeys.has("uat") || phaseReport.milestone.status === "completed"
                         : (p.key === "uat" || p.key === "end" || p.key === "golive") ? phaseReport.milestone.status === "completed" : false;
                       return { ...p, dt, late: past && !done };
                     });

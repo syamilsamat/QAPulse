@@ -103,6 +103,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
 | [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
 | [CR119](#cr119--sit-in-the-verdict-and-traceability-reports) | SIT in the Verdict and Traceability Reports | ✅ Checked, no change needed | 2026-10-08 |
+| [CR120](#cr120--sit-in-the-phase-timelines) | SIT in the Phase Timelines | 🔨 Built, not deployed | 2026-10-08 |
 | [CR121](#cr121--sit-milestone-ready-notification) | SIT Milestone Ready Notification | 🔨 Built, not deployed | 2026-10-08 |
 | [CR122](#cr122--execution-file-type-check-sit-follow-up) | Execution File Type Check (SIT follow-up) | 🔨 Built, not deployed | 2026-10-08 |
 
@@ -2663,5 +2664,26 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Finding:** neither report splits by testing phase. The verdict report and the traceability exports (RTM) read execution results per Redmine ticket and per requirement across every execution file, whatever its file type, so SIT results are already counted the same way System Testing and UAT results are. The report pages and the send-report dialogs have no UAT or SIT wording at all. Nothing was changed. If a per-phase breakdown is wanted in these reports it would be a new feature, not a SIT gap.
 
 **Also decided (2026-10-08):** the Defects page does **not** get a SIT tab (dropped by the user); SIT defects stay under QA defects with the "found in" label. SIT execution files keep the same footing as UAT ones: made on the execution page, with only the sign-off document in Step 7 (the CR106 follow-up about a pipeline step of their own is closed as parity, not a gap).
+
+---
+
+### CR120 — SIT in the Phase Timelines
+**Status: 🔨 Built, not deployed** (raised 2026-10-08)
+
+**Origin:** CR106 follow-up. SIT test runs were left out of every phase timeline, so SIT time was missing from the PM Dashboard, the requirement page and the execution page. Mock-up approved 2026-10-08.
+
+**Built:**
+- **Phase timeline (server):** SIT is its own segment between Testing and UAT. Testing now ends where SIT starts, SIT ends where UAT starts (or the milestone completes). On a QA Pipeline milestone it appears only when SIT is required, like UAT. The requirement page and the execution page list a SIT row (planned from the Testing date to the SIT date, actual from the first SIT run) only for milestones that require SIT.
+- **Planned days:** a new SIT figure (Testing date to SIT date). The UAT planned days are now measured from the SIT date when SIT is in play, otherwise from the Testing date as before.
+- **PM Dashboard:** SIT bar (violet) in the actual and planned bars, the Gantt legend and the Plan row; the "SIT by" date chip counts as done once UAT has started; earlier chips count SIT as later work.
+- **Tasks board:** a SIT step ("System integration testing (SIT)") in the where-is-the-work strip. A requirement whose current phase is SIT shows SIT progress (pass rate of its SIT runs); the pipeline gate "Awaiting SIT sign-off" now reads as the SIT phase instead of UAT. Pending counts include SIT. The weekly trend chart groups SIT with Testing (its bars are unchanged).
+- **Status text:** "Approved · in SIT" for normal delivery; "In SIT" / "Awaiting SIT" for a pipeline milestone.
+- Existing callers and tests need no change (the SIT run list is a trailing optional argument). Four tests added to `pipeline-phase-report.test.cjs`; type checks pass. Not run against a database or in a browser.
+
+**Differences from the mock-up:** the PM Dashboard bar is **violet**, not indigo, because Develop is already indigo there. The funnel on QA Analytics keeps its own colour.
+
+**Known:** five `dev-task-start-timeline` tests fail with "DEVELOPMENT_TASK_EVENT_TYPES is not defined". They fail the same way before this CR (the test slices the source file and misses that constant), so they are not caused by it.
+
+**Files:** `api-server/src/routes/dashboard.ts`, `api-server/tests/pipeline-phase-report.test.cjs`, `pages/PmDashboard.tsx`, `components/tasks/TaskVisualization.tsx`, `lib/task-board.ts`, `lib/execution-api.ts`.
 
 ---

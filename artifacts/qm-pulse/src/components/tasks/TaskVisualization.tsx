@@ -37,6 +37,7 @@ const STAGES: { key: StageKey; label: string; caption: string; phrase: string }[
   { key: "gap", label: "Waiting for a developer", caption: "Approved, but nobody has started building it", phrase: "waiting for a developer" },
   { key: "develop", label: "Being built", caption: "Developers are building it", phrase: "being built" },
   { key: "qa", label: "Being tested", caption: "Testers are checking that it works", phrase: "being tested" },
+  { key: "sit", label: "System integration testing (SIT)", caption: "Checked together with the other systems", phrase: "in system integration testing (SIT)" },
   { key: "uat", label: "User testing (UAT)", caption: "Users try it out before release", phrase: "in user testing (UAT)" },
   { key: "done", label: "Done", caption: "Finished — 100% complete", phrase: "done" },
 ];
