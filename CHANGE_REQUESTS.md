@@ -102,6 +102,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
 | [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
 | [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
+| [CR122](#cr122--execution-file-type-check-sit-follow-up) | Execution File Type Check (SIT follow-up) | 🔨 Built, not deployed | 2026-10-08 |
 
 ---
 
@@ -2627,5 +2628,16 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Not changed:** the Redmine import dialog still needs a milestone; the milestone-page "Create requirement" button still creates under that milestone. Test case and execution links for a requirement with no milestone behave as they do for any milestone-less requirement (cascade skips it when the milestone is cleared).
 
 **Files:** `pages/Requirements.tsx`, `api-server/src/routes/requirements.ts`.
+
+---
+
+### CR122 — Execution File Type Check (SIT follow-up)
+**Status: 🔨 Built, not deployed** (raised 2026-10-08)
+
+**Origin:** clean-up left over from CR106. The execution file type had three values (qa = System Testing, sit, uat) but the server stored whatever text it was sent, and two comments still said "qa / uat".
+
+**Built:** creating an execution file now rejects any file type other than qa, sit or uat (400, "File type must be qa, sit or uat"); an empty type still defaults to qa. The stale comments on the schema column and on the move-test-cases-by-file-type code now list sit. The web app only ever sends the three values, so nothing changes on screen. Type checks pass; not run against a database or in a browser.
+
+**Files:** `api-server/src/routes/test-execution.ts`, `api-server/src/routes/requirements.ts` (comment), `lib/db/src/schema/execution.ts` (comment).
 
 ---

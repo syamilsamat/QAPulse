@@ -31,7 +31,7 @@ export const executionFilesTable = pgTable("execution_files", {
   requirementId: integer("requirement_id"),
   // CR014p2 / CR022p3 — milestone linkage and file type
   milestoneId: integer("milestone_id"),
-  fileType: text("file_type").notNull().default("qa"), // 'qa' | 'uat'
+  fileType: text("file_type").notNull().default("qa"), // 'qa' (System Testing) | 'sit' | 'uat'
   reviewStatus: text("review_status").notNull().default("draft"), // 'draft' | 'in_review' | 'approved' | 'rejected'
   approvedBy: integer("approved_by"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),

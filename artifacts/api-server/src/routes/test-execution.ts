@@ -37,6 +37,9 @@ import { attachmentDescription } from "../lib/attachment-description";
 
 const router: IRouter = Router();
 
+// CR122 — the three testing phases an execution file can stand for.
+const EXECUTION_FILE_TYPES = ["qa", "sit", "uat"];
+
 const MAX_EXECUTION_EVIDENCE_BYTES = 10 * 1024 * 1024;
 const SAFE_INLINE_EVIDENCE_MIME = new Set(["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain"]);
 
@@ -607,6 +610,12 @@ router.post("/execution-files", async (req, res): Promise<void> => {
     // comes from the milestone or from the requirement the file is built on.
     if (!milestoneId && !projectId && !requirementId) {
       res.status(400).json({ error: "Pick a milestone or a requirement so the file belongs to a project" });
+      return;
+    }
+    // CR122 — the file type is one of the three testing phases; anything else
+    // would be stored as-is and then be missing from every per-phase tally.
+    if (fileType != null && fileType !== "" && !EXECUTION_FILE_TYPES.includes(fileType)) {
+      res.status(400).json({ error: "File type must be qa, sit or uat" });
       return;
     }
     if (projectId && !(await canAccessProject(ctx.userId, ctx.role, Number(projectId)))) {
