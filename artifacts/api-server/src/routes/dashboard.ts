@@ -304,13 +304,14 @@ router.get("/dashboard/pm-summary", async (req, res): Promise<void> => {
 // "Requirements" window out to the later date instead of appearing as its own
 // segment — misattributing dev/QA time as slow requirements review.
 
-type PhaseKey = "requirements" | "gap" | "develop" | "qa" | "uat";
+type PhaseKey = "requirements" | "gap" | "develop" | "qa" | "sit" | "uat";
 
 const PHASE_LABELS: Record<PhaseKey, string> = {
   requirements: "Requirements",
   gap: "Gap",
   develop: "Develop",
   qa: "QA testing",
+  sit: "SIT", // CR120
   uat: "UAT",
 };
 
@@ -371,6 +372,7 @@ export function computeTimelineFromEvents(
   qaExecTimes: Date[], // ascending
   uatExecTimes: Date[], // ascending
   milestoneCompletedAt: Date | null,
+  sitExecTimes: Date[] = [], // CR120 — ascending; last so existing callers keep working
 ): PhaseSegment[] {
   const now = new Date();
   const segments: PhaseSegment[] = [];
@@ -390,15 +392,22 @@ export function computeTimelineFromEvents(
     const capEnd = captureEnd === undefined ? windowEnd : captureEnd;
     const inWindow = (d: Date) => d >= windowStart && (capEnd === null || d < capEnd);
     const qaTimes = qaExecTimes.filter(inWindow);
+    const sitTimes = sitExecTimes.filter(inWindow);
     const uatTimes = uatExecTimes.filter(inWindow);
-    if (qaTimes.length === 0 && uatTimes.length === 0) return;
+    if (qaTimes.length === 0 && sitTimes.length === 0 && uatTimes.length === 0) return;
     // A captured exec can fall past windowEnd (trailing runs after a Return);
     // anchor such a segment's start at windowStart so the bar stays inside the
     // drawn window instead of inverting.
     const clampStart = (t: Date, end: Date | null) => (end !== null && t > end ? windowStart : t);
+    // CR120 — System Testing ends where the next phase that has runs begins:
+    // SIT between Testing and UAT, then UAT.
     if (qaTimes.length > 0) {
-      const qaEnd = uatTimes.length > 0 ? uatTimes[0] : windowEnd;
+      const qaEnd = sitTimes.length > 0 ? sitTimes[0] : uatTimes.length > 0 ? uatTimes[0] : windowEnd;
       segments.push(makeSegment("qa", cycle, clampStart(qaTimes[0], qaEnd), qaEnd, now));
+    }
+    if (sitTimes.length > 0) {
+      const sitEnd = uatTimes.length > 0 ? uatTimes[0] : windowEnd;
+      segments.push(makeSegment("sit", cycle, clampStart(sitTimes[0], sitEnd), sitEnd, now));
     }
     if (uatTimes.length > 0) {
       segments.push(makeSegment("uat", cycle, clampStart(uatTimes[0], windowEnd), windowEnd, now));
@@ -499,25 +508,29 @@ export function computeTimelineFromEvents(
 export function computePipelineTimeline(
   qaExecTimes: Date[],
   uatExecTimes: Date[],
-  milestone: { requiresUat: boolean; signedOffAt: Date | null; completedAt: Date | null },
+  milestone: { requiresUat: boolean; requiresSit?: boolean | null; signedOffAt: Date | null; completedAt: Date | null },
+  sitExecTimes: Date[] = [], // CR120
 ): { timeline: PhaseSegment[]; status: string } {
   const now = new Date();
   const validTimes = (times: Date[]) => times
     .filter(t => !milestone.completedAt || t <= milestone.completedAt)
     .sort((a, b) => a.getTime() - b.getTime());
   const qaStart = validTimes(qaExecTimes)[0];
+  const sitStart = milestone.requiresSit ? validTimes(sitExecTimes)[0] : undefined;
   const uatStart = milestone.requiresUat ? validTimes(uatExecTimes)[0] : undefined;
   const timeline: PhaseSegment[] = [];
   if (qaStart) {
-    const boundaries = [milestone.signedOffAt, uatStart, milestone.completedAt]
+    const boundaries = [milestone.signedOffAt, sitStart, uatStart, milestone.completedAt]
       .filter((t): t is Date => !!t && t >= qaStart)
       .sort((a, b) => a.getTime() - b.getTime());
     timeline.push(makeSegment("qa", 1, qaStart, boundaries[0] ?? null, now));
   }
+  if (sitStart) timeline.push(makeSegment("sit", 1, sitStart, uatStart ?? milestone.completedAt, now));
   if (uatStart) timeline.push(makeSegment("uat", 1, uatStart, milestone.completedAt, now));
   const status = milestone.completedAt ? "Completed"
     : uatStart ? "In UAT"
-    : milestone.signedOffAt ? (milestone.requiresUat ? "Awaiting UAT" : "QA signed off")
+    : sitStart ? "In SIT"
+    : milestone.signedOffAt ? (milestone.requiresSit ? "Awaiting SIT" : milestone.requiresUat ? "Awaiting UAT" : "QA signed off")
     : qaStart ? "In QA testing" : "Awaiting QA";
   return { timeline, status };
 }
@@ -658,14 +671,15 @@ export async function computeRequirementTimelinesBatch(
     for (const createdAt of starts) events.push({ type: DEV_TASK_START_EVENT, createdAt });
     events.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
-  const execByReq = new Map<number, { qa: Date[]; uat: Date[] }>();
+  const execByReq = new Map<number, { qa: Date[]; sit: Date[]; uat: Date[] }>();
   for (const row of execRows) {
     if (row.requirementId == null || !row.executedAt) continue;
-    if (!execByReq.has(row.requirementId)) execByReq.set(row.requirementId, { qa: [], uat: [] });
+    if (!execByReq.has(row.requirementId)) execByReq.set(row.requirementId, { qa: [], sit: [], uat: [] });
     const ownerId = milestoneByReqId.get(row.requirementId);
     if (ownerId != null && milestoneById.get(ownerId)?.pipelineEnabled && row.milestoneId !== ownerId) continue;
     const bucket = execByReq.get(row.requirementId)!;
     if (row.fileType === "qa") bucket.qa.push(row.executedAt);
+    else if (row.fileType === "sit") bucket.sit.push(row.executedAt); // CR120
     else if (row.fileType === "uat") bucket.uat.push(row.executedAt);
   }
 
@@ -678,17 +692,18 @@ export async function computeRequirementTimelinesBatch(
     if (milestoneId == null) continue;
     const milestoneCompletedAt = completedAtById.get(milestoneId) ?? null;
     const events = activityByReq.get(r.id) ?? [];
-    const exec = execByReq.get(r.id) ?? { qa: [], uat: [] };
+    const exec = execByReq.get(r.id) ?? { qa: [], sit: [], uat: [] };
     const qaExecTimes = [...exec.qa].sort((a, b) => a.getTime() - b.getTime());
+    const sitExecTimes = [...exec.sit].sort((a, b) => a.getTime() - b.getTime());
     const uatExecTimes = [...exec.uat].sort((a, b) => a.getTime() - b.getTime());
     const milestone = milestoneById.get(milestoneId);
     if (milestone?.pipelineEnabled) {
-      const pipeline = computePipelineTimeline(qaExecTimes, uatExecTimes, milestone);
+      const pipeline = computePipelineTimeline(qaExecTimes, uatExecTimes, milestone, sitExecTimes);
       out.get(milestoneId)!.push({ id: r.id, title: r.title, parentId: r.parentId ?? null,
         ...pipeline, actualWorkStartedAt: pipeline.timeline[0]?.start ?? null });
       continue;
     }
-    const timeline = computeTimelineFromEvents(r.createdAt, events, qaExecTimes, uatExecTimes, milestoneCompletedAt);
+    const timeline = computeTimelineFromEvents(r.createdAt, events, qaExecTimes, uatExecTimes, milestoneCompletedAt, sitExecTimes);
 
     let status: string;
     const reviewStatus = (r as any).reviewStatus ?? "draft";
@@ -696,6 +711,8 @@ export async function computeRequirementTimelinesBatch(
       status = reviewStatus === "in_review" ? "In review" : reviewStatus === "rejected" ? "Returned — awaiting revision" : "Draft";
     } else if (uatExecTimes.length > 0) {
       status = "Approved · in UAT";
+    } else if (sitExecTimes.length > 0) {
+      status = "Approved · in SIT";
     } else if (qaExecTimes.length > 0) {
       status = "Approved · in QA testing";
     } else if (r.devStatus === "ready_for_qa") {
@@ -755,7 +772,7 @@ export function summarizeTimelines(entries: RequirementTimelineEntry[]): PhaseSu
     const present = vals.filter((v): v is number => v !== undefined);
     return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
   };
-  const keys: PhaseKey[] = ["requirements", "gap", "develop", "qa", "uat"];
+  const keys: PhaseKey[] = ["requirements", "gap", "develop", "qa", "sit", "uat"];
   return keys
     .map((key) => ({ key, label: PHASE_LABELS[key], avgDays: avg(perReqTotals.map((t) => t[key])), ongoing: false as const }))
     .filter((entry) => entry.avgDays !== null && entry.avgDays > 0);
@@ -871,12 +888,16 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
   const devTargetDate = milestone.pipelineEnabled ? null : milestone.devTargetDate;
   const qaTargetDate = (milestone as any).qaTargetDate as Date | null;
   const uatTargetDate = milestone.pipelineEnabled && !milestone.requiresUat ? null : milestone.uatTargetDate;
+  // CR120 — SIT sits between System Testing and UAT, only when required.
+  const sitTargetDate = milestone.requiresSit ? ((milestone as any).sitTargetDate as Date | null) : null;
   const qaPlannedStart = milestone.pipelineEnabled ? startDate : devTargetDate;
-  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate || uatTargetDate) ? {
+  const plannedPhaseDays = (startDate || reqTargetDate || devTargetDate || qaTargetDate || sitTargetDate || uatTargetDate) ? {
     requirements: (reqTargetDate && startDate) ? Math.max(0, Math.round((reqTargetDate.getTime() - startDate.getTime()) / 86_400_000)) : null,
     develop: (devTargetDate && reqTargetDate) ? Math.max(0, Math.round((devTargetDate.getTime() - reqTargetDate.getTime()) / 86_400_000)) : null,
     qa: (qaTargetDate && qaPlannedStart) ? Math.max(0, Math.round((qaTargetDate.getTime() - qaPlannedStart.getTime()) / 86_400_000)) : null,
-    uat: (uatTargetDate && qaTargetDate) ? Math.max(0, Math.round((uatTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
+    sit: (sitTargetDate && qaTargetDate) ? Math.max(0, Math.round((sitTargetDate.getTime() - qaTargetDate.getTime()) / 86_400_000)) : null,
+    // UAT is measured from SIT's date when SIT is in play, else from System Testing's.
+    uat: (uatTargetDate && (sitTargetDate ?? qaTargetDate)) ? Math.max(0, Math.round((uatTargetDate.getTime() - (sitTargetDate ?? qaTargetDate)!.getTime()) / 86_400_000)) : null,
   } : null;
 
   // CR056 — Go-Live still can't be a duration bar (there's no "deployment
@@ -1007,11 +1028,12 @@ router.get("/dashboard/milestone-phase-breakdown", async (req, res): Promise<voi
 // than re-deriving phase state — "current phase" is just the last segment in
 // that requirement's own timeline. Department-scoped: qa/fa/dev only see rows
 // relevant to their own department; pm (any tier)/admin/cto see everything.
-const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "uatTargetDate"> = {
+const PHASE_DUE_DATE_FIELD: Record<PhaseKey, "reqTargetDate" | "devTargetDate" | "qaTargetDate" | "sitTargetDate" | "uatTargetDate"> = {
   requirements: "reqTargetDate",
   gap: "devTargetDate",
   develop: "devTargetDate",
   qa: "qaTargetDate",
+  sit: "sitTargetDate",
   uat: "uatTargetDate",
 };
 
@@ -1050,7 +1072,7 @@ function computePipelineState(input: {
     { done: input.allFilesApproved, label: "Awaiting test case approval", phase: "qa" },
     { done: input.totalExecRows > 0 && input.executedRows >= input.totalExecRows, label: "In execution", phase: "qa" },
     { done: input.signedOff, label: "Awaiting functional sign-off", phase: "qa" },
-    { done: !input.requiresSit || input.sitDocCount > 0, label: "Awaiting SIT sign-off", phase: "uat" },
+    { done: !input.requiresSit || input.sitDocCount > 0, label: "Awaiting SIT sign-off", phase: "sit" },
     { done: !input.requiresUat || input.uatDocCount > 0, label: "Awaiting UAT sign-off", phase: "uat" },
     { done: input.deployed, label: "Ready to deploy", phase: "uat" },
   ];
@@ -1065,7 +1087,7 @@ function computePipelineState(input: {
 }
 
 interface PhaseTimelineEntry {
-  key: "requirements" | "development" | "qa" | "uat";
+  key: "requirements" | "development" | "qa" | "sit" | "uat";
   label: string;
   plannedStart: string | null;
   plannedEnd: string | null;
@@ -1085,9 +1107,11 @@ export function buildPhaseTimeline(segments: PhaseSegment[], m: typeof milestone
     { key: "requirements", label: "Requirements", segKeys: ["requirements"], plannedStart: m.startDate ?? null, plannedEnd: m.reqTargetDate ?? null },
     { key: "development", label: "Development", segKeys: ["gap", "develop"], plannedStart: m.reqTargetDate ?? null, plannedEnd: m.devTargetDate ?? null },
     { key: "qa", label: "Testing", segKeys: ["qa"], plannedStart: (m.pipelineEnabled ? m.startDate : m.devTargetDate) ?? null, plannedEnd: m.qaTargetDate ?? null },
-    { key: "uat", label: "UAT", segKeys: ["uat"], plannedStart: m.qaTargetDate ?? null, plannedEnd: m.uatTargetDate ?? null },
+    // CR120 — SIT sits between Testing and UAT, and UAT then plans from SIT's date.
+    { key: "sit", label: "SIT", segKeys: ["sit"], plannedStart: m.qaTargetDate ?? null, plannedEnd: (m as any).sitTargetDate ?? null },
+    { key: "uat", label: "UAT", segKeys: ["uat"], plannedStart: (m.requiresSit ? (m as any).sitTargetDate : null) ?? m.qaTargetDate ?? null, plannedEnd: m.uatTargetDate ?? null },
   ];
-  return groups.filter(g => !m.pipelineEnabled || g.key === "qa" || (g.key === "uat" && m.requiresUat)).map((g) => {
+  return groups.filter(g => g.key === "sit" ? !!m.requiresSit : (!m.pipelineEnabled || g.key === "qa" || (g.key === "uat" && m.requiresUat))).map((g) => {
     const segs = segments.filter((s) => g.segKeys.includes(s.key));
     const lastSeg = segs[segs.length - 1];
     // DEF-0016 — the Development phase groups the "gap" (approved, awaiting
@@ -1321,7 +1345,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
   // decision either way — whoever approved or rejected it.
   const qaSetterIdsByReq = new Map<number, Set<number>>();
   const qaFileIdByReq = new Map<number, number>();
-  const resultsByReq = new Map<number, { qa: string[]; uat: string[] }>();
+  const resultsByReq = new Map<number, { qa: string[]; sit: string[]; uat: string[] }>();
   for (const r of execRows) {
     if (r.requirementId == null) continue;
     if (!qaFileIdByReq.has(r.requirementId)) qaFileIdByReq.set(r.requirementId, r.executionFileId);
@@ -1335,11 +1359,11 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       if (!qaSetterIdsByReq.has(r.requirementId)) qaSetterIdsByReq.set(r.requirementId, new Set());
       qaSetterIdsByReq.get(r.requirementId)!.add(creditedId);
     }
-    if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], uat: [] });
+    if (!resultsByReq.has(r.requirementId)) resultsByReq.set(r.requirementId, { qa: [], sit: [], uat: [] });
     const bucket = resultsByReq.get(r.requirementId)!;
-    // SIT results belong to neither the System Testing nor the UAT tally (CR106).
-    if (r.fileType === "sit") continue;
-    (r.fileType === "uat" ? bucket.uat : bucket.qa).push(classifyResult(r.result));
+    // SIT results belong to neither the System Testing nor the UAT tally (CR106);
+    // CR120 keeps them in a tally of their own so the SIT phase has a progress.
+    (r.fileType === "uat" ? bucket.uat : r.fileType === "sit" ? bucket.sit : bucket.qa).push(classifyResult(r.result));
   }
 
   // Pipeline milestones get their stage/progress from the pipeline's gates
@@ -1429,8 +1453,9 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       const qaSetterNames = [...(qaSetterIdsByReq.get(entry.id) ?? new Set<number>())]
         .map((id) => usersById.get(id)?.name)
         .filter((n): n is string => !!n);
-      const results = resultsByReq.get(entry.id) ?? { qa: [], uat: [] };
+      const results = resultsByReq.get(entry.id) ?? { qa: [], sit: [], uat: [] };
       const qaProgress = passPct(results.qa);
+      const sitProgress = passPct(results.sit);
       const uatProgress = passPct(results.uat);
 
       // Task board is cross-department visibility for everyone with project
@@ -1503,6 +1528,7 @@ async function computeTaskBoardRows(ctx: { userId: number; role: string }): Prom
       let progress: number;
       if (phase === "develop") progress = devProgress;
       else if (phase === "qa") progress = qaProgress;
+      else if (phase === "sit") progress = sitProgress;
       else if (phase === "uat") progress = uatProgress;
       else progress = faProgress;
 
@@ -1986,7 +2012,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   // finished cleanly (e.g. reached UAT, then its milestone closed) was
   // double-counted as both completed and pending.
   const isPending = (r: (typeof taskRows)[number]) =>
-    r.milestoneStatus !== "completed" && (r.phase === "qa" || r.phase === "uat");
+    r.milestoneStatus !== "completed" && (r.phase === "qa" || r.phase === "sit" || r.phase === "uat");
   const isOverdueRow = (r: (typeof taskRows)[number]) =>
     r.milestoneStatus !== "completed" && !!r.dueDate && new Date(r.dueDate) < now;
 
@@ -2122,7 +2148,7 @@ router.get("/dashboard/weekly-trend", async (req, res): Promise<void> => {
     if (r.isBlocked) return "blocked";
     if (r.milestoneStatus === "completed") return "completed";
     if (r.phase === "gap" || r.phase === "develop") return "development";
-    if (r.phase === "qa") return "qa";
+    if (r.phase === "qa" || r.phase === "sit") return "qa"; // CR120 — SIT counts with Testing in the weekly trend
     if (r.phase === "uat") return "uat";
     return "requirements";
   };

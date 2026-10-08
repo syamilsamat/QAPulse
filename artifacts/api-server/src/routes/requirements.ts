@@ -499,7 +499,7 @@ router.get("/requirements/:id/history", async (req, res): Promise<void> => {
 // defects raised against them) follow it, rather than being left behind
 // pointing at a milestone the requirement no longer belongs to.
 //
-// Test cases move by fileType (qa/uat) into the matching execution file
+// Test cases move by fileType (qa/sit/uat) into the matching execution file
 // already under the new milestone, or a freshly-created one if none exists
 // yet (synthetic, collision-free ticket id — redmineTicketId is globally
 // unique, so this can't be derived from the milestone's own free-text name).

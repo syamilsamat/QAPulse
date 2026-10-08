@@ -16,7 +16,7 @@ export interface ExecutionProject {
 // CR075 — one row per phase (Requirements/Development/Testing/UAT), rolled
 // up across every requirement this execution file's test cases link to.
 export interface PhaseTimelineEntry {
-  key: "requirements" | "development" | "qa" | "uat";
+  key: "requirements" | "development" | "qa" | "sit" | "uat";
   label: string;
   plannedStart: string | null;
   plannedEnd: string | null;
