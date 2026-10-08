@@ -102,6 +102,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
 | [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
 | [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
+| [CR119](#cr119--sit-in-the-verdict-and-traceability-reports) | SIT in the Verdict and Traceability Reports | ✅ Checked, no change needed | 2026-10-08 |
 | [CR121](#cr121--sit-milestone-ready-notification) | SIT Milestone Ready Notification | 🔨 Built, not deployed | 2026-10-08 |
 | [CR122](#cr122--execution-file-type-check-sit-follow-up) | Execution File Type Check (SIT follow-up) | 🔨 Built, not deployed | 2026-10-08 |
 
@@ -2651,5 +2652,16 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Built:** a SIT execution file reaching 80% passed now sends the milestone owner a "SIT milestone ready" notification, with its own type (`sit_milestone_ready`) so it is deduplicated separately: once per milestone, independent of the UAT one. Same rule, same recipient, same wording as UAT with "SIT" in place. The bell dropdown and the Inbox show it with an indigo icon and a "SIT" badge (UAT stays green). System Testing files still send nothing. Type checks pass; not run against a database or in a browser.
 
 **Files:** `api-server/src/routes/test-execution.ts`, `components/NotificationDropdown.tsx`, `pages/Inbox.tsx`.
+
+---
+
+### CR119 — SIT in the Verdict and Traceability Reports
+**Status: ✅ Checked, no change needed** (raised 2026-10-08)
+
+**Origin:** CR106 listed "verdict and traceability reports that split by QA and UAT" as impact to review once SIT was added.
+
+**Finding:** neither report splits by testing phase. The verdict report and the traceability exports (RTM) read execution results per Redmine ticket and per requirement across every execution file, whatever its file type, so SIT results are already counted the same way System Testing and UAT results are. The report pages and the send-report dialogs have no UAT or SIT wording at all. Nothing was changed. If a per-phase breakdown is wanted in these reports it would be a new feature, not a SIT gap.
+
+**Also decided (2026-10-08):** the Defects page does **not** get a SIT tab (dropped by the user); SIT defects stay under QA defects with the "found in" label. SIT execution files keep the same footing as UAT ones: made on the execution page, with only the sign-off document in Step 7 (the CR106 follow-up about a pipeline step of their own is closed as parity, not a gap).
 
 ---
