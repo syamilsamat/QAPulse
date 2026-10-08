@@ -102,6 +102,7 @@ Canonical list of all CRs for QM Pulse. Update status here whenever a CR is depl
 | [CR116](#cr116--defect-assignee-lists-redmine-contacts) | Defect Assignee Lists Redmine Contacts | 🔨 Built, not deployed | 2026-10-06 |
 | [CR117](#cr117--one-look-for-read-only-fields) | One Look for Read-only Fields | 🔨 Built, not deployed | 2026-10-06 |
 | [CR118](#cr118--requirement-without-a-milestone) | Requirement Without a Milestone | 🔨 Built, not deployed | 2026-10-06 |
+| [CR121](#cr121--sit-milestone-ready-notification) | SIT Milestone Ready Notification | 🔨 Built, not deployed | 2026-10-08 |
 | [CR122](#cr122--execution-file-type-check-sit-follow-up) | Execution File Type Check (SIT follow-up) | 🔨 Built, not deployed | 2026-10-08 |
 
 ---
@@ -2639,5 +2640,16 @@ BRS  ⇄  SRS  ⇄  Requirements  →  Test cases  →  RTM
 **Built:** creating an execution file now rejects any file type other than qa, sit or uat (400, "File type must be qa, sit or uat"); an empty type still defaults to qa. The stale comments on the schema column and on the move-test-cases-by-file-type code now list sit. The web app only ever sends the three values, so nothing changes on screen. Type checks pass; not run against a database or in a browser.
 
 **Files:** `api-server/src/routes/test-execution.ts`, `api-server/src/routes/requirements.ts` (comment), `lib/db/src/schema/execution.ts` (comment).
+
+---
+
+### CR121 — SIT Milestone Ready Notification
+**Status: 🔨 Built, not deployed** (raised 2026-10-08)
+
+**Origin:** CR106 follow-up. The "UAT milestone ready" notification (CR027) fires when a UAT execution file reaches an 80% pass rate; SIT files, added in CR106, never triggered anything.
+
+**Built:** a SIT execution file reaching 80% passed now sends the milestone owner a "SIT milestone ready" notification, with its own type (`sit_milestone_ready`) so it is deduplicated separately: once per milestone, independent of the UAT one. Same rule, same recipient, same wording as UAT with "SIT" in place. The bell dropdown and the Inbox show it with an indigo icon and a "SIT" badge (UAT stays green). System Testing files still send nothing. Type checks pass; not run against a database or in a browser.
+
+**Files:** `api-server/src/routes/test-execution.ts`, `components/NotificationDropdown.tsx`, `pages/Inbox.tsx`.
 
 ---

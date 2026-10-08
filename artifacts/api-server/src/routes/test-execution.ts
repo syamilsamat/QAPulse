@@ -2595,7 +2595,14 @@ router.post(
       // 80% is the signal a PM is waiting on. Deduped against the notifications
       // table itself (no schema change) so it fires once per milestone, not on
       // every save once the file is already sitting above threshold.
-      if (file.fileType === "uat" && file.milestoneId) {
+      // CR121 — a SIT file does the same with its own sit_milestone_ready type,
+      // so the two phases are deduped and read separately.
+      const readyNotice = file.fileType === "uat"
+        ? { type: "uat_milestone_ready", phase: "UAT" }
+        : file.fileType === "sit"
+          ? { type: "sit_milestone_ready", phase: "SIT" }
+          : null;
+      if (readyNotice && file.milestoneId) {
         const totalAll = aggregated.reduce((sum, r) => sum + r.total, 0);
         const totalPassed = aggregated.reduce((sum, r) => sum + r.passed, 0);
         if (totalAll > 0 && totalPassed / totalAll >= 0.8) {
@@ -2606,7 +2613,7 @@ router.post(
               .from(notificationsTable)
               .where(
                 and(
-                  eq(notificationsTable.type, "uat_milestone_ready"),
+                  eq(notificationsTable.type, readyNotice.type),
                   eq(notificationsTable.entityType, "milestone"),
                   eq(notificationsTable.entityId, file.milestoneId),
                 ),
@@ -2614,9 +2621,9 @@ router.post(
             if (!already) {
               await notifyUser(
                 milestone.createdBy,
-                "UAT milestone ready",
-                `"${milestone.name}" has reached ${Math.round((totalPassed / totalAll) * 100)}% UAT pass rate.`,
-                "uat_milestone_ready",
+                `${readyNotice.phase} milestone ready`,
+                `"${milestone.name}" has reached ${Math.round((totalPassed / totalAll) * 100)}% ${readyNotice.phase} pass rate.`,
+                readyNotice.type,
                 "milestone",
                 file.milestoneId,
                 changedBy,
