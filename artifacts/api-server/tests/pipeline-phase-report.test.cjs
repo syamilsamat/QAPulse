@@ -6,11 +6,16 @@ const vm = require('node:vm');
 const { transformSync } = require('esbuild');
 const source = fs.readFileSync(path.join(__dirname, '../src/routes/dashboard.ts'), 'utf8');
 const code = transformSync(source.slice(source.indexOf('type PhaseKey ='), source.indexOf('interface PhaseSummaryEntry')), { loader: 'ts', format: 'cjs' }).code;
+// computeRequirementTimelinesBatch uses these two, which dashboard.ts imports at the
+// top of the file, outside the sliced source the sandbox runs, so load the real module.
+const eventsModule = { exports: {} };
+vm.runInNewContext(transformSync(fs.readFileSync(path.join(__dirname, '../src/routes/development-task-events.ts'), 'utf8'), { loader: 'ts', format: 'cjs' }).code, { module: eventsModule, exports: eventsModule.exports });
+const { DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart } = eventsModule.exports;
 const d = day => new Date(`2026-09-${day}T00:00:00Z`);
 const milestone = { id: 1, pipelineEnabled: true, requiresUat: false, signedOffAt: null, completedAt: d('17') };
 function load(extra = {}) {
   const module = { exports: {} };
-  vm.runInNewContext(code, { module, exports: module.exports, ...extra });
+  vm.runInNewContext(code, { module, exports: module.exports, DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart, ...extra });
   return module.exports;
 }
 test('QA-only execution produces QA duration without approval or development events', () => {

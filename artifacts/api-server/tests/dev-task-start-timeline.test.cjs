@@ -7,8 +7,13 @@ const { transformSync } = require('esbuild');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/routes/dashboard.ts'), 'utf8');
 const code = transformSync(source.slice(source.indexOf('type PhaseKey ='), source.indexOf('interface PhaseSummaryEntry')), { loader: 'ts', format: 'cjs' }).code;
+// computeRequirementTimelinesBatch uses these two, which dashboard.ts imports at the
+// top of the file, outside the sliced source the sandbox runs, so load the real module.
+const eventsModule = { exports: {} };
+vm.runInNewContext(transformSync(fs.readFileSync(path.join(__dirname, '../src/routes/development-task-events.ts'), 'utf8'), { loader: 'ts', format: 'cjs' }).code, { module: eventsModule, exports: eventsModule.exports });
+const { DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart } = eventsModule.exports;
 const module_ = { exports: {} };
-vm.runInNewContext(code, { module: module_, exports: module_.exports });
+vm.runInNewContext(code, { module: module_, exports: module_.exports, DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart });
 const { computeTimelineFromEvents } = module_.exports;
 
 const d = (day) => new Date(`2026-09-${String(day).padStart(2, '0')}T00:00:00Z`);
@@ -90,7 +95,7 @@ test('batch: a dev task moving to In progress in the task activity log starts De
   const ctx = { db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
     eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null };
   const m = { exports: {} };
-  vm.runInNewContext(code, { module: m, exports: m.exports, ...ctx });
+  vm.runInNewContext(code, { module: m, exports: m.exports, DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart, ...ctx });
   const entry = (await m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }])).get(1)[0];
   assert.deepEqual(keys(entry.timeline), ['requirements', 'gap', 'develop']);
   assert.equal(startOf(entry.timeline, 'develop'), d(13).toISOString());
@@ -105,8 +110,7 @@ test('batch: with no dev task activity Development does not start on approval', 
     requirements: [{ id: 10, milestoneId: 1, title: 'Req', createdAt: d(9), reviewStatus: 'approved', devStatus: null, parentId: null }],
     milestones: [{ id: 1, pipelineEnabled: false, requiresUat: false, signedOffAt: null, completedAt: null }],
     execution: [], tasks: [{ id: 5, requirementId: 10 }],
-    activity: [{ entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
-               { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null }],
+    activity: [{ entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null }],
   };
   const db = { select: () => ({ from: (t) => {
     const result = t.name === 'requirements' && requirementReads++ > 0 ? [] : rows[t.name];
@@ -114,7 +118,7 @@ test('batch: with no dev task activity Development does not start on approval', 
     return q;
   } }) };
   const m = { exports: {} };
-  vm.runInNewContext(code, { module: m, exports: m.exports, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
+  vm.runInNewContext(code, { module: m, exports: m.exports, DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
     eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null });
   const entry = (await m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }])).get(1)[0];
   assert.deepEqual(keys(entry.timeline), ['requirements', 'gap']);
@@ -136,16 +140,16 @@ function batchWith(activity, tasks = [{ id: 5, requirementId: 10 }]) {
     return q;
   } }) };
   const m = { exports: {} };
-  vm.runInNewContext(code, { module: m, exports: m.exports, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
+  vm.runInNewContext(code, { module: m, exports: m.exports, DEVELOPMENT_TASK_EVENT_TYPES, isDevelopmentTaskStart, db, requirementsTable, activityTable, executionTestCasesTable, executionFilesTable, milestonesTable, tasksTable,
     eq: () => null, and: () => null, or: () => null, inArray: () => null, like: () => null });
   return m.exports.computeRequirementTimelinesBatch([{ id: 1, completedAt: null }]).then((r) => r.get(1)[0]);
 }
 
 test('batch: a task submitted for review without ever being moved to In progress starts Development', async () => {
-  // Mirrors live task 39: created -> submitted for review -> approved, no in_progress move.
+  // Mirrors live task 39 (submitted for review -> approved, no in_progress move). Its creation event is
+  // left out so the submission itself is the first development event; creation alone is covered below.
   const entry = await batchWith([
     { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
-    { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null },
     { entityId: 5, type: 'task_submitted_for_review', createdAt: d(13), newValue: JSON.stringify({ reviewId: 5, prLink: 'PR001', hasEvidence: true }) },
     { entityId: 5, type: 'task_review_approved', createdAt: d(14), newValue: JSON.stringify({ reviewId: 5, note: null }) },
   ]);
@@ -153,14 +157,25 @@ test('batch: a task submitted for review without ever being moved to In progress
   assert.equal(startOf(entry.timeline, 'develop'), d(13).toISOString());
 });
 
-test('batch: task creation, a review approval or a plain edit alone do not start Development', async () => {
+test('batch: a review approval, a plain edit or a non-In-progress status change alone do not start Development', async () => {
   const entry = await batchWith([
     { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
-    { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null },
+    { entityId: 5, type: 'task_review_approved', createdAt: d(12), newValue: JSON.stringify({ reviewId: 5, note: null }) },
     { entityId: 5, type: 'task_updated', createdAt: d(13), newValue: JSON.stringify({ notes: 'description' }) },
     { entityId: 5, type: 'task_status_changed', createdAt: d(14), newValue: JSON.stringify({ status: 'blocked' }) },
   ]);
   assert.deepEqual(keys(entry.timeline), ['requirements', 'gap']);
+});
+
+// Since f056425, creating or assigning a dev task counts as development work, even
+// before the task moves to In progress, so existing tasks keep their real start date.
+test('batch: creating a dev task starts Development at its creation', async () => {
+  const entry = await batchWith([
+    { entityId: 10, type: 'requirement_approve', createdAt: d(11), newValue: null },
+    { entityId: 5, type: 'task_created', createdAt: d(12), newValue: null },
+  ]);
+  assert.deepEqual(keys(entry.timeline), ['requirements', 'gap', 'develop']);
+  assert.equal(startOf(entry.timeline, 'develop'), d(12).toISOString());
 });
 
 test('batch: the earlier of In progress and submit-for-review wins', async () => {
