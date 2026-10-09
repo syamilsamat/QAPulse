@@ -425,6 +425,9 @@ async function reportFromLocalExecutionDetails(
 // DATABASE FALLBACKS FOR DEFECTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Max levels below the report's root ticket to search for QA Defects.
+const MAX_TREE_DEPTH = 6;
+
 async function reportFromMySQL(issueId: string): Promise<Record<string, unknown> | null> {
   if (!mysql2) return null;
   const cfg = {
@@ -457,24 +460,39 @@ async function reportFromMySQL(issueId: string): Promise<Record<string, unknown>
     if (!mainRows.length) return null;
     const main = mainRows[0];
 
-    const [childRows] = (await conn.query(
-      `SELECT i.id, i.subject, i.created_on, i.due_date, i.status_id,
-         s.name AS status, t.name AS tracker,
-         e.name AS priority, c.name AS category,
-         CONCAT(u.firstname,' ',u.lastname) AS assignee
-       FROM issues i
-       LEFT JOIN issue_statuses s    ON s.id = i.status_id
-       LEFT JOIN trackers t          ON t.id = i.tracker_id
-       LEFT JOIN enumerations e      ON e.id = i.priority_id AND e.type='IssuePriority'
-       LEFT JOIN issue_categories c  ON c.id = i.category_id
-       LEFT JOIN users u             ON u.id = i.assigned_to_id
-       WHERE i.parent_id = ?
-       ORDER BY t.id, i.id`,
-      [issueId],
-    )) as [any[], any];
+    // QA Defects are usually nested under child user stories / tasks, not
+    // directly under the parent, so walk the whole subtree level by level.
+    const childRows: any[] = [];
+    const seenIds = new Set<number>([Number(issueId)]);
+    let frontier: number[] = [Number(issueId)];
+    for (let depth = 0; depth < MAX_TREE_DEPTH && frontier.length > 0; depth++) {
+      const placeholders = frontier.map(() => "?").join(",");
+      const [levelRows] = (await conn.query(
+        `SELECT i.id, i.subject, i.created_on, i.due_date, i.status_id,
+           s.name AS status, t.name AS tracker,
+           e.name AS priority, c.name AS category,
+           CONCAT(u.firstname,' ',u.lastname) AS assignee
+         FROM issues i
+         LEFT JOIN issue_statuses s    ON s.id = i.status_id
+         LEFT JOIN trackers t          ON t.id = i.tracker_id
+         LEFT JOIN enumerations e      ON e.id = i.priority_id AND e.type='IssuePriority'
+         LEFT JOIN issue_categories c  ON c.id = i.category_id
+         LEFT JOIN users u             ON u.id = i.assigned_to_id
+         WHERE i.parent_id IN (${placeholders})
+         ORDER BY t.id, i.id`,
+        frontier,
+      )) as [any[], any];
+      frontier = [];
+      for (const r of levelRows as any[]) {
+        if (seenIds.has(r.id)) continue;
+        seenIds.add(r.id);
+        childRows.push(r);
+        frontier.push(r.id);
+      }
+    }
 
     const defectMap = new Map<number, any>();
-    for (const d of (childRows as any[]).filter((r) =>
+    for (const d of childRows.filter((r) =>
       isDefectTracker(r.tracker ?? ""),
     )) {
       if (d.status_id !== 11) {
@@ -573,10 +591,34 @@ async function reportFromRedmineAPI(issueId: string): Promise<Record<string, unk
     if (!issueData?.issue) return null;
     const main = (issueData as any).issue;
 
-    const childData: any = await safeJson(
-      `${baseUrl}/issues.json?parent_id=${issueId}&limit=100&status_id=*`,
-    );
-    const children: any[] = childData?.issues ?? [];
+    // Walk the whole subtree (defects are nested under child stories/tasks),
+    // paging each parent's children since Redmine caps a page at 100.
+    const children: any[] = [];
+    const seenIds = new Set<number>([Number(issueId)]);
+    let frontier: number[] = [Number(issueId)];
+    for (let depth = 0; depth < MAX_TREE_DEPTH && frontier.length > 0; depth++) {
+      const levelResults = await Promise.all(
+        frontier.map(async (parentId) => {
+          const out: any[] = [];
+          for (let offset = 0; offset < 2000; offset += 100) {
+            const page: any = await safeJson(
+              `${baseUrl}/issues.json?parent_id=${parentId}&limit=100&offset=${offset}&status_id=*`,
+            );
+            const issues: any[] = page?.issues ?? [];
+            out.push(...issues);
+            if (issues.length < 100) break;
+          }
+          return out;
+        }),
+      );
+      frontier = [];
+      for (const i of levelResults.flat()) {
+        if (seenIds.has(i.id)) continue;
+        seenIds.add(i.id);
+        children.push(i);
+        frontier.push(i.id);
+      }
+    }
 
     const defectMap = new Map<number, any>();
     const toNormDefect = (i: any) => ({
@@ -1841,18 +1883,30 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
     let conn: any = null;
     try {
       conn = await mysql2.createConnection(cfg);
-      const [rows] = (await conn.query(
-        `SELECT i.id, i.subject, i.due_date, i.closed_on,
-                s.name AS status, t.name AS tracker, c.name AS category
-         FROM issues i
-         LEFT JOIN issue_statuses s    ON s.id = i.status_id
-         LEFT JOIN trackers t          ON t.id = i.tracker_id
-         LEFT JOIN issue_categories c  ON c.id = i.category_id
-         WHERE i.parent_id = ?
-         ORDER BY i.id`,
-        [issueId],
-      )) as [any[], any];
-      const result = (rows as any[])
+      const rows: any[] = [];
+      const seenIds = new Set<number>([Number(issueId)]);
+      let frontier: number[] = [Number(issueId)];
+      for (let depth = 0; depth < MAX_TREE_DEPTH && frontier.length > 0; depth++) {
+        const [levelRows] = (await conn.query(
+          `SELECT i.id, i.subject, i.due_date, i.closed_on,
+                  s.name AS status, t.name AS tracker, c.name AS category
+           FROM issues i
+           LEFT JOIN issue_statuses s    ON s.id = i.status_id
+           LEFT JOIN trackers t          ON t.id = i.tracker_id
+           LEFT JOIN issue_categories c  ON c.id = i.category_id
+           WHERE i.parent_id IN (${frontier.map(() => "?").join(",")})
+           ORDER BY i.id`,
+          frontier,
+        )) as [any[], any];
+        frontier = [];
+        for (const r of levelRows as any[]) {
+          if (seenIds.has(r.id)) continue;
+          seenIds.add(r.id);
+          rows.push(r);
+          frontier.push(r.id);
+        }
+      }
+      const result = rows
         .filter((r) => isDefectTracker(r.tracker ?? ""))
         .map((r) => ({
           id: r.id, subject: r.subject ?? "", status: r.status ?? "", category: r.category ?? "",
@@ -1868,8 +1922,8 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
     }
   }
 
-  // Redmine API fallback — QA Defects may be nested under sub-tasks of the parent,
-  // so we fetch two levels deep (direct children + their children) to find all defects.
+  // Redmine API fallback — QA Defects may be nested under sub-tasks of the parent
+  // at any depth, so we walk the whole subtree to find all defects.
   const baseUrl = (process.env.REDMINE_URL ?? "").replace(/\/$/, "");
   const apiKey = process.env.REDMINE_API_KEY ?? "";
   if (!baseUrl || !apiKey) return [];
@@ -1885,20 +1939,23 @@ export async function fetchAllQaDefectsForIssue(issueId: string): Promise<Array<
       return (data?.issues ?? []) as any[];
     };
 
-    // Level 1: direct children (open + closed)
-    const [l1Open, l1Closed] = await Promise.all([fetchChildren(issueId, "open"), fetchChildren(issueId, "closed")]);
-    const l1All = [...l1Open, ...l1Closed];
-    const seen = new Set<number>(l1All.map(i => i.id));
-
-    // Level 2: children of non-QA-Defect direct children (the containers)
-    const containers = l1All.filter(i => !isDefectTracker(i.tracker?.name ?? ""));
-    const l2Results = await Promise.all(
-      containers.map(c => Promise.all([fetchChildren(c.id, "open"), fetchChildren(c.id, "closed")]).then(([o, cl]) => [...o, ...cl]))
-    );
-    const l2All = l2Results.flat().filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
-
-    const allIssues = [...l1All, ...l2All];
-    console.log(`[fetchAllQaDefectsForIssue] API l1=${l1All.length} l2=${l2All.length} total=${allIssues.length}`);
+    // Walk the full subtree (open + closed), level by level.
+    const allIssues: any[] = [];
+    const seen = new Set<number>([Number(issueId)]);
+    let frontier: Array<string | number> = [issueId];
+    for (let depth = 0; depth < MAX_TREE_DEPTH && frontier.length > 0; depth++) {
+      const level = (await Promise.all(
+        frontier.map(p => Promise.all([fetchChildren(p, "open"), fetchChildren(p, "closed")]).then(([o, cl]) => [...o, ...cl])),
+      )).flat();
+      frontier = [];
+      for (const i of level) {
+        if (seen.has(i.id)) continue;
+        seen.add(i.id);
+        allIssues.push(i);
+        frontier.push(i.id);
+      }
+    }
+    console.log(`[fetchAllQaDefectsForIssue] API subtree total=${allIssues.length}`);
 
     return allIssues
       .filter((i: any) => isDefectTracker(i.tracker?.name ?? ""))
