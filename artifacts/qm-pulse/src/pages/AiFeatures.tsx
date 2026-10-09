@@ -1162,11 +1162,11 @@ export default function AiFeatures() {
                         {testDataResult.notes.join(" | ")}
                       </p>
                     )}
-                    <ScrollArea className="h-52 rounded-lg border bg-muted/30">
-                      <pre className="text-xs p-3 whitespace-pre-wrap">
+                    <div className="h-52 overflow-auto rounded-lg border bg-muted/30">
+                      <pre className="text-xs p-3 whitespace-pre-wrap break-all">
                         {JSON.stringify(testDataResult.data, null, 2)}
                       </pre>
-                    </ScrollArea>
+                    </div>
                   </div>
                 )}
               </div>
